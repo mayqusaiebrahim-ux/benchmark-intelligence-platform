@@ -1,0 +1,66 @@
+{
+  "_meta": {
+    "description": "Cross-benchmark comparison matrix. One entry per benchmarked product. Used for delta analysis, radar charts, and trend tracking.",
+    "version": "2.0",
+    "last_updated": "2026-06-30",
+    "total_benchmarks": 1,
+    "scoring_dimensions": ["clarity", "ai_sophistication", "personalization", "delight", "innovation"]
+  },
+  "table_stakes_watch": {
+    "_note": "Interactions approaching or at Table Stakes threshold. Updated after each benchmark.",
+    "items": [
+      {
+        "interaction": "Mobile-first booking interface",
+        "status": "Table Stakes",
+        "seen_in": ["Mindtrip"],
+        "saudia_status": "Done",
+        "saudia_priority": "Baseline"
+      },
+      {
+        "interaction": "Geo-aware content personalization",
+        "status": "Emerging → Mainstream (24m)",
+        "seen_in": ["Mindtrip"],
+        "saudia_status": "Not present",
+        "saudia_priority": "P0 — Now"
+      },
+      {
+        "interaction": "AI chat interface for travel planning",
+        "status": "Emerging Trend",
+        "seen_in": ["Mindtrip"],
+        "saudia_status": "Not present",
+        "saudia_priority": "Medium-term"
+      }
+    ]
+  },
+  "trend_signals": {
+    "_note": "Patterns seen in 3+ benchmarks — confirmed emerging trends. Currently tracking from Benchmark #1.",
+    "items": []
+  },
+  "benchmarks": [
+    {
+      "benchmark_id": "MT-001",
+      "company": "Mindtrip",
+      "category": "AI-first",
+      "date": "2026-06-30",
+      "url": "https://mindtrip.ai",
+      "scores": {
+        "overall": 3.8,
+        "applicable_steps": 4.4,
+        "clarity": 4.3,
+        "ai_sophistication": 4.0,
+        "personalization": 4.1,
+        "delight": 3.6,
+        "innovation": 4.1
+      },
+      "ai_maturity": "Conversational",
+      "innovation_count": 7,
+      "journey_coverage": 12,
+      "applicable_steps": 7,
+      "standout_feature": "Zero-friction chat entry + geo-aware cold start + email receipt inbox",
+      "biggest_gap": "No native booking, no loyalty, no ancillaries, no check-in",
+      "saudia_relevance": "High",
+      "patterns_count": 10,
+      "notes": "Benchmark #1 — sets the AI innovation ceiling. Every subsequent benchmark is scored relative to this standard."
+    }
+  ]
+}

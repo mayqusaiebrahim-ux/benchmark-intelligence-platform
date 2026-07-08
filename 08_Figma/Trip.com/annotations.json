@@ -1,0 +1,86 @@
+{
+  "_meta": {
+    "company": "Trip.com",
+    "benchmark_id": "TC-002",
+    "date": "2026-06-30",
+    "purpose": "Figma-ready annotation package. Priority screenshots + design annotations for presentation."
+  },
+  "priority_screenshots": [
+    {
+      "rank": 1,
+      "file": "03_Screenshots/Trip.com/04_ai_interaction/04_tripcom_tripgenie_fullpage.png",
+      "label": "TripGenie — AI Q&A Travel Assistant",
+      "annotation": "Trip.com's AI sidekick model. Tagline: 'Beyond conversations: AI weaves your dream trips.' Covers Inspiration, Flights, Attractions, Practical tips. Q&A format, not planning conversation. 1M+ attractions. This is the FAQ-AI pattern that every OTA will adopt by 2027.",
+      "industry_position": "Gaining Traction",
+      "saudia_relevance": "High — Saudia should build this first, scoped to Saudia-exclusive knowledge (Hajj, Alfursan, Saudi visa, Islamic services)",
+      "figma_tag": "Pattern: FAQ-AI Travel Assistant"
+    },
+    {
+      "rank": 2,
+      "file": "03_Screenshots/Trip.com/04_ai_interaction/04_tripcom_trip_planner_entry.png",
+      "label": "Trip.Planner — Structured AI Planning Form",
+      "annotation": "A third AI planning model (Mindtrip=chat, Trip.com=form+map). UI: Starting from Any → Heading to → Date/Duration → Preferences → Create. Map-integrated output. Lower cognitive load than freeform chat. Labeled 'New' in navigation — brand-new product.",
+      "industry_position": "Unique Differentiator",
+      "saudia_relevance": "High — Saudia version would pre-fill 'Starting From' with Saudia flight origin, reducing form to Destination + Duration + Preferences",
+      "figma_tag": "Pattern: Structured AI Planning Form"
+    },
+    {
+      "rank": 3,
+      "file": "03_Screenshots/Trip.com/01_entry/01_tripcom_entry_arabic_locale.png",
+      "label": "Arabic Auto-Localization — Full RTL Interface",
+      "annotation": "When accessed from Arabic locale (ar-SA), Trip.com presents full Arabic UI: RTL layout, Arabic placeholders ('إلى أين؟' = 'Where to?'), Arabic navigation. Deeper than Mindtrip's Arabic content in discovery feed — this is a full product switch. Now seen in 2 benchmarks: pattern is Gaining Traction.",
+      "industry_position": "Gaining Traction → Emerging Trend",
+      "saudia_relevance": "Critical — Saudia has Arabic UI but no Arabic AI. The next frontier is Arabic-language AI, not just Arabic UI.",
+      "figma_tag": "Pattern: Arabic-First Auto-Localization"
+    },
+    {
+      "rank": 4,
+      "file": "03_Screenshots/Trip.com/07_booking/07_tripcom_flight_results.png",
+      "label": "Native Booking — Full Multi-Modal Coverage",
+      "annotation": "Trip.com offers native booking across: Flights + Hotels + Trains + Car services + Attractions. The 'Trains' product is unique in this benchmark cycle. Full booking without leaving platform — this solves Mindtrip's biggest gap. Saudia has this advantage too. Never create a referral break.",
+      "industry_position": "Table Stakes (OTA model) / Unique Differentiator (Trains)",
+      "saudia_relevance": "Validate — Saudia's native booking is its core advantage. Protect it. Long-term: explore Haramain HSR + Saudia air integration.",
+      "figma_tag": "Insight: Native Booking Advantage"
+    },
+    {
+      "rank": 5,
+      "file": "03_Screenshots/Trip.com/12_loyalty/12_tripcom_member_center.png",
+      "label": "Trip.com Loyalty — Trip Coins + Tiered Membership",
+      "annotation": "Trip Coins earned on all bookings, redeemable across all products. Tiered membership with incremental benefits. Loyalty integrated into booking flow. However: Trip Coins are generic spend-to-earn. Saudia's Alfursan has richer data (route patterns, seat preferences, travel companions) — a deeper personalization engine if AI-activated.",
+      "industry_position": "Table Stakes (OTA loyalty) / Opportunity (AI-activation)",
+      "saudia_relevance": "High — Saudia should AI-activate Alfursan data rather than building a more complex loyalty structure",
+      "figma_tag": "Insight: Loyalty vs. Alfursan AI"
+    }
+  ],
+  "innovation_callouts": [
+    {
+      "title": "The Two AI Philosophies",
+      "body": "After 2 benchmarks: Mindtrip = AI is the product (no booking). Trip.com = AI is a sidekick (full OTA + AI layer). Saudia belongs in the Trip.com camp — it has inventory, loyalty, and direct booking. The AI layer is what it needs to add.",
+      "implication_for_saudia": "Build AI-as-Sidekick on existing Saudia platform. Do not try to become Mindtrip."
+    },
+    {
+      "title": "TripGenie vs. Mindtrip AI: Two Different Use Cases",
+      "body": "Mindtrip AI: 'Plan me 7 days in Japan.' → Full itinerary generated. TripGenie: 'What do I do if my flight is cancelled?' → Practical answer. These are not competing — they are different phases of the travel journey. Saudia needs both: a planning AI AND a travel-support AI.",
+      "implication_for_saudia": "Build travel-support Q&A first (faster, lower risk). Add planning AI second."
+    },
+    {
+      "title": "Arabic AI is the Gap Nobody Has Filled",
+      "body": "Trip.com has Arabic UI. Mindtrip has Arabic content. Neither has Arabic-language AI. An AI assistant that responds in Gulf Arabic, understands Hajj context, and knows Saudi geography is unclaimed territory.",
+      "implication_for_saudia": "Saudia should own Arabic AI. It is Saudia's most defensible AI territory."
+    }
+  ],
+  "journey_map_annotations": [
+    { "step": "01 Entry",          "score": 3.2, "note": "Arabic auto-localization is strong; no AI cold start" },
+    { "step": "02 Discovery",      "score": 3.6, "note": "Travel Guide depth + Trip.Planner entry" },
+    { "step": "03 Search",         "score": 3.0, "note": "Standard form; Cheap Flight Finder extension unique" },
+    { "step": "04 AI Interaction", "score": 3.4, "note": "TripGenie Q&A + Trip.Planner — two distinct AI models" },
+    { "step": "05 Recommendations","score": 3.2, "note": "Implicit AI ranking; no explanation" },
+    { "step": "06 Maps",           "score": 3.6, "note": "Trip.Planner map output; rich destination guides" },
+    { "step": "07 Booking",        "score": 4.2, "note": "Best booking coverage in cycle: flights+hotels+trains+cars+activities" },
+    { "step": "08 Ancillaries",    "score": 3.6, "note": "Group Tours + Private Tours are unique products" },
+    { "step": "09 Payment",        "score": 3.0, "note": "Standard OTA; no notable BNPL" },
+    { "step": "10 Trip Mgmt",      "score": 3.4, "note": "My Trips functional; no AI layer" },
+    { "step": "11 Check-in",       "score": 2.0, "note": "OTA — redirects to airline" },
+    { "step": "12 Loyalty",        "score": 3.8, "note": "Trip Coins well-integrated; not AI-activated" }
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  "benchmark_id": "",
+  "company": "",
+  "category": "",
+  "date_benchmarked": "",
+  "platform": "web",
+  "url": "",
+  "benchmarked_by": "AI Travel Benchmark Agent",
+
+  "classification": {
+    "type": "",
+    "ai_maturity": "",
+    "ai_architecture": ""
+  },
+
+  "journey_coverage": {
+    "total_steps": 12,
+    "steps_captured": 0,
+    "steps": {
+      "01_entry": false,
+      "02_discovery": false,
+      "03_search": false,
+      "04_ai_interaction": false,
+      "05_recommendations": false,
+      "06_maps": false,
+      "07_booking": false,
+      "08_ancillaries": false,
+      "09_payment": false,
+      "10_trip_management": false,
+      "11_checkin": false,
+      "12_loyalty": false
+    }
+  },
+
+  "capture": {
+    "screenshots_count": 0,
+    "videos_count": 0,
+    "states_captured": {
+      "default": false,
+      "ai_thinking": false,
+      "ai_response": false,
+      "empty_state": false,
+      "error_state": false,
+      "completed_state": false,
+      "micro_interaction": false,
+      "voice_input": false,
+      "ai_memory": false,
+      "embedded_ai": false,
+      "context_switch": false
+    }
+  },
+
+  "scores": {
+    "overall": 0.0,
+    "by_dimension": {
+      "clarity": 0.0,
+      "ai_sophistication": 0.0,
+      "personalization": 0.0,
+      "delight": 0.0,
+      "innovation": 0.0
+    },
+    "by_step": {
+      "01_entry":           { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "02_discovery":       { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "03_search":          { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "04_ai_interaction":  { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "05_recommendations": { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "06_maps":            { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "07_booking":         { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "08_ancillaries":     { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "09_payment":         { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "10_trip_management": { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "11_checkin":         { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 },
+      "12_loyalty":         { "clarity": 0, "ai_sophistication": 0, "personalization": 0, "delight": 0, "innovation": 0, "average": 0.0 }
+    },
+    "innovation_count": 0,
+    "ai_maturity_level": ""
+  },
+
+  "deliverables": {
+    "01_executive_summary": false,
+    "02_user_journey": false,
+    "03_screenshots": false,
+    "04_ux_analysis": false,
+    "05_innovation_score": false,
+    "06_emerging_patterns": false,
+    "07_ideas_worth_adopting": false,
+    "08_ideas_worth_evolving": false,
+    "09_ideas_to_avoid": false,
+    "10_saudia_opportunities": false,
+    "11_figma_annotations": false
+  },
+
+  "patterns_extracted": [],
+  "patterns_updated_in_library": [],
+
+  "saudia_opportunities": {
+    "quick_wins": [],
+    "medium_term": [],
+    "long_term": [],
+    "moonshots": [],
+    "one_big_bet": ""
+  },
+
+  "five_questions": {
+    "what_today": "",
+    "why_valuable": "",
+    "what_trend": "",
+    "how_evolves": "",
+    "saudia_opportunity": ""
+  },
+
+  "paths": {
+    "executive_summary": "",
+    "user_journey_dir": "",
+    "ux_analysis": "",
+    "emerging_patterns": "",
+    "innovation_opportunities": "",
+    "full_report": "",
+    "screenshots_dir": "",
+    "figma_annotations": ""
+  }
+}

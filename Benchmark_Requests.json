@@ -1,0 +1,91 @@
+{
+  "_meta": {
+    "schema_version": "1.0",
+    "description": "Wizard-created benchmark requests and their per-competitor queue progress. Master_Benchmark_Matrix.json remains the source of truth for completed benchmark data — this file only tracks in-flight work.",
+    "last_updated": "2026-07-07T08:14:56.815Z"
+  },
+  "requests": [
+    {
+      "id": "req_20260707_001",
+      "created_at": "2026-07-07T06:51:04.010Z",
+      "benchmark_type": "Feature Benchmark",
+      "feature": "Burger Menu",
+      "scope": [
+        "UX/UI only"
+      ],
+      "notes": "",
+      "status": "in_progress",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/burger_menu",
+      "items": [
+        {
+          "slug": "mindtrip",
+          "name": "Mindtrip",
+          "url": null,
+          "is_new_company": false,
+          "stage": "preparing",
+          "updated_at": "2026-07-07T08:11:23.785Z",
+          "trigger_prompt": "Benchmark Mindtrip — focus: Burger Menu, scope: UX/UI only"
+        },
+        {
+          "slug": "layla",
+          "name": "Layla",
+          "url": null,
+          "is_new_company": false,
+          "stage": "preparing",
+          "updated_at": "2026-07-07T06:51:04.078Z",
+          "trigger_prompt": "Benchmark Layla — focus: Burger Menu, scope: UX/UI only"
+        }
+      ],
+      "cancelled": false
+    },
+    {
+      "id": "req_20260707_002",
+      "created_at": "2026-07-07T07:04:02.428Z",
+      "benchmark_type": "UX/UI",
+      "feature": "Profile",
+      "scope": [
+        "Visual Design"
+      ],
+      "notes": "",
+      "status": "cancelled",
+      "feature_benchmark_path": null,
+      "items": [
+        {
+          "slug": "almosafer",
+          "name": "almosafer",
+          "url": "https://sa.almosafer.com/en?destination=&destinationiata=&origin=&originiata=&ncr=1&sem=1&title=Book+with+Almosafer+&+Save&subtitle=Book+with+Almosafer+to+Get+the+Best+Discounts+and+Deals+Online&adgroupName=Almosafer&utm_source=google&utm_medium=cpc&utm_term=AM-SEM-KSA-Brand-English&utm_content=151570531321&utm_campaign=19957795914&gad_source=1&gad_campaignid=19957795914&gbraid=0AAAAADN9nx9vmW1HhA9gfvRHH-udPXSxx&gclid=CjwKCAjwx7LSBhB3EiwAjcodxKHm8PEzJEib-Jbj_3vdMcIy2ZDNM25Ts9NWNl3foxGPyr7oj0ItHBoCa3kQAvD_BwE",
+          "is_new_company": true,
+          "stage": "preparing",
+          "updated_at": "2026-07-07T08:14:39.246Z",
+          "trigger_prompt": "Benchmark almosafer — focus: Profile, scope: Visual Design"
+        }
+      ],
+      "cancelled": true
+    },
+    {
+      "id": "req_20260707_003",
+      "created_at": "2026-07-07T07:43:13.406Z",
+      "created_by": null,
+      "benchmark_type": "UX/UI",
+      "feature": "Payment",
+      "scope": [
+        "AI only"
+      ],
+      "notes": "",
+      "cancelled": true,
+      "status": "cancelled",
+      "feature_benchmark_path": null,
+      "items": [
+        {
+          "slug": "almosafer",
+          "name": "almosafer",
+          "url": "https://sa.almosafer.com/en?destination=&destinationiata=&origin=&originiata=&ncr=1&sem=1&title=Book+with+Almosafer+&+Save&subtitle=Book+with+Almosafer+to+Get+the+Best+Discounts+and+Deals+Online&adgroupName=Almosafer&utm_source=google&utm_medium=cpc&utm_term=AM-SEM-KSA-Brand-English&utm_content=151570531321&utm_campaign=19957795914&gad_source=1&gad_campaignid=19957795914&gbraid=0AAAAADN9nx9vmW1HhA9gfvRHH-udPXSxx&gclid=CjwKCAjwx7LSBhB3EiwAjcodxKHm8PEzJEib-Jbj_3vdMcIy2ZDNM25Ts9NWNl3foxGPyr7oj0ItHBoCa3kQAvD_BwE",
+          "is_new_company": false,
+          "stage": "preparing",
+          "updated_at": "2026-07-07T07:43:18.340Z",
+          "trigger_prompt": "Benchmark almosafer — focus: Payment, scope: AI only"
+        }
+      ]
+    }
+  ]
+}

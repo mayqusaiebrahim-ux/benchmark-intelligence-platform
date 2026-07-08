@@ -1,0 +1,142 @@
+{
+  "company": "Booking.com",
+  "benchmark_number": 4,
+  "date": "2026-07-02",
+  "figma_annotations": [
+    {
+      "id": "bookingcom_01",
+      "step": "01_entry",
+      "type": "innovation_callout",
+      "title": "Geo-Aware Cold Start",
+      "screenshot": "01_entry/01_bookingcom_homepage_first_load.png",
+      "annotation": "Homepage loaded with SAR currency, Arabic-script destinations, and Saudi city chips (Jeddah, Mecca, Madinah) without any user input or login. The product already knows where you are and acts on it.",
+      "industry_position": "Mainstream",
+      "saudia_relevance": "High",
+      "saudia_action": "Implement immediately. Saudia's app must detect Saudi/GCC users and load their cultural context by default."
+    },
+    {
+      "id": "bookingcom_02",
+      "step": "01_entry",
+      "type": "innovation_callout",
+      "title": "Vibe-Based Trip Planner",
+      "screenshot": "01_entry/02_bookingcom_trip_planner_vibe_selector.png",
+      "annotation": "9 experience categories replace 'where do you want to go?' with 'what kind of experience do you want?' — a fundamentally different framing of travel inspiration.",
+      "industry_position": "Emerging Trend",
+      "saudia_relevance": "Medium",
+      "saudia_action": "Consider for Saudia's destination discovery experience. Framing Saudi destinations by experience type (Heritage, Adventure, Family, Spiritual) aligns with Vision 2030 tourism positioning."
+    },
+    {
+      "id": "bookingcom_03",
+      "step": "03_search",
+      "type": "pattern_card",
+      "title": "NLP Filter to Facet Translation",
+      "screenshot": "03_search/06_bookingcom_smart_filters_query_typed.png",
+      "annotation": "Natural language query 'pool view and free breakfast with good reviews' → parsed to review_score=70 + mealplan=1. Silent intent dropping is the key limitation: 'pool view' was not mapped.",
+      "industry_position": "Emerging Trend",
+      "saudia_relevance": "High",
+      "saudia_action": "Build NLP flight search with transparency layer. Show user what was understood. Priority: P0."
+    },
+    {
+      "id": "bookingcom_04",
+      "step": "04_ai_interaction",
+      "type": "pattern_card",
+      "title": "Contextual Property Q&A Chips",
+      "screenshot": "04_ai_interaction/03_bookingcom_ai_contextual_qa_chips.png",
+      "annotation": "10 property-specific AI pre-generated questions on every property page. Not generic FAQ — specific to Cloud 7 Residence AlUla ('Is the swimming pool open?', 'Can I park there?'). Eliminates the need to contact the property.",
+      "industry_position": "Unique Differentiator",
+      "saudia_relevance": "Very High",
+      "saudia_action": "Build flight-specific Q&A chips for every flight detail page. Priority: P0."
+    },
+    {
+      "id": "bookingcom_05",
+      "step": "04_ai_interaction",
+      "type": "strategic_observation",
+      "title": "Penny Login Gate — Strategic AI Access Decision",
+      "screenshot": "04_ai_interaction/01_bookingcom_help_center_penny_gate.png",
+      "annotation": "Penny (Booking.com's AI assistant) is fully gated behind account + booking reference. This is a deliberate strategic choice: AI serves existing customers, not acquisition. The wrong model for Saudia.",
+      "industry_position": "Table Stakes (post-booking AI)",
+      "saudia_relevance": "High (negative lesson)",
+      "saudia_action": "Saudia's AI must be accessible pre-login. The AI is a sales tool. Gate it and you lose conversion at the highest-value moment."
+    },
+    {
+      "id": "bookingcom_06",
+      "step": "05_recommendations",
+      "type": "innovation_callout",
+      "title": "AI Booking Intelligence Label",
+      "screenshot": "05_recommendations/01_bookingcom_ai_perfect_for_stay.png",
+      "annotation": "'Perfect for a 4-night stay!' — AI matches the user's specific stay dates against property data and surfaces a confidence signal at the decision point. Zero effort required from the user.",
+      "industry_position": "Emerging",
+      "saudia_relevance": "Very High",
+      "saudia_action": "Translate to Saudia: 'Perfect for your long weekend', 'Great connection cushion', 'Top-rated on this route'. Quick Win."
+    },
+    {
+      "id": "bookingcom_07",
+      "step": "05_recommendations",
+      "type": "innovation_callout",
+      "title": "Cultural AI Personalization — Halal Breakfast",
+      "screenshot": "05_recommendations/03_bookingcom_ai_property_synopsis.png",
+      "annotation": "AI-generated property synopsis explicitly mentions Halal breakfast for Saudi user — not from a filter applied, but from AI adapting the content to detected geography.",
+      "industry_position": "Emerging Trend",
+      "saudia_relevance": "Highest Priority",
+      "saudia_action": "Saudia owns this space. Build a Cultural Intelligence Suite: Hajj/Umrah mode, Ramadan mode, prayer time integration, Halal default. No OTA can compete here."
+    },
+    {
+      "id": "bookingcom_08",
+      "step": "05_recommendations",
+      "type": "pattern_card",
+      "title": "AI Review Topic Clustering",
+      "screenshot": "05_recommendations/07_bookingcom_ai_review_topic_chips.png",
+      "annotation": "5 AI-clustered topic chips (Breakfast / Room / Swimming pool / Location / Clean) from 1,139 reviews. Clicking 'Breakfast' filters to breakfast-specific review excerpts. Converts unnavigable corpus into AI-indexed retrieval.",
+      "industry_position": "Mainstream",
+      "saudia_relevance": "High",
+      "saudia_action": "Apply to Saudia flight reviews. Surface topic clusters (Crew / Meal / Seat / Timeliness / Entertainment) on route pages. Differentiates Saudia's search results at the decision moment."
+    },
+    {
+      "id": "bookingcom_09",
+      "step": "05_recommendations",
+      "type": "innovation_callout",
+      "title": "AI Neighborhood Summary",
+      "screenshot": "05_recommendations/09_bookingcom_ai_neighborhood_summary.png",
+      "annotation": "'Guests loved walking around the neighborhood!' — AI-synthesized sentiment headline from all guest reviews mentioning the area. Makes location quality instantly clear without reading reviews.",
+      "industry_position": "Mainstream",
+      "saudia_relevance": "Medium",
+      "saudia_action": "Apply AI-synthesized location/destination summaries to Saudia's destination pages."
+    }
+  ],
+  "journey_map": {
+    "steps_with_ai": ["01_entry", "02_discovery", "03_search", "04_ai_interaction", "05_recommendations"],
+    "steps_without_ai": ["06_maps", "07_booking", "08_ancillaries", "09_payment", "10_trip_management", "11_checkin", "12_loyalty"],
+    "overall_ai_coverage": "42%",
+    "note": "AI is front-loaded; post-booking AI (Penny) is login-gated and therefore not accessible on public surface"
+  },
+  "pattern_cards": [
+    {
+      "pattern": "NLP Filter to Facet Translation",
+      "maturity": "Emerging Trend",
+      "saudia_relevance": "High",
+      "quick_win": true,
+      "saudia_adaptation": "NLP Flight Search with transparency feedback loop"
+    },
+    {
+      "pattern": "Contextual Property Q&A",
+      "maturity": "Unique Differentiator",
+      "saudia_relevance": "Very High",
+      "quick_win": true,
+      "saudia_adaptation": "Contextual Flight Q&A Chips on flight detail pages"
+    },
+    {
+      "pattern": "AI Booking Intelligence Label",
+      "maturity": "Emerging",
+      "saudia_relevance": "Very High",
+      "quick_win": true,
+      "saudia_adaptation": "AI Flight Intelligence Labels in search results"
+    },
+    {
+      "pattern": "Cultural AI Personalization",
+      "maturity": "Emerging Trend",
+      "saudia_relevance": "Highest Priority",
+      "quick_win": false,
+      "saudia_adaptation": "Saudia Cultural Intelligence Suite (Hajj/Umrah/Ramadan modes)"
+    }
+  ]
+}

@@ -1,0 +1,2569 @@
+{
+  "_meta": {
+    "schema_version": "1.0",
+    "description": "Single source of truth for the AI Travel Benchmark Matrix. The Markdown file is generated from this JSON. Never edit the Markdown directly.",
+    "last_updated": "2026-07-02",
+    "total_benchmarks_complete": 4,
+    "total_benchmarks_planned": 17,
+    "generate_md_command": "node scripts/generate_matrix.js",
+    "primary_artifact": "Master_Benchmark_Matrix.md",
+    "sync_rule": "Update this JSON first. Run generate_matrix.js. The Markdown is output only — not a source of truth."
+  },
+  "benchmark_plan": [
+    {
+      "rank": 1,
+      "slug": "mindtrip",
+      "name": "Mindtrip",
+      "category": "AI-first",
+      "status": "complete",
+      "date": "2026-06-30",
+      "overall_score": 3.8
+    },
+    {
+      "rank": 2,
+      "slug": "google_travel",
+      "name": "Google Travel",
+      "category": "Big Tech",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 3,
+      "slug": "trip_com",
+      "name": "Trip.com",
+      "category": "OTA",
+      "status": "complete",
+      "date": "2026-06-30",
+      "overall_score": 3.3
+    },
+    {
+      "rank": 4,
+      "slug": "layla",
+      "name": "Layla",
+      "category": "AI-first",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 5,
+      "slug": "roam_around",
+      "name": "Roam Around",
+      "category": "AI-first",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 6,
+      "slug": "airbnb",
+      "name": "Airbnb",
+      "category": "OTA",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 7,
+      "slug": "booking_com",
+      "name": "Booking.com",
+      "category": "OTA",
+      "status": "complete",
+      "date": "2026-07-02",
+      "overall_score": 3.4
+    },
+    {
+      "rank": 8,
+      "slug": "expedia",
+      "name": "Expedia",
+      "category": "OTA",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 9,
+      "slug": "kayak",
+      "name": "Kayak",
+      "category": "OTA",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 10,
+      "slug": "emirates",
+      "name": "Emirates",
+      "category": "Airline",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 11,
+      "slug": "singapore_airlines",
+      "name": "Singapore Airlines",
+      "category": "Airline",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 12,
+      "slug": "turkish_airlines",
+      "name": "Turkish Airlines",
+      "category": "Airline",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 13,
+      "slug": "qatar_airways",
+      "name": "Qatar Airways",
+      "category": "Airline",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 14,
+      "slug": "grab",
+      "name": "Grab",
+      "category": "Super App",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 15,
+      "slug": "naver",
+      "name": "Naver",
+      "category": "Super App",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    },
+    {
+      "rank": 16,
+      "slug": "ixigo",
+      "name": "ixigo",
+      "category": "OTA",
+      "status": "complete",
+      "date": "2026-07-01",
+      "overall_score": 3.1
+    },
+    {
+      "rank": 17,
+      "slug": "almosafer",
+      "name": "almosafer",
+      "category": "AI-first",
+      "status": "pending",
+      "date": null,
+      "overall_score": null
+    }
+  ],
+  "schema": {
+    "overview_dimensions": [
+      {
+        "id": "category",
+        "label": "Category",
+        "type": "text"
+      },
+      {
+        "id": "ai_maturity",
+        "label": "AI Maturity",
+        "type": "level",
+        "levels": [
+          "Absent",
+          "Basic",
+          "Assistive",
+          "Conversational",
+          "Autonomous"
+        ]
+      },
+      {
+        "id": "business_model",
+        "label": "Business Model",
+        "type": "text"
+      },
+      {
+        "id": "has_loyalty",
+        "label": "Has Loyalty Program",
+        "type": "boolean"
+      },
+      {
+        "id": "native_booking",
+        "label": "Native Booking",
+        "type": "boolean"
+      },
+      {
+        "id": "b2b_platform",
+        "label": "B2B / API Platform",
+        "type": "boolean"
+      },
+      {
+        "id": "funding_scale",
+        "label": "Funding / Scale",
+        "type": "text"
+      }
+    ],
+    "ai_capabilities": [
+      {
+        "id": "conversational_search",
+        "label": "Conversational Search"
+      },
+      {
+        "id": "ai_itinerary_generation",
+        "label": "AI Itinerary Generation"
+      },
+      {
+        "id": "proactive_ai",
+        "label": "Proactive AI (pre-input)"
+      },
+      {
+        "id": "ai_memory",
+        "label": "AI Memory / Continuity"
+      },
+      {
+        "id": "personalization_depth",
+        "label": "Personalization Depth"
+      },
+      {
+        "id": "voice_input",
+        "label": "Voice Input"
+      },
+      {
+        "id": "visual_ai_camera",
+        "label": "Visual AI / Camera"
+      },
+      {
+        "id": "embedded_ai",
+        "label": "Embedded AI"
+      },
+      {
+        "id": "ai_sidebar_chatbot",
+        "label": "AI Sidebar / Chatbot"
+      },
+      {
+        "id": "ai_explained_decisions",
+        "label": "AI-Explained Decisions"
+      },
+      {
+        "id": "ai_disclaimer",
+        "label": "AI Disclaimer"
+      },
+      {
+        "id": "realtime_data",
+        "label": "Real-Time Data"
+      },
+      {
+        "id": "multi_turn_conversation",
+        "label": "Multi-Turn Conversation"
+      },
+      {
+        "id": "arabic_language_ai",
+        "label": "Arabic Language AI"
+      }
+    ],
+    "ux_patterns": [
+      {
+        "id": "zero_friction_entry",
+        "label": "Zero-Friction Entry (no auth wall)"
+      },
+      {
+        "id": "geo_aware_cold_start",
+        "label": "Geo-Aware Cold Start"
+      },
+      {
+        "id": "quick_filter_strip",
+        "label": "Quick Filter Strip"
+      },
+      {
+        "id": "creator_editorial_layer",
+        "label": "Creator / Editorial Content Layer"
+      },
+      {
+        "id": "email_receipt_management",
+        "label": "Email Receipt / Doc Management"
+      },
+      {
+        "id": "collaborative_planning",
+        "label": "Collaborative Trip Planning"
+      },
+      {
+        "id": "ai_filtered_map",
+        "label": "AI-Filtered Map / Near Me"
+      },
+      {
+        "id": "bnpl_integration",
+        "label": "BNPL / Installment Travel"
+      },
+      {
+        "id": "loyalty_ai_integration",
+        "label": "Loyalty AI Integration"
+      },
+      {
+        "id": "b2b_white_label_ai",
+        "label": "B2B White-Label AI"
+      },
+      {
+        "id": "shariah_compliant_features",
+        "label": "Shariah-Compliant Features"
+      },
+      {
+        "id": "hajj_umrah_planning",
+        "label": "Hajj / Umrah Planning"
+      },
+      {
+        "id": "group_family_booking_ai",
+        "label": "Group / Family Booking AI"
+      },
+      {
+        "id": "ancillary_ai",
+        "label": "Ancillary AI (seats, bags, insurance)"
+      },
+      {
+        "id": "inflight_ai_ife",
+        "label": "In-flight AI / IFE Integration"
+      },
+      {
+        "id": "post_flight_ai",
+        "label": "Post-Flight AI (feedback, rebooking)"
+      },
+      {
+        "id": "checkin_ai",
+        "label": "Check-in AI"
+      },
+      {
+        "id": "realtime_disruption_ai",
+        "label": "Real-Time Disruption AI"
+      }
+    ],
+    "journey_steps": [
+      {
+        "id": "step_01_entry",
+        "label": "01 Entry",
+        "focus": "Landing page, value prop, first AI moment"
+      },
+      {
+        "id": "step_02_discovery",
+        "label": "02 Discovery",
+        "focus": "Inspiration, explore, trending, editorial"
+      },
+      {
+        "id": "step_03_search",
+        "label": "03 Search",
+        "focus": "NLP, conversational search, filters, results"
+      },
+      {
+        "id": "step_04_ai_interaction",
+        "label": "04 AI Interaction",
+        "focus": "Chatbot, AI planner, assistant, suggestions"
+      },
+      {
+        "id": "step_05_recommendations",
+        "label": "05 Recommendations",
+        "focus": "Personalization, context-awareness, explanations"
+      },
+      {
+        "id": "step_06_maps",
+        "label": "06 Maps",
+        "focus": "Map richness, AI-enhanced POIs, spatial context"
+      },
+      {
+        "id": "step_07_booking",
+        "label": "07 Booking",
+        "focus": "Flow length, cognitive load, smart defaults"
+      },
+      {
+        "id": "step_08_ancillaries",
+        "label": "08 Ancillaries",
+        "focus": "Upsell intelligence, timing, contextual relevance"
+      },
+      {
+        "id": "step_09_payment",
+        "label": "09 Payment",
+        "focus": "Methods, BNPL, friction, wallet integration"
+      },
+      {
+        "id": "step_10_trip_management",
+        "label": "10 Trip Management",
+        "focus": "Post-booking dashboard, AI assistant, itinerary"
+      },
+      {
+        "id": "step_11_checkin",
+        "label": "11 Check-in",
+        "focus": "Flow simplicity, biometrics, seat selection"
+      },
+      {
+        "id": "step_12_loyalty",
+        "label": "12 Loyalty",
+        "focus": "Integration into journey, redemption, AI-driven offers"
+      }
+    ],
+    "innovation_dimensions": [
+      {
+        "id": "clarity",
+        "label": "Clarity",
+        "description": "1=Confusing, 5=Instantly obvious"
+      },
+      {
+        "id": "ai_sophistication",
+        "label": "AI Sophistication",
+        "description": "1=No AI, 5=Proactive contextual AI"
+      },
+      {
+        "id": "personalization",
+        "label": "Personalization",
+        "description": "1=Fully generic, 5=Deeply personalized"
+      },
+      {
+        "id": "delight",
+        "label": "Delight",
+        "description": "1=Frustrating, 5=Surprising and joyful"
+      },
+      {
+        "id": "innovation",
+        "label": "Innovation",
+        "description": "1=Direct copycat, 5=Category-defining"
+      }
+    ]
+  },
+  "companies": {
+    "mindtrip": {
+      "meta": {
+        "name": "Mindtrip",
+        "slug": "mindtrip",
+        "category": "AI-first",
+        "url": "https://mindtrip.ai",
+        "benchmark_id": "MT-001",
+        "benchmark_date": "2026-06-30",
+        "status": "complete",
+        "report_path": "02_Benchmark_Repository/AI_First_Products/Mindtrip/00_report.md",
+        "screenshots_count": 39,
+        "patterns_extracted": 10
+      },
+      "overview": {
+        "category": "AI-first",
+        "ai_maturity": "Conversational",
+        "business_model": "Referral + B2B SaaS",
+        "has_loyalty": false,
+        "native_booking": false,
+        "b2b_platform": true,
+        "b2b_platform_name": "Boss the Bot®",
+        "funding_scale": "$7M seed"
+      },
+      "ai_capabilities": {
+        "conversational_search": {
+          "status": "present",
+          "score": 5,
+          "label": "✅ Full NLP",
+          "notes": "Chat interface replaces search form entirely"
+        },
+        "ai_itinerary_generation": {
+          "status": "present",
+          "score": 5,
+          "label": "✅ Multi-day",
+          "notes": "Full multi-day trip plans generated from single prompt"
+        },
+        "proactive_ai": {
+          "status": "present",
+          "score": 5,
+          "label": "✅ Geo cold-start",
+          "notes": "Detects city from IP, surfaces local content before user input"
+        },
+        "ai_memory": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ Session only",
+          "notes": "Context maintained within session, not across sessions"
+        },
+        "personalization_depth": {
+          "status": "present",
+          "score": 4,
+          "label": "4.1 / 5",
+          "notes": "Preference-driven, geo-aware, but no cross-session memory yet"
+        },
+        "voice_input": {
+          "status": "partial",
+          "score": 2,
+          "label": "⚡ iOS only",
+          "notes": "Voice available on iOS app; not on web"
+        },
+        "visual_ai_camera": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ iOS Magic Camera",
+          "notes": "Point camera at place to get AI context; iOS only"
+        },
+        "embedded_ai": {
+          "status": "present",
+          "score": 5,
+          "label": "✅ Fully embedded",
+          "notes": "AI is not a sidebar — it IS the product"
+        },
+        "ai_sidebar_chatbot": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "All AI is embedded; no chatbot overlay"
+        },
+        "ai_explained_decisions": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "AI does not explain why it recommends specific items"
+        },
+        "ai_disclaimer": {
+          "status": "present",
+          "score": 4,
+          "label": "✅ Inline",
+          "notes": "Clear disclaimer in response flow: 'AI may make mistakes'"
+        },
+        "realtime_data": {
+          "status": "present",
+          "score": 3,
+          "label": "✅ Events",
+          "notes": "Surfaces real events and local context; flight prices via referral"
+        },
+        "multi_turn_conversation": {
+          "status": "present",
+          "score": 5,
+          "label": "✅ Core feature",
+          "notes": "The entire product is a multi-turn conversation"
+        },
+        "arabic_language_ai": {
+          "status": "partial",
+          "score": 2,
+          "label": "⚡ Content only",
+          "notes": "Arabic content in discovery feed; AI interface not Arabic-native"
+        }
+      },
+      "ux_patterns": {
+        "zero_friction_entry": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "No login required; unique session URL generated instantly"
+        },
+        "geo_aware_cold_start": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "Detected Jeddah; surfaced Ramadan/Umrah content automatically"
+        },
+        "quick_filter_strip": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "Where / When / Who / Budget chips above chat input"
+        },
+        "creator_editorial_layer": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "77+ community itineraries in Discovery; creator-AI blend"
+        },
+        "email_receipt_management": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "receipts@mindtrip.ai — forward any booking confirmation to organize trip"
+        },
+        "collaborative_planning": {
+          "present": true,
+          "quality": "partial",
+          "label": "✅",
+          "notes": "iOS only; share itinerary + collaborative editing"
+        },
+        "ai_filtered_map": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "iOS: Near Me AI-filtered POIs. Web: map present but less prominent"
+        },
+        "bnpl_integration": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "PayPal BNPL partnership (Fly Now Pay Later); not native"
+        },
+        "loyalty_ai_integration": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No loyalty program"
+        },
+        "b2b_white_label_ai": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "Boss the Bot® — licensed AI travel planning for destinations and hotels"
+        },
+        "shariah_compliant_features": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present; community content only"
+        },
+        "hajj_umrah_planning": {
+          "present": true,
+          "quality": "minimal",
+          "label": "⚡",
+          "notes": "UGC content only (Umrah Taxi 24/7 Service); no dedicated AI module"
+        },
+        "group_family_booking_ai": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Collaborative planning on iOS only; not explicit group booking"
+        },
+        "ancillary_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A by design — referral model only"
+        },
+        "inflight_ai_ife": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — not an airline"
+        },
+        "post_flight_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — planning product, not post-flight"
+        },
+        "checkin_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — not an airline"
+        },
+        "realtime_disruption_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — referral model; no booking ownership"
+        }
+      },
+      "journey_scores": {
+        "step_01_entry": {
+          "score": 4.8,
+          "applicable": true,
+          "key_finding": "Chat IS the homepage; geo-detected Jeddah on first load"
+        },
+        "step_02_discovery": {
+          "score": 4.4,
+          "applicable": true,
+          "key_finding": "Creator-led grid with Ramadan/Umrah community content"
+        },
+        "step_03_search": {
+          "score": 4.6,
+          "applicable": true,
+          "key_finding": "No search form — conversation replaces search entirely"
+        },
+        "step_04_ai_interaction": {
+          "score": 5,
+          "applicable": true,
+          "key_finding": "Most sophisticated AI travel interface benchmarked to date"
+        },
+        "step_05_recommendations": {
+          "score": 4.6,
+          "applicable": true,
+          "key_finding": "Preference-driven, not popularity-driven; Arabic content present"
+        },
+        "step_06_maps": {
+          "score": 3.6,
+          "applicable": true,
+          "key_finding": "AI-filtered POIs on iOS Near Me; web map less prominent"
+        },
+        "step_07_booking": {
+          "score": 2.4,
+          "applicable": true,
+          "key_finding": "Referral model — AI plans but sends user to third-party"
+        },
+        "step_08_ancillaries": {
+          "score": 1,
+          "applicable": false,
+          "key_finding": "N/A — not present by design"
+        },
+        "step_09_payment": {
+          "score": 2.6,
+          "applicable": true,
+          "key_finding": "PayPal BNPL (Fly Now Pay Later) — no native payment"
+        },
+        "step_10_trip_management": {
+          "score": 4.6,
+          "applicable": true,
+          "key_finding": "receipts@mindtrip.ai email inbox is the most elegant innovation"
+        },
+        "step_11_checkin": {
+          "score": 1,
+          "applicable": false,
+          "key_finding": "N/A — not an airline product"
+        },
+        "step_12_loyalty": {
+          "score": 1,
+          "applicable": false,
+          "key_finding": "N/A — no loyalty program"
+        },
+        "overall": 3.8,
+        "applicable_steps_score": 4.4,
+        "applicable_steps_count": 9
+      },
+      "innovation_scores": {
+        "clarity": 4.3,
+        "ai_sophistication": 4,
+        "personalization": 4.1,
+        "delight": 3.6,
+        "innovation": 4.1,
+        "overall": 3.8,
+        "innovation_count": 7
+      }
+    },
+    "trip_com": {
+      "meta": {
+        "name": "Trip.com",
+        "slug": "trip_com",
+        "category": "OTA",
+        "url": "https://www.trip.com",
+        "benchmark_id": "TC-002",
+        "benchmark_date": "2026-06-30",
+        "status": "complete",
+        "report_path": "02_Benchmark_Repository/OTAs/Trip.com/00_report.md",
+        "screenshots_count": 38,
+        "patterns_extracted": 6
+      },
+      "overview": {
+        "category": "OTA",
+        "ai_maturity": "Assistive",
+        "business_model": "Full OTA (commission)",
+        "has_loyalty": true,
+        "loyalty_name": "Trip Coins + Tiered Membership",
+        "native_booking": true,
+        "b2b_platform": false,
+        "funding_scale": "Public, $20B+ market cap (Nasdaq: TCOM)"
+      },
+      "ai_capabilities": {
+        "conversational_search": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Form-based search; no NLP"
+        },
+        "ai_itinerary_generation": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ Trip.Planner (New)",
+          "notes": "Structured form → AI map itinerary. Not freeform conversation."
+        },
+        "proactive_ai": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No geo-aware cold start; standard homepage on first load"
+        },
+        "ai_memory": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No cross-session AI memory"
+        },
+        "personalization_depth": {
+          "status": "partial",
+          "score": 3,
+          "label": "3.0 / 5",
+          "notes": "Hotel result ranking has AI signals; no explicit personalization visible"
+        },
+        "voice_input": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not present on web"
+        },
+        "visual_ai_camera": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "embedded_ai": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "TripGenie and Trip.Planner are separate pages — not woven into booking flow"
+        },
+        "ai_sidebar_chatbot": {
+          "status": "partial",
+          "score": 2,
+          "label": "⚡ TripGenie (separate page)",
+          "notes": "TripGenie is a standalone page, not an inline chatbot"
+        },
+        "ai_explained_decisions": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No AI explanation of recommendations"
+        },
+        "ai_disclaimer": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No AI disclaimer visible"
+        },
+        "realtime_data": {
+          "status": "present",
+          "score": 4,
+          "label": "✅ Flights + Hotels + Trains",
+          "notes": "Real-time pricing and availability across all products"
+        },
+        "multi_turn_conversation": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "TripGenie is Q&A, not multi-turn planning conversation"
+        },
+        "arabic_language_ai": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ Full UI, no AI yet",
+          "notes": "Full Arabic UI with RTL auto-detected from locale; AI not Arabic-native"
+        }
+      },
+      "ux_patterns": {
+        "zero_friction_entry": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Standard OTA — login for full features"
+        },
+        "geo_aware_cold_start": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No proactive geo content; but full Arabic UI auto-localization"
+        },
+        "quick_filter_strip": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Filter tabs on results pages; not AI-driven chips like Mindtrip"
+        },
+        "creator_editorial_layer": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Travel Guide with destination content; editorial rather than creator-AI blend"
+        },
+        "email_receipt_management": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "collaborative_planning": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "ai_filtered_map": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Trip.Planner generates map-integrated itinerary; destination guides have maps"
+        },
+        "bnpl_integration": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "loyalty_ai_integration": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Trip Coins + tiered membership well-integrated into booking flow; not AI-activated"
+        },
+        "b2b_white_label_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "shariah_compliant_features": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "hajj_umrah_planning": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "group_family_booking_ai": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Group Tours and Private Tours product lines present"
+        },
+        "ancillary_ai": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Attractions, tours well-integrated; AI curation not explicitly visible"
+        },
+        "inflight_ai_ife": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — OTA"
+        },
+        "post_flight_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "checkin_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "OTA — redirects to airline check-in"
+        },
+        "realtime_disruption_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "TripGenie answers disruption questions but no proactive AI action"
+        }
+      },
+      "journey_scores": {
+        "step_01_entry": {
+          "score": 3.2,
+          "applicable": true,
+          "key_finding": "Arabic auto-localization is meaningful; no AI cold start"
+        },
+        "step_02_discovery": {
+          "score": 3.6,
+          "applicable": true,
+          "key_finding": "Travel Guide content depth; Trip.Planner labeled New in nav"
+        },
+        "step_03_search": {
+          "score": 3,
+          "applicable": true,
+          "key_finding": "Standard form; Cheap Flight Finder browser extension unique"
+        },
+        "step_04_ai_interaction": {
+          "score": 3.4,
+          "applicable": true,
+          "key_finding": "TripGenie is Q&A (not planning); Trip.Planner is structured AI form + map"
+        },
+        "step_05_recommendations": {
+          "score": 3.2,
+          "applicable": true,
+          "key_finding": "Hotel results with implicit AI ranking; no AI explanation"
+        },
+        "step_06_maps": {
+          "score": 3.6,
+          "applicable": true,
+          "key_finding": "Trip.Planner generates map-integrated itinerary; rich destination guides"
+        },
+        "step_07_booking": {
+          "score": 4.2,
+          "applicable": true,
+          "key_finding": "Native booking: flights + hotels + trains + cars + activities. Best booking coverage in cycle."
+        },
+        "step_08_ancillaries": {
+          "score": 3.6,
+          "applicable": true,
+          "key_finding": "Attractions, Group Tours, Private Tours — strong ancillary breadth"
+        },
+        "step_09_payment": {
+          "score": 3,
+          "applicable": true,
+          "key_finding": "Standard OTA payment; no notable BNPL innovation observed"
+        },
+        "step_10_trip_management": {
+          "score": 3.4,
+          "applicable": true,
+          "key_finding": "My Trips functional; no AI intelligence on top of booking data"
+        },
+        "step_11_checkin": {
+          "score": 2,
+          "applicable": true,
+          "key_finding": "OTA — redirects to airline check-in; no innovation here"
+        },
+        "step_12_loyalty": {
+          "score": 3.8,
+          "applicable": true,
+          "key_finding": "Trip Coins + tiered membership well-integrated; not AI-activated"
+        },
+        "overall": 3.3,
+        "applicable_steps_score": 3.3,
+        "applicable_steps_count": 12
+      },
+      "innovation_scores": {
+        "clarity": 3.6,
+        "ai_sophistication": 2.8,
+        "personalization": 3,
+        "delight": 3.2,
+        "innovation": 3,
+        "overall": 3.1,
+        "innovation_count": 3
+      }
+    },
+    "ixigo": {
+      "meta": {
+        "name": "ixigo",
+        "slug": "ixigo",
+        "category": "OTA",
+        "url": "https://www.ixigo.com",
+        "benchmark_id": "IX-003",
+        "benchmark_date": "2026-07-01",
+        "status": "complete",
+        "report_path": "02_Benchmark_Repository/OTAs/ixigo/00_report.md",
+        "screenshots_count": 71,
+        "patterns_extracted": 6,
+        "note": "Web benchmark only. Mobile app has substantially richer AI features. Scores reflect web experience."
+      },
+      "overview": {
+        "category": "OTA",
+        "ai_maturity": "Assistive",
+        "ai_architecture": "AI-as-Predictor",
+        "business_model": "Full OTA (commission) + Fintech (co-branded card)",
+        "has_loyalty": true,
+        "loyalty_name": "ixigo Pro (subscription) + AU Bank Credit Card",
+        "native_booking": true,
+        "b2b_platform": false,
+        "funding_scale": "Public, Le Travenues Technology Ltd. (NSE/BSE listed)",
+        "key_acquisitions": [
+          "ConfirmTkt (train prediction AI)",
+          "AbhiBus (bus booking)"
+        ]
+      },
+      "ai_capabilities": {
+        "conversational_search": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Form-based search only; no NLP or conversational interface"
+        },
+        "ai_itinerary_generation": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No itinerary planning AI"
+        },
+        "proactive_ai": {
+          "status": "partial",
+          "score": 2,
+          "label": "⚡ PNR push alerts",
+          "notes": "PNR status updates pushed proactively; no geo-aware cold start"
+        },
+        "ai_memory": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No cross-session AI memory"
+        },
+        "personalization_depth": {
+          "status": "partial",
+          "score": 2,
+          "label": "2.0 / 5",
+          "notes": "Login prefill; popular routes by volume, not individual history"
+        },
+        "voice_input": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not observed on web"
+        },
+        "visual_ai_camera": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "embedded_ai": {
+          "status": "present",
+          "score": 4,
+          "label": "✅ Train intelligence suite",
+          "notes": "PNR prediction, running status, coach position embedded in train flow"
+        },
+        "ai_sidebar_chatbot": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No chat interface of any kind"
+        },
+        "ai_explained_decisions": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ PNR probability explainer",
+          "notes": "PNR prediction explains: 'analyses real-time waitlist data and historical trends'"
+        },
+        "ai_disclaimer": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No AI disclaimer on any page"
+        },
+        "realtime_data": {
+          "status": "present",
+          "score": 5,
+          "label": "✅ Live train GPS + PNR",
+          "notes": "Live running status, real-time PNR waitlist movement, seat availability"
+        },
+        "multi_turn_conversation": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No conversation interface"
+        },
+        "arabic_language_ai": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "India-focused product; no Arabic language support"
+        }
+      },
+      "ux_patterns": {
+        "zero_friction_entry": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Can browse and search without login; booking requires IRCTC login"
+        },
+        "geo_aware_cold_start": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No proactive geo content on first load"
+        },
+        "quick_filter_strip": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Standard dropdown forms; no filter chips"
+        },
+        "creator_editorial_layer": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Blog 404'd; no editorial discovery layer on web"
+        },
+        "email_receipt_management": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "collaborative_planning": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "ai_filtered_map": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No AI map interaction"
+        },
+        "bnpl_integration": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not confirmed; EMI likely available but not captured"
+        },
+        "loyalty_ai_integration": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "ixigo Pro subscription + AU Bank co-branded card; not AI-activated"
+        },
+        "b2b_white_label_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "shariah_compliant_features": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "India-focused; not relevant to market"
+        },
+        "hajj_umrah_planning": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "group_family_booking_ai": {
+          "present": true,
+          "quality": "minimal",
+          "label": "⚡",
+          "notes": "Group Booking in navigation; no AI optimization"
+        },
+        "ancillary_ai": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Order Food On Train — AI-enabled in-journey meal delivery. Unique in benchmark cycle."
+        },
+        "inflight_ai_ife": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — OTA, not airline"
+        },
+        "post_flight_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "checkin_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Web check-in 404'd; PNR system serves functional equivalent for trains"
+        },
+        "realtime_disruption_ai": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "Live train running status with AI delay correction. First strong implementation in benchmark cycle."
+        }
+      },
+      "journey_scores": {
+        "step_01_entry": {
+          "score": 3,
+          "applicable": true,
+          "key_finding": "Standard OTA; ixigo Pro subscription + Special Fares selector are mild innovations"
+        },
+        "step_02_discovery": {
+          "score": 2.8,
+          "applicable": true,
+          "key_finding": "Discovery absent on web; blog 404'd; utility-first product philosophy"
+        },
+        "step_03_search": {
+          "score": 3.6,
+          "applicable": true,
+          "key_finding": "Trains search: quota-aware, IRCTC-authorized, multi-class. Best domain-specific search in cycle."
+        },
+        "step_04_ai_interaction": {
+          "score": 4,
+          "applicable": true,
+          "key_finding": "PNR Confirmation Prediction: AI-as-Predictor philosophy. No chatbot. Pure prediction dashboard."
+        },
+        "step_05_recommendations": {
+          "score": 3,
+          "applicable": true,
+          "key_finding": "Thin on web; popular routes by volume; flight results 404'd"
+        },
+        "step_06_maps": {
+          "score": 2.8,
+          "applicable": true,
+          "key_finding": "No map interface; Coach Position Predictor is spatial but not a map"
+        },
+        "step_07_booking": {
+          "score": 3.6,
+          "applicable": true,
+          "key_finding": "IRCTC abstraction layer = best train booking UX. Multi-modal: flights+trains+buses+cabs."
+        },
+        "step_08_ancillaries": {
+          "score": 2.8,
+          "applicable": true,
+          "key_finding": "Order Food On Train is journey-layer AI — first in benchmark cycle. Most other ancillaries 404'd on web."
+        },
+        "step_09_payment": {
+          "score": 3,
+          "applicable": true,
+          "key_finding": "AU Bank co-branded card is OTA-fintech integration play. Standard payment otherwise."
+        },
+        "step_10_trip_management": {
+          "score": 3.5,
+          "applicable": true,
+          "key_finding": "PNR prediction + running status + coach position = complete pre-departure AI monitoring without a chatbot"
+        },
+        "step_11_checkin": {
+          "score": 2,
+          "applicable": true,
+          "key_finding": "Web check-in 404'd. Train PNR system is functional check-in analog. Below expectation for flight vertical."
+        },
+        "step_12_loyalty": {
+          "score": 2.5,
+          "applicable": true,
+          "key_finding": "Rewards 404'd on web. ixigo Pro subscription model is interesting loyalty architecture."
+        },
+        "overall": 3.1,
+        "applicable_steps_score": 3.1,
+        "applicable_steps_count": 12
+      },
+      "innovation_scores": {
+        "clarity": 3.5,
+        "ai_sophistication": 3,
+        "personalization": 2.5,
+        "delight": 3,
+        "innovation": 3.8,
+        "overall": 3.2,
+        "innovation_count": 2
+      }
+    },
+    "saudia": {
+      "meta": {
+        "name": "Saudia (Baseline)",
+        "slug": "saudia",
+        "category": "Airline",
+        "url": "https://saudia.com",
+        "benchmark_id": "SAUDIA-BASELINE",
+        "benchmark_date": "2026-06-30",
+        "status": "baseline_estimate",
+        "note": "Estimated baseline — not formally benchmarked. Verify before finalizing.",
+        "report_path": null
+      },
+      "overview": {
+        "category": "Airline",
+        "ai_maturity": "Basic",
+        "business_model": "Direct airline",
+        "has_loyalty": true,
+        "loyalty_name": "Alfursan",
+        "native_booking": true,
+        "b2b_platform": false,
+        "funding_scale": "National carrier"
+      },
+      "ai_capabilities": {
+        "conversational_search": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Form-based search only"
+        },
+        "ai_itinerary_generation": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "proactive_ai": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No proactive content before user input"
+        },
+        "ai_memory": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No AI memory; Alfursan history exists but not AI-activated"
+        },
+        "personalization_depth": {
+          "status": "partial",
+          "score": 2,
+          "label": "2.0 / 5",
+          "notes": "Alfursan tier reflected in booking; no AI personalization layer"
+        },
+        "voice_input": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "visual_ai_camera": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "embedded_ai": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No embedded AI in product"
+        },
+        "ai_sidebar_chatbot": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "No chatbot present"
+        },
+        "ai_explained_decisions": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "ai_disclaimer": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not applicable without AI"
+        },
+        "realtime_data": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ Flight status",
+          "notes": "Real-time flight data; no AI layer"
+        },
+        "multi_turn_conversation": {
+          "status": "absent",
+          "score": 1,
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "arabic_language_ai": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ Partial",
+          "notes": "Arabic UI present; AI not available in Arabic"
+        }
+      },
+      "ux_patterns": {
+        "zero_friction_entry": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Login required for personalized features"
+        },
+        "geo_aware_cold_start": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No geo-aware destination content on home screen"
+        },
+        "quick_filter_strip": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Classic form-based search; no filter chips"
+        },
+        "creator_editorial_layer": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No editorial or creator content discovery"
+        },
+        "email_receipt_management": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No email-based trip doc organization"
+        },
+        "collaborative_planning": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "ai_filtered_map": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No AI map integration"
+        },
+        "bnpl_integration": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present; opportunity with Saudi fintech"
+        },
+        "loyalty_ai_integration": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Alfursan data exists; not AI-activated for personalization"
+        },
+        "b2b_white_label_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not present"
+        },
+        "shariah_compliant_features": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Islamic finance options available; AI not integrated"
+        },
+        "hajj_umrah_planning": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Hajj packages available; no AI planning module"
+        },
+        "group_family_booking_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Group booking exists; no AI optimization"
+        },
+        "ancillary_ai": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Ancillaries offered; no AI upsell intelligence"
+        },
+        "inflight_ai_ife": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "IFE present; no AI personalization layer"
+        },
+        "post_flight_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "No post-flight AI engagement"
+        },
+        "checkin_ai": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Digital check-in available; no AI optimization"
+        },
+        "realtime_disruption_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Disruption notifications exist; no AI action layer"
+        }
+      },
+      "journey_scores": {
+        "step_01_entry": {
+          "score": 3,
+          "applicable": true,
+          "key_finding": "Standard airline homepage; no AI moment on entry"
+        },
+        "step_02_discovery": {
+          "score": 2,
+          "applicable": true,
+          "key_finding": "Static destination pages; no editorial or AI discovery"
+        },
+        "step_03_search": {
+          "score": 3.5,
+          "applicable": true,
+          "key_finding": "Functional form-based search; no NLP"
+        },
+        "step_04_ai_interaction": {
+          "score": 1,
+          "applicable": true,
+          "key_finding": "No AI interaction present"
+        },
+        "step_05_recommendations": {
+          "score": 2,
+          "applicable": true,
+          "key_finding": "Generic promotions; no AI-driven recommendations"
+        },
+        "step_06_maps": {
+          "score": 1.5,
+          "applicable": true,
+          "key_finding": "No meaningful map integration"
+        },
+        "step_07_booking": {
+          "score": 4,
+          "applicable": true,
+          "key_finding": "Strong native booking flow — Saudia's advantage"
+        },
+        "step_08_ancillaries": {
+          "score": 3,
+          "applicable": true,
+          "key_finding": "Ancillaries present but not intelligently surfaced"
+        },
+        "step_09_payment": {
+          "score": 3.5,
+          "applicable": true,
+          "key_finding": "Standard payment options; no BNPL"
+        },
+        "step_10_trip_management": {
+          "score": 2,
+          "applicable": true,
+          "key_finding": "Basic booking confirmation; no trip intelligence"
+        },
+        "step_11_checkin": {
+          "score": 3.5,
+          "applicable": true,
+          "key_finding": "Digital check-in functional; no AI"
+        },
+        "step_12_loyalty": {
+          "score": 3,
+          "applicable": true,
+          "key_finding": "Alfursan functional; not AI-activated"
+        },
+        "overall": 2.7,
+        "applicable_steps_score": 2.7,
+        "applicable_steps_count": 12,
+        "note": "Estimated baseline — to be validated in a formal Saudia benchmark"
+      },
+      "innovation_scores": {
+        "clarity": 3.5,
+        "ai_sophistication": 0.5,
+        "personalization": 2,
+        "delight": 2.5,
+        "innovation": 1.5,
+        "overall": 2,
+        "innovation_count": 0,
+        "note": "Estimated baseline"
+      }
+    },
+    "booking_com": {
+      "meta": {
+        "name": "Booking.com",
+        "slug": "booking_com",
+        "category": "OTA",
+        "url": "https://www.booking.com",
+        "benchmark_id": "BC-004",
+        "benchmark_date": "2026-07-02",
+        "status": "complete",
+        "report_path": "02_Benchmark_Repository/OTAs/Booking.com/00_report.md",
+        "screenshots_count": 26,
+        "patterns_extracted": 6,
+        "ai_philosophy": "AI-as-Embedded-Layer"
+      },
+      "overview": {
+        "category": "OTA",
+        "ai_maturity": "Assistive",
+        "business_model": "OTA — commission on accommodations + flights + activities",
+        "has_loyalty": true,
+        "loyalty_name": "Genius (3 tiers)",
+        "native_booking": true,
+        "b2b_platform": false,
+        "funding_scale": "Public (BKNG) — $150B+ market cap"
+      },
+      "ai_capabilities": {
+        "conversational_search": {
+          "status": "absent",
+          "score": null,
+          "label": "❌",
+          "notes": "Smart Filters textarea is NLP but not conversational; Penny is login-gated"
+        },
+        "nlp_filter_parsing": {
+          "status": "present",
+          "score": 4,
+          "label": "✅ Smart Filters",
+          "notes": "Natural language → structured facets (review_score, mealplan); no feedback on dropped intent"
+        },
+        "ai_itinerary_generation": {
+          "status": "absent",
+          "score": null,
+          "label": "❌",
+          "notes": "Vibe planner generates destination sets, not itineraries"
+        },
+        "proactive_ai": {
+          "status": "present",
+          "score": 4.5,
+          "label": "✅ Geo cold start",
+          "notes": "SAR, Arabic destinations, Saudi cities at first load without login"
+        },
+        "ai_memory": {
+          "status": "absent",
+          "score": null,
+          "label": "❌",
+          "notes": "No memory on public surface; likely present behind Genius login"
+        },
+        "personalization_depth": {
+          "status": "present",
+          "score": 3.5,
+          "label": "3.5 / 5",
+          "notes": "Geo-aware + cultural (Halal) on public surface; deeper behind login"
+        },
+        "voice_input": {
+          "status": "absent",
+          "score": null,
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "visual_ai_camera": {
+          "status": "absent",
+          "score": null,
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "embedded_ai": {
+          "status": "present",
+          "score": 4,
+          "label": "✅ 6 signals",
+          "notes": "6 distinct AI signals on property page; none are sidebars — all are woven into UI"
+        },
+        "ai_sidebar_chatbot": {
+          "status": "login-gated",
+          "score": null,
+          "label": "🔐 Penny",
+          "notes": "Penny exists but requires account + booking reference; not public-facing"
+        },
+        "ai_explained_decisions": {
+          "status": "absent",
+          "score": null,
+          "label": "❌",
+          "notes": "No transparency in NLP filter parsing; no AI reasoning shown"
+        },
+        "ai_disclaimer": {
+          "status": "absent",
+          "score": null,
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "realtime_data": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ Review data",
+          "notes": "AI review synthesis is live-data-driven; no real-time availability AI observed"
+        },
+        "multi_turn_conversation": {
+          "status": "login-gated",
+          "score": null,
+          "label": "🔐 Penny only",
+          "notes": "Penny is multi-turn; not accessible without account"
+        },
+        "arabic_language_ai": {
+          "status": "partial",
+          "score": 3,
+          "label": "⚡ Geo-adapted",
+          "notes": "Arabic destination labels and Saudi content; not full Arabic AI interface"
+        }
+      },
+      "ux_patterns": {
+        "zero_friction_entry": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "No login required for all AI surfaces except Penny"
+        },
+        "geo_aware_cold_start": {
+          "present": true,
+          "quality": "strong",
+          "label": "✅",
+          "notes": "SAR, Arabic destinations, Jeddah/Mecca/Madinah chips at first load"
+        },
+        "quick_filter_strip": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Smart Filters replaces this but is in sidebar, not prominent strip"
+        },
+        "creator_editorial_layer": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "email_receipt_management": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "collaborative_planning": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "ai_filtered_map": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Standard price-pin map; AI filters carry through but map is not AI-native"
+        },
+        "bnpl_integration": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "loyalty_ai_integration": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Genius tiers are standard discount; no AI integration observed"
+        },
+        "b2b_white_label_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "shariah_compliant_features": {
+          "present": true,
+          "quality": "partial",
+          "label": "⚡",
+          "notes": "Halal breakfast surfaced in AI property synopsis for Saudi users — geo-inferred"
+        },
+        "hajj_umrah_planning": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "group_family_booking_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Not observed"
+        },
+        "ancillary_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "Ancillaries present (breakfast add-on) but not AI-driven"
+        },
+        "inflight_ai_ife": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — not an airline"
+        },
+        "post_flight_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A"
+        },
+        "checkin_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — OTA does not own check-in"
+        },
+        "realtime_disruption_ai": {
+          "present": false,
+          "quality": "none",
+          "label": "❌",
+          "notes": "N/A — Penny handles post-booking service but is login-gated"
+        }
+      },
+      "journey_scores": {
+        "step_01_entry": {
+          "score": 3.9,
+          "applicable": true,
+          "key_finding": "Geo-aware cold start + vibe trip planner — richest AI entry in OTA category"
+        },
+        "step_02_discovery": {
+          "score": 3.2,
+          "applicable": true,
+          "key_finding": "Vibe planner with Saudi destination chips; rest is standard"
+        },
+        "step_03_search": {
+          "score": 3.6,
+          "applicable": true,
+          "key_finding": "Smart Filters NLP: 'good reviews + breakfast' → review_score=70 + mealplan=1"
+        },
+        "step_04_ai_interaction": {
+          "score": 3.6,
+          "applicable": true,
+          "key_finding": "Contextual Q&A chips on property page (public); Penny fully login-gated"
+        },
+        "step_05_recommendations": {
+          "score": 4.1,
+          "applicable": true,
+          "key_finding": "6 AI signals: Perfect for stay / Halal / Neighborhood / Review topics / Q&A / Synopsis"
+        },
+        "step_06_maps": {
+          "score": 2.1,
+          "applicable": true,
+          "key_finding": "Standard price-pin map; AI filters carry through but no spatial AI"
+        },
+        "step_07_booking": {
+          "score": 2.2,
+          "applicable": true,
+          "key_finding": "Standard booking flow; AI richness from Step 05 does not carry through"
+        },
+        "step_08_ancillaries": {
+          "score": 1.9,
+          "applicable": true,
+          "key_finding": "Standard; Attractions page SPA did not load for AI inspection"
+        },
+        "step_09_payment": {
+          "score": 2,
+          "applicable": true,
+          "key_finding": "Not entered; standard payment expected"
+        },
+        "step_10_trip_management": {
+          "score": 2.8,
+          "applicable": true,
+          "key_finding": "Penny (post-booking AI) exists but fully login-gated"
+        },
+        "step_11_checkin": {
+          "score": 1.5,
+          "applicable": false,
+          "key_finding": "N/A — OTA does not own check-in"
+        },
+        "step_12_loyalty": {
+          "score": 2.3,
+          "applicable": true,
+          "key_finding": "Genius standard discount tiers; no AI integration"
+        },
+        "overall": 3.4,
+        "applicable_steps_score": 3.4,
+        "applicable_steps_count": 11
+      },
+      "innovation_scores": {
+        "clarity": 3.8,
+        "ai_sophistication": 3.2,
+        "personalization": 3.5,
+        "delight": 3,
+        "innovation": 3.5,
+        "overall": 3.4,
+        "innovation_count": 4,
+        "note": "AI is front-loaded in the journey (Steps 1-5) and largely absent post-booking. AI is invisible and embedded — the defining feature of Booking.com's AI approach."
+      }
+    }
+  },
+  "pattern_tracker": {
+    "conversational_search": {
+      "label": "Conversational AI Search",
+      "companies": [
+        "mindtrip"
+      ],
+      "count": 1,
+      "status": "Unique Differentiator",
+      "expected_12_24m": "Emerging Trend — Google Gemini and Trip.com likely to add",
+      "table_stakes_at": 5
+    },
+    "geo_aware_cold_start": {
+      "label": "Geo-Aware Cold Start",
+      "companies": [
+        "mindtrip",
+        "trip_com",
+        "ixigo",
+        "booking_com"
+      ],
+      "count": 4,
+      "status": "Mainstream",
+      "expected_12_24m": "Table Stakes — any global travel product targeting multiple markets must do this",
+      "table_stakes_at": 5,
+      "note": "ESCALATED after Benchmark 4. 4 products confirmed. Booking.com confirms this is an OTA standard. MUST HAVE for Saudia: Now (0–6 months)."
+    },
+    "zero_friction_entry": {
+      "label": "Zero-Friction Entry (no auth wall)",
+      "companies": [
+        "mindtrip"
+      ],
+      "count": 1,
+      "status": "Emerging Trend",
+      "expected_12_24m": "Mainstream — AI-first products will standardize on this",
+      "table_stakes_at": 5
+    },
+    "quick_filter_strip": {
+      "label": "Quick Filter Strip",
+      "companies": [
+        "mindtrip",
+        "trip_com"
+      ],
+      "count": 2,
+      "status": "Gaining Traction → Emerging Trend",
+      "expected_12_24m": "Mainstream",
+      "table_stakes_at": 5
+    },
+    "creator_editorial_layer": {
+      "label": "Creator / Editorial Content Layer",
+      "companies": [
+        "mindtrip",
+        "trip_com"
+      ],
+      "count": 2,
+      "status": "Gaining Traction",
+      "expected_12_24m": "Emerging Trend",
+      "table_stakes_at": 5
+    },
+    "email_receipt_management": {
+      "label": "Email Receipt / Doc Management",
+      "companies": [
+        "mindtrip"
+      ],
+      "count": 1,
+      "status": "Unique Differentiator",
+      "expected_12_24m": "Gaining Traction",
+      "table_stakes_at": 5
+    },
+    "ai_filtered_map": {
+      "label": "AI-Filtered Map / Near Me",
+      "companies": [
+        "mindtrip",
+        "trip_com"
+      ],
+      "count": 2,
+      "status": "Gaining Traction → Emerging Trend",
+      "expected_12_24m": "Emerging Trend — Google Maps and Trip.Planner both show this",
+      "table_stakes_at": 5
+    },
+    "bnpl_integration": {
+      "label": "BNPL / Installment Travel",
+      "companies": [
+        "mindtrip"
+      ],
+      "count": 1,
+      "status": "Emerging Trend",
+      "expected_12_24m": "Mainstream in OTA/airline space",
+      "table_stakes_at": 5
+    },
+    "collaborative_planning": {
+      "label": "Collaborative Trip Planning",
+      "companies": [
+        "mindtrip"
+      ],
+      "count": 1,
+      "status": "Gaining Traction",
+      "expected_12_24m": "Mainstream",
+      "table_stakes_at": 5
+    },
+    "b2b_white_label_ai": {
+      "label": "B2B White-Label AI Platform",
+      "companies": [
+        "mindtrip"
+      ],
+      "count": 1,
+      "status": "Unique Differentiator",
+      "expected_12_24m": "Emerging Trend",
+      "table_stakes_at": 5
+    },
+    "visual_ai_camera": {
+      "label": "Visual AI / Magic Camera",
+      "companies": [
+        "mindtrip"
+      ],
+      "count": 1,
+      "status": "Emerging",
+      "expected_12_24m": "Experimental — Google Lens may push this to Mainstream",
+      "table_stakes_at": 5
+    },
+    "ai_disclaimer": {
+      "label": "AI Disclaimer",
+      "companies": [
+        "mindtrip"
+      ],
+      "count": 1,
+      "status": "Gaining Traction",
+      "expected_12_24m": "Table Stakes — regulatory and trust pressure will mandate this",
+      "table_stakes_at": 3
+    },
+    "ai_as_sidekick": {
+      "label": "AI-as-Sidekick (AI layered on OTA)",
+      "companies": [
+        "trip_com"
+      ],
+      "count": 1,
+      "status": "Emerging Trend",
+      "expected_12_24m": "Mainstream — every major OTA will have an AI assistant layer by 2027",
+      "table_stakes_at": 5,
+      "note": "NEW from Trip.com. Opposite of Mindtrip's AI-as-product. This is the incumbent model."
+    },
+    "structured_ai_planning_form": {
+      "label": "Structured AI Planning Form",
+      "companies": [
+        "trip_com"
+      ],
+      "count": 1,
+      "status": "Unique Differentiator",
+      "expected_12_24m": "Gaining Traction — alternative to freeform chat for structured users",
+      "table_stakes_at": 5,
+      "note": "NEW from Trip.com. Trip.Planner: From → To → Date/Duration → Preferences → Create. Map-integrated output."
+    },
+    "arabic_first_auto_localization": {
+      "label": "Arabic-First Auto-Localization (full RTL)",
+      "companies": [
+        "mindtrip",
+        "trip_com"
+      ],
+      "count": 2,
+      "status": "Gaining Traction → Emerging Trend",
+      "expected_12_24m": "Mainstream for products targeting Arabic markets; Table Stakes for Saudi-facing products",
+      "table_stakes_at": 3,
+      "note": "Mindtrip: Arabic content in discovery. Trip.com: full RTL UI auto-detected. Different depths."
+    },
+    "faq_ai_travel_assistant": {
+      "label": "FAQ-AI Travel Assistant (Q&A model)",
+      "companies": [
+        "trip_com"
+      ],
+      "count": 1,
+      "status": "Gaining Traction",
+      "expected_12_24m": "Mainstream — Booking.com Penny, Expedia Romie are same pattern",
+      "table_stakes_at": 4,
+      "note": "NEW from Trip.com. TripGenie: answers disruption, visa, tips questions. Different from Mindtrip's planning AI."
+    },
+    "multi_modal_transport_ota": {
+      "label": "Multi-Modal Transport (Flights + Trains + Buses + Cabs)",
+      "companies": [
+        "trip_com",
+        "ixigo"
+      ],
+      "count": 2,
+      "status": "Gaining Traction",
+      "expected_12_24m": "Emerging Trend — Booking.com, Google, and regional OTAs expected to follow",
+      "table_stakes_at": 5,
+      "note": "ESCALATED from Unique Differentiator. Trip.com (global) + ixigo (India) confirm multi-modal is a genuine OTA trend, not an Asian exception. ixigo adds buses + cabs to Trip.com's trains."
+    },
+    "ai_confirmation_prediction": {
+      "label": "AI Outcome Prediction (Confirmation / Probability)",
+      "companies": [
+        "ixigo"
+      ],
+      "count": 1,
+      "status": "Unique Differentiator",
+      "expected_12_24m": "Emerging Trend — Airlines will begin surfacing upgrade probability, connection confidence scores",
+      "table_stakes_at": 4,
+      "note": "NEW from ixigo. ConfirmTkt acquisition. Uses real-time waitlist data + historical trends to predict ticket confirmation probability. Directly applicable to airline upgrade waitlists and connection confidence scoring. Most strategic pattern in ixigo benchmark."
+    },
+    "platform_navigation_ai": {
+      "label": "Platform / Gate Navigation AI",
+      "companies": [
+        "ixigo"
+      ],
+      "count": 1,
+      "status": "Unique Differentiator",
+      "expected_12_24m": "Emerging — Airport apps will adopt; airline apps will follow",
+      "table_stakes_at": 5,
+      "note": "NEW from ixigo. Coach Position Predictor + Platform Locator — tells the traveler exactly where to stand before the vehicle arrives. Directly analogous to airport gate navigator for airlines. Saudia feasibility: Airline-Native / Now (0–6 months)."
+    },
+    "journey_layer_ai": {
+      "label": "Journey-Layer AI (AI at consumption, not planning)",
+      "companies": [
+        "ixigo"
+      ],
+      "count": 1,
+      "status": "Emerging",
+      "expected_12_24m": "Gaining Traction as in-journey AI becomes practical",
+      "table_stakes_at": 5,
+      "note": "NEW from ixigo. Order Food On Train — AI-enabled service delivery mid-journey. Not at booking, not post-trip. AT the seat, during travel. Conceptually extends to in-flight meal AI, in-stay hotel AI, ride-share mid-trip requests."
+    },
+    "subscription_loyalty_tier": {
+      "label": "Subscription-Based Loyalty Tier",
+      "companies": [
+        "ixigo"
+      ],
+      "count": 1,
+      "status": "Emerging",
+      "expected_12_24m": "Gaining Traction — Amazon Prime model arriving in travel",
+      "table_stakes_at": 5,
+      "note": "NEW from ixigo. ixigo Pro — flat monthly fee for premium access (lower fees, Tatkal priority, support). Alternative to points-based loyalty. Creates recurring revenue + booking frequency incentive. Airline analog: Alfursan Pro subscription."
+    },
+    "browser_extension_loyalty": {
+      "label": "Browser Extension as Loyalty/Engagement Hook",
+      "companies": [
+        "trip_com"
+      ],
+      "count": 1,
+      "status": "Unique Differentiator",
+      "expected_12_24m": "Gaining Traction among OTAs with price comparison products",
+      "table_stakes_at": 5,
+      "note": "NEW from Trip.com. Cheap Flight Finder monitors other sites. Not suitable for airline-direct model."
+    },
+    "nlp_filter_to_facet_translation": {
+      "label": "NLP Filter to Facet Translation (Natural Language → Structured Search)",
+      "companies": [
+        "booking_com"
+      ],
+      "count": 1,
+      "status": "Emerging Trend",
+      "expected_12_24m": "Mainstream — Expedia and Kayak expected to follow; airline NLP search to follow",
+      "table_stakes_at": 5,
+      "note": "NEW from Booking.com (Benchmark 4). Smart Filters textarea: 'I want a place with great reviews and free cancellation' → review_score=90&fc=2. Key limitation: silent intent dropping — unmapped concepts disappear without feedback. P0 for Saudia as NLP Flight Search."
+    },
+    "contextual_property_qa": {
+      "label": "Contextual AI Q&A Chips (Property/Product-Specific Pre-Generated Questions)",
+      "companies": [
+        "booking_com"
+      ],
+      "count": 1,
+      "status": "Unique Differentiator",
+      "expected_12_24m": "Emerging Trend — call center reduction pressure will drive adoption across OTAs and airlines",
+      "table_stakes_at": 4,
+      "note": "NEW from Booking.com (Benchmark 4). 10 property-specific AI pre-generated questions on property page. Not generic FAQ — questions are specific to the exact property. Highest-priority transferable pattern for Saudia's flight detail pages. P0 priority."
+    },
+    "ai_booking_intelligence_label": {
+      "label": "AI Booking Intelligence Label (Stay/Trip Context Confidence Signal)",
+      "companies": [
+        "booking_com"
+      ],
+      "count": 1,
+      "status": "Emerging",
+      "expected_12_24m": "Gaining Traction — Airbnb likely has equivalent; airlines to follow",
+      "table_stakes_at": 5,
+      "note": "NEW from Booking.com (Benchmark 4). 'Perfect for a 4-night stay!' badge — AI matches stay dates vs. property data and surfaces binary confidence signal. Saudia analog: flight intelligence labels ('Perfect for your long weekend', 'Great connection cushion'). Quick Win."
+    },
+    "cultural_ai_personalization": {
+      "label": "Cultural AI Personalization (Geo → Cultural Context Adaptation)",
+      "companies": [
+        "booking_com",
+        "ixigo"
+      ],
+      "count": 2,
+      "status": "Emerging Trend",
+      "expected_12_24m": "Mainstream — all global platforms will adapt content to cultural context",
+      "table_stakes_at": 5,
+      "note": "NEW pattern confirmed across 2 products. Booking.com: Halal breakfast surfaced in AI property synopsis for Saudi users. ixigo: cultural adaptation for Indian rail context. Saudia's Cultural Intelligence Suite (Hajj/Umrah mode, Ramadan mode, prayer time integration) is the highest-priority long-term opportunity."
+    },
+    "ai_review_sentiment_synthesis": {
+      "label": "AI Review Sentiment Synthesis (Raw Reviews → AI-Generated Summaries)",
+      "companies": [
+        "mindtrip",
+        "trip_com",
+        "booking_com"
+      ],
+      "count": 3,
+      "status": "Mainstream",
+      "expected_12_24m": "Table Stakes — unprocessed review lists will be seen as a product deficiency",
+      "table_stakes_at": 5,
+      "note": "ESCALATED to Mainstream after Benchmark 4. 3 confirmed products: Mindtrip (itinerary-level), Trip.com (hotel summaries), Booking.com (neighborhood summary + topic clustering + quality labels). Booking.com's review topic clustering (5 AI-clustered chips from 1,139 reviews) is the most sophisticated implementation benchmarked."
+    },
+    "vibe_based_exploration": {
+      "label": "Vibe / Experience-Type Travel Discovery",
+      "companies": [
+        "mindtrip",
+        "booking_com"
+      ],
+      "count": 2,
+      "status": "Gaining Traction",
+      "expected_12_24m": "Emerging Trend — replaces destination-first search for inspiration-phase travelers",
+      "table_stakes_at": 5,
+      "note": "2 products confirmed. Mindtrip: mood-first chat (inspired by what kind of trip). Booking.com: 9 experience categories (Desert Adventures, Family Fun, Romance, etc.) with geo-personalized destination chips. Different implementations of the same philosophy."
+    }
+  },
+  "saudia_gap": {
+    "ai_interaction": {
+      "dimension_type": "journey_step",
+      "dimension_id": "step_04_ai_interaction",
+      "label": "AI Interaction",
+      "best_in_class": "mindtrip",
+      "best_score": 5,
+      "saudia_today": "None",
+      "gap": "Critical",
+      "priority": "P0",
+      "timeline": "18–24 months",
+      "saudia_action": "Build flight-anchored conversational AI planner scoped to Saudia destinations"
+    },
+    "geo_aware_content": {
+      "dimension_type": "ux_pattern",
+      "dimension_id": "geo_aware_cold_start",
+      "label": "Geo-Aware Content",
+      "best_in_class": "mindtrip",
+      "best_score": 5,
+      "saudia_today": "None",
+      "gap": "Critical",
+      "priority": "P0",
+      "timeline": "Now (0–6 months)",
+      "saudia_action": "Surface destination content tied to user's next Saudia flight on home screen"
+    },
+    "conversational_search": {
+      "dimension_type": "ai_capability",
+      "dimension_id": "conversational_search",
+      "label": "Conversational Search",
+      "best_in_class": "mindtrip",
+      "best_score": 5,
+      "saudia_today": "None",
+      "gap": "High",
+      "priority": "P1",
+      "timeline": "18–36 months",
+      "saudia_action": "Add NLP flight search — 'Fly me to Istanbul in July for 7 days'"
+    },
+    "quick_filter_strip": {
+      "dimension_type": "ux_pattern",
+      "dimension_id": "quick_filter_strip",
+      "label": "Quick Filter Strip",
+      "best_in_class": "mindtrip",
+      "best_score": 4.6,
+      "saudia_today": "None",
+      "gap": "High",
+      "priority": "P0",
+      "timeline": "Now (0–6 months)",
+      "saudia_action": "Add Destination / Dates / Travelers chips above flight search; prefill from Alfursan history"
+    },
+    "email_receipt_management": {
+      "dimension_type": "ux_pattern",
+      "dimension_id": "email_receipt_management",
+      "label": "Email Receipt Management",
+      "best_in_class": "mindtrip",
+      "best_score": 4.6,
+      "saudia_today": "None",
+      "gap": "High",
+      "priority": "P1",
+      "timeline": "6–18 months",
+      "saudia_action": "Launch receipts@saudia.com — anchor trip organization to the Saudia flight"
+    },
+    "trip_management": {
+      "dimension_type": "journey_step",
+      "dimension_id": "step_10_trip_management",
+      "label": "Trip Management",
+      "best_in_class": "mindtrip",
+      "best_score": 4.6,
+      "saudia_today": "Basic itinerary only",
+      "gap": "High",
+      "priority": "P1",
+      "timeline": "6–18 months",
+      "saudia_action": "Build post-booking AI trip dashboard showing complete trip picture around the Saudia flight"
+    },
+    "discovery": {
+      "dimension_type": "journey_step",
+      "dimension_id": "step_02_discovery",
+      "label": "Discovery",
+      "best_in_class": "mindtrip",
+      "best_score": 4.4,
+      "saudia_today": "Static destination pages",
+      "gap": "High",
+      "priority": "P1",
+      "timeline": "6–18 months",
+      "saudia_action": "Build Saudi editorial discovery feed with Visit Saudi and Saudi creators"
+    },
+    "booking_flow": {
+      "dimension_type": "journey_step",
+      "dimension_id": "step_07_booking",
+      "label": "Booking Flow",
+      "best_in_class": "saudia",
+      "best_score": 4,
+      "saudia_today": "Full native booking",
+      "gap": "None — Saudia leads",
+      "priority": "✅ Done",
+      "timeline": "Maintain",
+      "saudia_action": "Saudia's native booking is its key advantage vs. referral-model AI products. Protect and extend it."
+    },
+    "loyalty_ai": {
+      "dimension_type": "ux_pattern",
+      "dimension_id": "loyalty_ai_integration",
+      "label": "Loyalty AI Integration",
+      "best_in_class": "not_benchmarked_yet",
+      "best_score": null,
+      "saudia_today": "Alfursan functional; not AI-activated",
+      "gap": "Medium",
+      "priority": "P2",
+      "timeline": "12–24 months",
+      "saudia_action": "Use Alfursan data as the personalization engine for AI recommendations"
+    },
+    "hajj_umrah_ai": {
+      "dimension_type": "ux_pattern",
+      "dimension_id": "hajj_umrah_planning",
+      "label": "Hajj / Umrah AI",
+      "best_in_class": "saudia_opportunity",
+      "best_score": null,
+      "saudia_today": "Hajj packages only; no AI",
+      "gap": "Saudia uniquely positioned to own this",
+      "priority": "🟢 Own It",
+      "timeline": "18–36 months",
+      "saudia_action": "Build AI Hajj/Umrah companion — the world's first, from the national carrier"
+    },
+    "predictive_outcome_ai": {
+      "dimension_type": "ai_capability",
+      "dimension_id": "ai_confirmation_prediction",
+      "label": "Predictive Outcome AI (upgrade, connection, disruption)",
+      "best_in_class": "ixigo",
+      "best_score": 4.5,
+      "saudia_today": "None",
+      "gap": "High — Saudia has all data needed; missing the customer-facing prediction layer",
+      "priority": "P0",
+      "timeline": "Short-term (6–18 months)",
+      "saudia_action": "Launch Upgrade Probability display for Alfursan waitlist passengers + Connection Confidence Score for multi-leg itineraries. Saudia owns this data exclusively — no OTA can replicate it."
+    },
+    "pre_departure_ai_bundle": {
+      "dimension_type": "journey_step",
+      "dimension_id": "step_10_trip_management",
+      "label": "Pre-Departure AI Briefing",
+      "best_in_class": "ixigo",
+      "best_score": 3.5,
+      "saudia_today": "Generic check-in reminder email only",
+      "gap": "Medium — ixigo's 3-tool pre-departure suite (PNR + Running Status + Coach Position) shows the model",
+      "priority": "P0",
+      "timeline": "Now (0–6 months)",
+      "saudia_action": "Package flight on-time prediction + upgrade status + gate + boarding time into a single proactive push notification 4h before departure. No new data needed — only UX packaging."
+    },
+    "realtime_disruption": {
+      "dimension_type": "ux_pattern",
+      "dimension_id": "realtime_disruption_ai",
+      "label": "Real-Time Disruption AI",
+      "best_in_class": "ixigo",
+      "best_score": 4,
+      "saudia_today": "Manual delay notifications only; no AI action layer",
+      "gap": "High",
+      "priority": "P1",
+      "timeline": "Short-term (6–18 months)",
+      "saudia_action": "Add AI disruption co-pilot: proactive rebooking suggestions when connection windows are at risk, push-notified with one-tap action. Saudia controls the data; OTAs never can."
+    },
+    "contextual_flight_qa": {
+      "dimension_type": "ux_pattern",
+      "dimension_id": "contextual_property_qa",
+      "label": "Contextual Flight Q&A Chips",
+      "best_in_class": "booking_com",
+      "best_score": 4.2,
+      "saudia_today": "Standard FAQ pages; call center for specific questions",
+      "gap": "High — Booking.com confirmed this as the highest-impact AI pattern for decision acceleration",
+      "priority": "P0",
+      "timeline": "Now (0–6 months)",
+      "saudia_action": "Surface 5–8 AI pre-generated questions on every flight detail page: 'Will my connection have enough time?', 'Does this aircraft have lie-flat seats?', 'Can I change this fare?', 'What is the baggage allowance for my booking class?'. Static answers first; AI-synthesized answers in Sprint 2."
+    },
+    "nlp_flight_search": {
+      "dimension_type": "ai_capability",
+      "dimension_id": "conversational_search",
+      "label": "NLP Flight Search",
+      "best_in_class": "booking_com",
+      "best_score": 4,
+      "saudia_today": "Standard form-based flight search only",
+      "gap": "High — Booking.com's Smart Filters proves NLP-to-facet mapping is ready; Saudia can implement with higher accuracy due to bounded flight parameter space",
+      "priority": "P0",
+      "timeline": "Short-term (6–18 months)",
+      "saudia_action": "Build NLP flight search as a supplementary input to the existing search form. CRITICAL improvement over Booking.com: always show what was parsed ('I understood: JED→DXB, Friday, morning, direct, max SAR 800. Correct?'). The feedback loop is what Booking.com's Smart Filters lacks — and what builds user trust in AI."
+    },
+    "cultural_ai_suite": {
+      "dimension_type": "ux_pattern",
+      "dimension_id": "shariah_compliant_features",
+      "label": "Cultural AI Intelligence Suite",
+      "best_in_class": "booking_com (Halal signal only)",
+      "best_score": 4.5,
+      "saudia_today": "No cultural AI adaptation; static content only",
+      "gap": "Saudia uniquely positioned to far exceed Booking.com's implementation",
+      "priority": "🟢 Own It",
+      "timeline": "Medium-term (18–36 months) for full suite; Quick Win available in 0–6 months",
+      "saudia_action": "Booking.com detects geography → Halal. Saudia should own the full Saudi/Gulf cultural context: Hajj/Umrah travel mode (dedicated planning layer), Ramadan mode (Suhoor/Iftar-timed experiences), prayer time integration in airport notifications, family-first mode for multi-generational Saudi travel. No OTA can build this at Saudia's cultural depth."
+    }
+  },
+  "key_insights": [
+    {
+      "after_benchmark": 1,
+      "company": "Mindtrip",
+      "date": "2026-06-30",
+      "headline": "The ceiling is set. Mindtrip scores 4.4 on applicable steps.",
+      "synthesis": "Mindtrip has proven the search form is the wrong interface for travel planning. Conversation is the model. All subsequent benchmarks will be measured against this standard.",
+      "saudia_imperative": "Saudia starts every conversation with an unfair advantage Mindtrip will never have: Saudia already knows where the user is going.",
+      "watch_for_in_next_benchmarks": [
+        "Does Google Travel's Gemini beat Mindtrip on AI sophistication?",
+        "Does Trip.com solve Mindtrip's biggest gap (no native booking)?",
+        "Does Booking.com's Penny AI approach Mindtrip's conversational quality?",
+        "Do any airlines score above Saudia's estimated 2.7 baseline?"
+      ]
+    },
+    {
+      "after_benchmark": 2,
+      "company": "Trip.com",
+      "date": "2026-06-30",
+      "headline": "Two AI philosophies confirmed: AI-as-Product (Mindtrip) vs. AI-as-Sidekick (Trip.com).",
+      "synthesis": "Trip.com proves the incumbent OTA model: full inventory + AI layer. TripGenie is Q&A, not planning. Trip.Planner is structured form + map. Native booking across flights, hotels, trains, cars, activities is Trip.com's defining advantage over Mindtrip. Trip.com scores 3.3 vs. Mindtrip's 3.8 — lower AI maturity but stronger commercial model. Saudia is in the Trip.com camp by default — it has the inventory, it needs the AI layer.",
+      "saudia_imperative": "Start with FAQ-AI scoped to Saudia-exclusive knowledge (Hajj, Alfursan, Saudi visa, onboard Islamic services). Evolve to structured AI planner. Build native booking advantage. Never create a referral break.",
+      "cross_benchmark_escalations": [
+        "Quick Filter Strip: 2 companies → Gaining Traction escalated",
+        "AI-Filtered Map: 2 companies → Gaining Traction escalated",
+        "Arabic Localization: 2 companies at different depths — watch for Table Stakes signal after 3rd",
+        "FAQ-AI Travel Assistant: NEW pattern. Expect Mainstream after Booking.com/Expedia benchmarks"
+      ],
+      "watch_for_in_next_benchmarks": [
+        "Does ixigo's India-market AI reveal a third philosophy?",
+        "Does Google Travel's Gemini produce a search-native fourth model?",
+        "Does any airline score above Saudia's 2.7 estimated baseline?"
+      ]
+    },
+    {
+      "after_benchmark": 3,
+      "company": "ixigo",
+      "date": "2026-07-01",
+      "headline": "Third AI philosophy confirmed: AI-as-Predictor. ixigo's PNR prediction is the most Saudia-relevant innovation in the benchmark cycle so far.",
+      "synthesis": "ixigo proves that conversational AI is not the only path to AI maturity in travel. Its train intelligence suite — PNR confirmation probability, live running status, coach position predictor — delivers genuine AI value without a single chat message. This is AI-as-Predictor: the AI forecasts outcomes and reduces uncertainty rather than generating plans or answering questions. ixigo scores 3.1 overall (vs. Trip.com 3.3, Mindtrip 3.8) but scores 3.8 on Innovation — because PNR prediction and coach position are category-defining for their domain. Web experience is significantly thinner than the mobile app; scores reflect web only. ixigo's real strength is on mobile.",
+      "saudia_imperative": "Copy the architecture, not the feature. ixigo's PNR prediction works because Saudia already has the data equivalent: seat inventory, upgrade waitlists, connection confidence data, historical delay patterns. The model is Airline-Native and deliverable in 6–18 months. The pre-departure AI briefing bundle (on-time prediction + upgrade status + gate navigator) is the highest-confidence Quick Win in this benchmark cycle.",
+      "cross_benchmark_escalations": [
+        "Multi-Modal OTA: 2 companies (Trip.com + ixigo) → ESCALATED to Gaining Traction",
+        "AI-Confirmation-Prediction: NEW pattern. Unique Differentiator. Highest strategic relevance to Saudia.",
+        "Platform-Navigation-AI: NEW pattern. Unique Differentiator. Coach Position Predictor → Gate Navigator for airports.",
+        "Journey-Layer AI: NEW pattern. Order Food On Train = first in-journey AI service delivery benchmarked.",
+        "Subscription Loyalty Tier: NEW pattern. ixigo Pro = Amazon Prime model arriving in travel.",
+        "Real-Time Disruption AI: First STRONG implementation. ixigo live running status = precedent for Saudia flight AI."
+      ],
+      "watch_for_in_next_benchmarks": [
+        "Does Google Travel use Gemini for predictive AI (flight delay, price prediction)?",
+        "Does Booking.com's Penny AI answer disruption questions better than TripGenie?",
+        "Does any airline product benchmark above 3.5? If so, the Saudia gap becomes critical.",
+        "Does multi-modal transport appear in a 3rd product? If yes, escalate to Emerging Trend."
+      ]
+    },
+    {
+      "after_benchmark": 4,
+      "company": "Booking.com",
+      "date": "2026-07-02",
+      "headline": "Fourth AI philosophy confirmed: AI-as-Embedded-Layer. The most important meta-lesson for Saudia: the best AI is invisible.",
+      "synthesis": "Booking.com scores 3.4 overall (vs. Mindtrip 3.8, Trip.com 3.3, ixigo 3.1) but introduces a philosophy none of the previous three had: AI as the texture of the product. Six distinct AI signals appear on a single property page — booking intelligence, neighborhood summary, review topic clustering, cultural personalization, Q&A chips, property synopsis — none of which announce themselves as AI. The user experiences them as good design. Booking.com's key strategic choice is to place its most sophisticated AI (Penny) fully behind login + booking reference. This creates a split: public AI is wide but shallow; authenticated AI is deep but invisible to acquisition users. The NLP Smart Filters prove natural language search is achievable in OTA context but require a transparency feedback loop (which Booking.com's version lacks). Geo-aware cold start now confirmed in 4 of 4 benchmarked products → escalated to Mainstream → Must Have for Saudia.",
+      "saudia_imperative": "Three immediate P0 actions: (1) Contextual Flight Q&A chips on every flight detail page — reduces call center volume, increases booking confidence. (2) AI flight intelligence labels in search results — one confidence signal per flight matched to the traveler's context. (3) Geo-aware and cultural cold start — Saudia's app must load SAR, Arabic, and Saudi cultural defaults before the user types. Long-term: build the Cultural Intelligence Suite that no OTA can match. Booking.com detected Halal from geography. Saudia knows the actual traveler. The depth Saudia can achieve in cultural personalization is Saudia's moat.",
+      "cross_benchmark_escalations": [
+        "Geo-Aware Cold Start: 4 products (Mindtrip + Trip.com + ixigo + Booking.com) → ESCALATED to Mainstream → Must Have for Saudia NOW",
+        "AI Review Sentiment Synthesis: 3 products (Mindtrip + Trip.com + Booking.com) → ESCALATED to Mainstream",
+        "NLP Filter to Facet Translation: NEW pattern (Emerging Trend) — Booking.com first; Expedia/Kayak expected to follow",
+        "Contextual Property Q&A Chips: NEW pattern (Unique Differentiator) — highest-priority transferable pattern for Saudia flight pages",
+        "AI Booking Intelligence Label: NEW pattern (Emerging) — Quick Win for Saudia flight confidence signals",
+        "Cultural AI Personalization: NEW pattern (Emerging Trend) — 2 products; Saudia's highest-priority long-term moat",
+        "Vibe-Based Exploration: 2 products (Mindtrip + Booking.com) → Gaining Traction"
+      ],
+      "watch_for_in_next_benchmarks": [
+        "Does Expedia's AI (Romie) match or exceed Penny in conversational post-booking capability?",
+        "Does Kayak's AI price prediction add a fifth AI philosophy (AI-as-Oracle)?",
+        "Do any airline products (Emirates, Singapore Airlines) show AI at the embedded layer like Booking.com?",
+        "Does Google Travel's Gemini outperform all 4 on AI sophistication?",
+        "Does NLP flight search appear in Kayak or Expedia benchmark? If yes, escalate to Mainstream."
+      ]
+    }
+  ],
+  "scores_index": {
+    "mindtrip": {
+      "overall": 3.8,
+      "applicable": 4.4,
+      "clarity": 4.3,
+      "ai_sophistication": 4,
+      "personalization": 4.1,
+      "delight": 3.6,
+      "innovation": 4.1,
+      "innovation_count": 7,
+      "ai_maturity": "Conversational"
+    },
+    "trip_com": {
+      "overall": 3.3,
+      "applicable": 3.3,
+      "clarity": 3.6,
+      "ai_sophistication": 2.8,
+      "personalization": 3,
+      "delight": 3.2,
+      "innovation": 3,
+      "innovation_count": 3,
+      "ai_maturity": "Assistive"
+    },
+    "ixigo": {
+      "overall": 3.1,
+      "applicable": 3.1,
+      "clarity": 3.5,
+      "ai_sophistication": 3,
+      "personalization": 2.5,
+      "delight": 3,
+      "innovation": 3.8,
+      "innovation_count": 2,
+      "ai_maturity": "Assistive",
+      "ai_architecture": "AI-as-Predictor",
+      "note": "Web benchmark. Mobile app scores likely 0.5–0.8 higher across all dimensions."
+    },
+    "booking_com": {
+      "overall": 3.4,
+      "applicable": 3.4,
+      "clarity": 3.8,
+      "ai_sophistication": 3.2,
+      "personalization": 3.5,
+      "delight": 3,
+      "innovation": 3.5,
+      "innovation_count": 4,
+      "ai_maturity": "Assistive",
+      "ai_architecture": "AI-as-Embedded-Layer",
+      "note": "AI is front-loaded (Steps 1–5) and largely absent post-booking on public surface. Penny (post-booking AI) is fully login-gated. 4th OTA benchmarked; confirms AI embedding is OTA standard."
+    },
+    "saudia": {
+      "overall": 2.7,
+      "applicable": 2.7,
+      "clarity": 3.5,
+      "ai_sophistication": 0.5,
+      "personalization": 2,
+      "delight": 2.5,
+      "innovation": 1.5,
+      "innovation_count": 0,
+      "ai_maturity": "Basic",
+      "note": "Estimated baseline"
+    }
+  }
+}

@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-travel-benchmark.internal/schemas/report.schema.json",
+  "title": "Report Module Contract",
+  "version": "0.1.0",
+  "description": "Design contract for modules/reports. Reports is the 'writer' — it takes Vision, Analysis, and Pattern output for one company and turns them into the 11 deliverables CLAUDE.md requires, in the exact shape 02_Benchmark_Repository/, 07_Saudia_Opportunities/, and 08_Figma/ already expect, so the existing Dashboard (10_Dashboard/) can read them with zero changes. Reports never writes to Master_Benchmark_Matrix.json directly — it proposes a matrix_patch that a human applies, per CLAUDE.md's hard rule to update the matrix first and treat it as the source of truth. Not implemented yet.",
+  "type": "object",
+  "required": ["input", "output"],
+  "properties": {
+    "input": { "$ref": "#/$defs/ReportInput" },
+    "output": { "$ref": "#/$defs/ReportOutput" }
+  },
+  "$defs": {
+    "DeliverableSet": {
+      "type": "string",
+      "description": "Complete Journey benchmarks produce all 11 deliverables; Feature Benchmark produces the lighter comparison set already reflected in 10_Dashboard's expectedDeliverables() heuristic.",
+      "enum": ["full_11", "feature_comparison"]
+    },
+    "Complexity": { "type": "string", "enum": ["Low", "Medium", "High"] },
+    "Timeline": { "type": "string", "enum": ["Quick Win", "Short-term", "Medium-term", "Long-term"] },
+    "ReportInput": {
+      "type": "object",
+      "description": "Everything Reports needs to write up one company's benchmark — the combined output of the three modules that ran before it.",
+      "required": ["schema_version", "run_id", "company_slug", "benchmark_type", "deliverable_set", "vision_output", "analysis_output", "pattern_output"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "run_id": { "type": "string" },
+        "company_slug": { "type": "string" },
+        "benchmark_type": {
+          "type": "string",
+          "enum": ["AI Experience", "UX/UI", "Mobile App", "Website", "Complete Journey", "Feature Benchmark"]
+        },
+        "deliverable_set": { "$ref": "#/$defs/DeliverableSet" },
+        "vision_output": { "$ref": "vision.schema.json#/$defs/VisionOutput" },
+        "analysis_output": { "$ref": "analysis.schema.json#/$defs/AnalysisOutput" },
+        "pattern_output": { "$ref": "pattern.schema.json#/$defs/PatternOutput" }
+      }
+    },
+    "ReportOutput": {
+      "type": "object",
+      "description": "The written deliverables plus the proposed (not applied) matrix patch.",
+      "required": ["schema_version", "run_id", "company_slug", "deliverables", "completion_status", "generated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "run_id": { "type": "string" },
+        "company_slug": { "type": "string" },
+        "deliverables": {
+          "type": "object",
+          "description": "Maps to the '11 Deliverables Checklist' in Benchmark_Workflow.md. Every field is optional at the schema level because deliverable_set (feature_comparison) legitimately omits most of them — but full_11 runs are expected to populate all of them.",
+          "additionalProperties": false,
+          "properties": {
+            "executive_summary": {
+              "type": "object",
+              "required": ["file_path", "one_line_verdict"],
+              "additionalProperties": false,
+              "properties": {
+                "file_path": { "type": "string", "description": "Expected: 02_Benchmark_Repository/{Category}/{Company}/01_executive_summary.md" },
+                "one_line_verdict": { "type": "string" }
+              }
+            },
+            "user_journey": {
+              "type": "array",
+              "description": "One entry per captured journey step. Expected under 02_Benchmark_Repository/{Category}/{Company}/02_user_journey/.",
+              "items": {
+                "type": "object",
+                "required": ["step_id", "file_path"],
+                "additionalProperties": false,
+                "properties": {
+                  "step_id": { "type": "string" },
+                  "file_path": { "type": "string" }
+                }
+              }
+            },
+            "screenshots_manifest": {
+              "type": "object",
+              "description": "Points back at Vision's output rather than duplicating it — Reports doesn't own screenshots, it references them.",
+              "required": ["total"],
+              "additionalProperties": false,
+              "properties": {
+                "total": { "type": "integer", "minimum": 0 },
+                "root_dir": { "type": "string", "description": "Expected: 03_Screenshots/{Company}/" }
+              }
+            },
+            "ux_analysis": {
+              "type": "object",
+              "required": ["file_path"],
+              "additionalProperties": false,
+              "properties": { "file_path": { "type": "string", "description": "Expected: .../03_ux_analysis.md" } }
+            },
+            "innovation_score": {
+              "type": "object",
+              "description": "Embedded, not filed — this is metadata.json's innovation_scores block, already covered by analysis_output.innovation_scores. Present here only as a completion marker.",
+              "required": ["recorded"],
+              "additionalProperties": false,
+              "properties": { "recorded": { "type": "boolean" } }
+            },
+            "emerging_patterns": {
+              "type": "object",
+              "required": ["file_path", "pattern_ids"],
+              "additionalProperties": false,
+              "properties": {
+                "file_path": { "type": "string", "description": "Expected: .../04_emerging_patterns.md" },
+                "pattern_ids": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "innovation_opportunities": {
+              "type": "object",
+              "description": "Covers deliverables 7-9 (ideas worth adopting / evolving / avoiding) in one file, matching the existing single-file convention.",
+              "required": ["file_path"],
+              "additionalProperties": false,
+              "properties": {
+                "file_path": { "type": "string", "description": "Expected: .../05_innovation_opportunities.md" },
+                "ideas_worth_adopting": { "type": "array", "items": { "type": "string" } },
+                "ideas_worth_evolving": { "type": "array", "items": { "type": "string" } },
+                "ideas_to_avoid": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "saudia_opportunities": {
+              "type": "object",
+              "required": ["file_path"],
+              "additionalProperties": false,
+              "properties": {
+                "file_path": { "type": "string", "description": "Expected: 07_Saudia_Opportunities/{Company}_opportunities.md" },
+                "quick_wins": { "type": "array", "items": { "type": "string" }, "description": "0-3 months." },
+                "medium_term": { "type": "array", "items": { "type": "string" }, "description": "3-12 months." },
+                "long_term_vision": { "type": "array", "items": { "type": "string" }, "description": "1-3 years." },
+                "moonshots": { "type": "array", "items": { "type": "string" }, "description": "3-5 years." }
+              }
+            },
+            "figma_annotations": {
+              "type": "object",
+              "required": ["file_path"],
+              "additionalProperties": false,
+              "properties": { "file_path": { "type": "string", "description": "Expected: 08_Figma/{Company}/annotations.json" } }
+            }
+          }
+        },
+        "executive_recommendation": {
+          "type": "object",
+          "description": "Optional. Matches metadata.json's executive_recommendation block, surfaced on the Dashboard's company Overview tab as the 'adopt only ONE idea' card.",
+          "additionalProperties": false,
+          "properties": {
+            "one_idea": { "type": "string" },
+            "description": { "type": "string" },
+            "why_it_matters": { "type": "string" },
+            "business_impact": { "type": "string" },
+            "complexity": { "$ref": "#/$defs/Complexity" },
+            "timeline": { "$ref": "#/$defs/Timeline" }
+          }
+        },
+        "completion_status": {
+          "type": "object",
+          "description": "Matches metadata.json's completion_status — one boolean per deliverable, required so the Dashboard's Research Status field (added in v3.0) can report 'Complete — N/11 deliverables' without guessing.",
+          "required": [
+            "metadata", "executive_summary", "user_journey", "screenshots", "ux_analysis",
+            "innovation_score", "emerging_patterns", "opportunities", "saudia_brief",
+            "figma_annotations", "full_report"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "metadata": { "type": "boolean" },
+            "executive_summary": { "type": "boolean" },
+            "user_journey": { "type": "boolean" },
+            "screenshots": { "type": "boolean" },
+            "ux_analysis": { "type": "boolean" },
+            "innovation_score": { "type": "boolean" },
+            "emerging_patterns": { "type": "boolean" },
+            "opportunities": { "type": "boolean" },
+            "saudia_brief": { "type": "boolean" },
+            "figma_annotations": { "type": "boolean" },
+            "full_report": { "type": "boolean" }
+          }
+        },
+        "matrix_patch": {
+          "type": "object",
+          "description": "Optional. A proposed diff against Master_Benchmark_Matrix.json — never applied automatically. A human (or a future, explicitly-approved orchestrator step) reviews and applies it, then runs scripts/generate_matrix.js, per CLAUDE.md hard rule 14.",
+          "additionalProperties": false,
+          "properties": {
+            "benchmark_plan_update": {
+              "type": "object",
+              "description": "Proposed update to this company's row in benchmark_plan.",
+              "additionalProperties": false,
+              "properties": {
+                "slug": { "type": "string" },
+                "status": { "type": "string", "enum": ["complete", "pending"] },
+                "date": { "type": "string", "format": "date" },
+                "overall_score": { "type": "number", "minimum": 1, "maximum": 5 }
+              }
+            },
+            "company_entry": {
+              "type": "object",
+              "description": "Proposed full companies[slug] object — deliberately untyped here (see analysis.schema.json / pattern.schema.json for the pieces it's assembled from) to avoid a third copy of the same shape drifting out of sync.",
+              "additionalProperties": true
+            },
+            "pattern_tracker_updates": {
+              "type": "array",
+              "description": "Mirrors pattern_output.findings — kept separate so a reviewer can diff exactly what would change in pattern_tracker.",
+              "items": { "type": "object", "additionalProperties": true }
+            }
+          }
+        },
+        "generated_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

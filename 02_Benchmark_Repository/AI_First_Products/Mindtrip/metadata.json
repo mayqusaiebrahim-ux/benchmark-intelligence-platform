@@ -1,0 +1,157 @@
+{
+  "benchmark_id": "MT-001",
+  "company": "Mindtrip",
+  "category": "AI_First_Products",
+  "date_benchmarked": "2026-06-30",
+  "platform": "web",
+  "url": "https://mindtrip.ai",
+  "benchmarked_by": "AI Travel Benchmark Agent",
+
+  "classification": {
+    "type": "AI-first travel planner",
+    "ai_maturity": "Conversational",
+    "ai_architecture": "Full AI-native — the entire product is the AI interface"
+  },
+
+  "journey_coverage": {
+    "total_steps": 12,
+    "steps_captured": 12,
+    "steps": {
+      "01_entry": true,
+      "02_discovery": true,
+      "03_search": true,
+      "04_ai_interaction": true,
+      "05_recommendations": true,
+      "06_maps": true,
+      "07_booking": true,
+      "08_ancillaries": true,
+      "09_payment": true,
+      "10_trip_management": true,
+      "11_checkin": true,
+      "12_loyalty": true
+    }
+  },
+
+  "capture": {
+    "screenshots_count": 39,
+    "videos_count": 0,
+    "states_captured": {
+      "default": true,
+      "ai_thinking": true,
+      "ai_response": true,
+      "empty_state": true,
+      "error_state": false,
+      "completed_state": true,
+      "micro_interaction": false,
+      "voice_input": false,
+      "ai_memory": true,
+      "embedded_ai": true,
+      "context_switch": true
+    }
+  },
+
+  "scores": {
+    "overall": 3.8,
+    "applicable_steps_score": 4.4,
+    "by_dimension": {
+      "clarity": 4.3,
+      "ai_sophistication": 4.0,
+      "personalization": 4.1,
+      "delight": 3.6,
+      "innovation": 4.1
+    },
+    "by_step": {
+      "01_entry":           { "clarity": 5, "ai_sophistication": 5, "personalization": 5, "delight": 4, "innovation": 5, "average": 4.8 },
+      "02_discovery":       { "clarity": 5, "ai_sophistication": 4, "personalization": 5, "delight": 4, "innovation": 4, "average": 4.4 },
+      "03_search":          { "clarity": 5, "ai_sophistication": 5, "personalization": 4, "delight": 4, "innovation": 5, "average": 4.6 },
+      "04_ai_interaction":  { "clarity": 5, "ai_sophistication": 5, "personalization": 5, "delight": 5, "innovation": 5, "average": 5.0 },
+      "05_recommendations": { "clarity": 5, "ai_sophistication": 5, "personalization": 5, "delight": 4, "innovation": 4, "average": 4.6 },
+      "06_maps":            { "clarity": 4, "ai_sophistication": 3, "personalization": 4, "delight": 3, "innovation": 4, "average": 3.6 },
+      "07_booking":         { "clarity": 3, "ai_sophistication": 2, "personalization": 3, "delight": 2, "innovation": 2, "average": 2.4 },
+      "08_ancillaries":     { "clarity": 1, "ai_sophistication": 1, "personalization": 1, "delight": 1, "innovation": 1, "average": 1.0, "note": "Feature not present" },
+      "09_payment":         { "clarity": 3, "ai_sophistication": 1, "personalization": 2, "delight": 3, "innovation": 4, "average": 2.6 },
+      "10_trip_management": { "clarity": 5, "ai_sophistication": 4, "personalization": 4, "delight": 5, "innovation": 5, "average": 4.6 },
+      "11_checkin":         { "clarity": 1, "ai_sophistication": 1, "personalization": 1, "delight": 1, "innovation": 1, "average": 1.0, "note": "Not applicable — AI planning product, not airline" },
+      "12_loyalty":         { "clarity": 1, "ai_sophistication": 1, "personalization": 1, "delight": 1, "innovation": 1, "average": 1.0, "note": "Not applicable — no loyalty program" }
+    },
+    "innovation_count": 7,
+    "ai_maturity_level": "Conversational"
+  },
+
+  "deliverables": {
+    "01_executive_summary": true,
+    "02_user_journey": true,
+    "03_screenshots": true,
+    "04_ux_analysis": true,
+    "05_innovation_score": true,
+    "06_emerging_patterns": true,
+    "07_ideas_worth_adopting": true,
+    "08_ideas_worth_evolving": true,
+    "09_ideas_to_avoid": true,
+    "10_saudia_opportunities": true,
+    "11_figma_annotations": false
+  },
+
+  "patterns_extracted": [
+    "zero-friction-chat-entry",
+    "chat-as-search",
+    "geo-aware-cold-start",
+    "quick-filter-strip",
+    "creator-ai-blend",
+    "email-receipt-inbox",
+    "magic-camera-visual-ai",
+    "boss-the-bot-b2b-ai",
+    "bnpl-travel-integration",
+    "collaborative-trip-planning"
+  ],
+
+  "five_questions": {
+    "what_today": "Mindtrip is an AI-native travel planner that replaces search with conversation. Users describe where they want to go, how they like to travel, and their preferences — the AI builds a personalized itinerary, surfacing hotels, restaurants, attractions, and events. The product has no traditional booking engine; it acts as a planning layer that references and links to booking partners.",
+    "why_valuable": "Traditional travel search forces users to know what they want before they search. Mindtrip removes that prerequisite — you can start with 'I want something warm in the Mediterranean in March' and the AI does the rest. This matches how people actually think about travel: exploratorily, conversationally, iteratively.",
+    "what_trend": "Ambient AI replacing structured search. The shift from 'search box' to 'conversation' as the primary interface for complex, preference-driven queries. This is the same trend driving ChatGPT's travel queries, Perplexity's growth, and Google's AI Overviews — applied specifically to travel planning.",
+    "how_evolves": "In the next generation, this AI knows your full travel history, passport details, dietary restrictions, loyalty tiers, budget patterns, and upcoming flight bookings. It doesn't wait for you to ask — it proactively surfaces 'Your Jeddah–Istanbul flight has a 4-hour layover. Here are 8 things near the airport worth doing.' The planning conversation extends across sessions and across the entire trip lifecycle.",
+    "saudia_opportunity": "Saudia has something Mindtrip will never have: the actual flight. Saudia should embed a Mindtrip-like AI planning layer into its app, anchored around the passenger's flight context. 'You're flying to Tokyo in 47 days. Want me to build your itinerary?' is a moment only an airline can own."
+  },
+
+  "saudia_opportunities": {
+    "quick_wins": [
+      "Add 'Where/When/Who/Budget' quick filter chips above the Saudia booking search",
+      "Surface geo-aware destination content on the Saudia app home screen based on the user's location",
+      "Add an AI disclaimer label to any AI-generated content in the Saudia app"
+    ],
+    "medium_term": [
+      "Build a conversational AI travel planner scoped to Saudia destinations and Saudia flights",
+      "Implement receipts@saudia.com or a similar email-based document management for travel confirmations",
+      "Launch a Hajj/Umrah AI planning module — a category Mindtrip has content for but Saudia can own with authority"
+    ],
+    "long_term": [
+      "Build or license a 'Boss the Bot'-style AI platform for Saudia that lets the airline control AI travel responses with branded content, partner priorities, and Saudi-specific rules",
+      "Develop AI collaborative trip planning — families and groups planning Saudia trips together"
+    ],
+    "moonshots": [
+      "Saudia Magic Camera — point at any landmark in a Saudi destination and get instant context, history, prayer times, halal restaurant proximity in Arabic + English",
+      "Full ambient AI travel companion that knows Saudia's complete flight, loyalty, and trip context and proactively manages the entire journey end-to-end"
+    ],
+    "one_big_bet": "Bet that conversational AI trip planning will replace traditional flight search within 3 years for complex travel decisions, and that Saudia can own this in the region by launching 'Saudia AI Planner' — a flight-anchored AI travel assistant that leverages Alfursan data to deliver the most personalized travel planning experience in the Middle East."
+  },
+
+  "executive_recommendation": {
+    "one_idea": "Saudia AI Trip Planner",
+    "description": "A conversational AI trip planner anchored to the passenger's Saudia flight — the user describes what they want, the AI builds a complete itinerary around the real flight they've booked or are about to book.",
+    "why_it_matters": "Mindtrip proves that replacing the search form with a planning conversation creates fundamentally better travel experiences. Only Saudia can anchor this AI to a real flight — making it more powerful than any standalone planner that works from a blank canvas. The flight is the anchor; the AI builds everything else around it.",
+    "business_impact": "Increases direct booking frequency and average booking value; deepens Alfursan engagement by making the loyalty data work for the traveler visibly; positions Saudia as the AI-first regional airline before any Gulf carrier or OTA builds equivalent capability.",
+    "complexity": "High",
+    "timeline": "Mid-term"
+  },
+
+  "paths": {
+    "executive_summary": "02_Benchmark_Repository/AI_First_Products/Mindtrip/01_executive_summary.md",
+    "user_journey_dir": "02_Benchmark_Repository/AI_First_Products/Mindtrip/02_user_journey/",
+    "ux_analysis": "02_Benchmark_Repository/AI_First_Products/Mindtrip/03_ux_analysis.md",
+    "emerging_patterns": "02_Benchmark_Repository/AI_First_Products/Mindtrip/04_emerging_patterns.md",
+    "innovation_opportunities": "02_Benchmark_Repository/AI_First_Products/Mindtrip/05_innovation_opportunities.md",
+    "full_report": "02_Benchmark_Repository/AI_First_Products/Mindtrip/00_report.md",
+    "screenshots_dir": "03_Screenshots/Mindtrip/",
+    "figma_annotations": "08_Figma/Mindtrip/annotations.json"
+  }
+}

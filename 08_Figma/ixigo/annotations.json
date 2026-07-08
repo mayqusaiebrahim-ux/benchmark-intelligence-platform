@@ -1,0 +1,183 @@
+{
+  "figma_package": {
+    "benchmark": "ixigo",
+    "benchmark_id": "IX-003",
+    "date": "2026-07-01",
+    "prepared_for": "Saudia AI Travel Planner — Product Strategy Team",
+    "theme": "AI-as-Predictor: The Third AI Philosophy",
+    "description": "Figma-ready annotation package for the ixigo benchmark. 8 curated highlights with UX annotations, why-it-matters rationale, and Saudia opportunity mapping."
+  },
+
+  "top_10_screenshots": [
+    {
+      "rank": 1,
+      "step": "04_ai_interaction",
+      "file": "03_Screenshots/ixigo/04_ai_interaction/04_ixigo_pnr_status_prediction_page.png",
+      "label": "PNR Confirmation Prediction",
+      "innovation_score": 4.5,
+      "annotation": {
+        "what_is_happening": "ixigo's AI predicts the probability that a waitlisted train ticket will be confirmed before departure. Text on page: 'Our PNR Prediction analyses real-time waitlist data and historical trends to help you plan ahead.'",
+        "why_it_matters": "This is the only consumer-facing probabilistic prediction tool in the benchmark cycle. It doesn't ask the user to do anything — it resolves their core anxiety: will this ticket be honored? The AI converts a passive 'waitlisted' status into an actionable probability score.",
+        "ux_principle": "Anxiety → Probability → Decision. The best AI features don't just answer questions; they dissolve the question by giving certainty.",
+        "industry_position": "Unique Differentiator — no other travel product in the benchmark cycle does outcome prediction at the consumer-facing layer",
+        "saudia_opportunity": "Upgrade Probability Predictor: 'You're position 3 on the upgrade waitlist. Based on current inventory and your Platinum status, your upgrade probability is 71%. We'll confirm by 10:00 AM.' Saudia already has all data needed. No OTA can replicate this.",
+        "saudia_timeline": "Short-term (6–18 months)",
+        "saudia_feasibility": "Airline-Native"
+      }
+    },
+    {
+      "rank": 2,
+      "step": "04_ai_interaction",
+      "file": "03_Screenshots/ixigo/04_ai_interaction/06_ixigo_coach_position_predictor.png",
+      "label": "Coach Position Predictor",
+      "innovation_score": 4.2,
+      "annotation": {
+        "what_is_happening": "ixigo shows exactly where each coach of a train will stop on the platform. The user knows before arriving which end of the 500m platform to walk to.",
+        "why_it_matters": "Logistics intelligence applied to the physical moment of travel. This converts operational railway data (stopping patterns per station) into a consumer-facing navigation tool. It solves a real anxiety — platform scrambling — without requiring any user input.",
+        "ux_principle": "The best pre-journey AI tells you where to be, not just when. Physical navigation guidance is the next frontier of travel AI.",
+        "industry_position": "Unique Differentiator — no equivalent in any OTA or airline app benchmarked",
+        "saudia_opportunity": "Gate Navigator: 'Your gate is B12 — 8-minute walk from Terminal 3 security. Your boarding group starts in 22 minutes. Start walking now.' Saudia controls King Khalid, KAIA, and Dammam terminal data. This is an airline superpower.",
+        "saudia_timeline": "Now (0–6 months) — for push notification version; Medium-term for full app integration",
+        "saudia_feasibility": "Airline-Native"
+      }
+    },
+    {
+      "rank": 3,
+      "step": "10_trip_management",
+      "file": "03_Screenshots/ixigo/10_trip_management/01_ixigo_trains_homepage_ai_strip.png",
+      "label": "Train Intelligence Strip — Complete Pre-Departure AI Suite",
+      "innovation_score": 4.0,
+      "annotation": {
+        "what_is_happening": "The Trains homepage presents a horizontal strip of 11 AI-powered utilities: Live Running Status, PNR Status, Metro Ticket, Order Food On Train, Train by Name/No., Seat Availability, Tatkal Reservation, Station Status, Platform Locator, Coach Position, Vande Bharat Express.",
+        "why_it_matters": "This is not a feature list — it is a complete anxiety map. Every major concern of a train traveler has a named, focused AI tool. The concentration of practical AI utilities in a single screen is the richest in any travel product benchmarked.",
+        "ux_principle": "Map user anxiety → assign a named AI tool to each → let the user self-select their need. No conversational AI required.",
+        "industry_position": "Unique Differentiator — the AI-as-Predictor philosophy realized as a product",
+        "saudia_opportunity": "Saudia Pre-Flight Intelligence Hub: an equivalent strip of airline-specific AI tools: On-Time Probability, Upgrade Probability, Gate Navigator, Boarding Group Timer, Connection Confidence, Lounge Availability, Baggage Track. Every tile is data Saudia already owns.",
+        "saudia_timeline": "Short-term (6–18 months)",
+        "saudia_feasibility": "Airline-Native"
+      }
+    },
+    {
+      "rank": 4,
+      "step": "03_search",
+      "file": "03_Screenshots/ixigo/03_search/01_ixigo_trains_search_form.png",
+      "label": "Quota-Aware Train Search",
+      "innovation_score": 3.8,
+      "annotation": {
+        "what_is_happening": "The train search form exposes a Quota Selector: General / Tatkal / Premium Tatkal / Ladies / Senior Citizen / Differently Abled / Foreign Tourist. Each quota represents a distinct AI-accessible inventory pool with different availability, pricing, and confirmation dynamics.",
+        "why_it_matters": "Instead of hiding quota complexity behind generic 'Economy/Business' labels, ixigo exposes the full inventory architecture and lets the AI work within the user's selected context. This is domain-native UX — the form is shaped by the complexity of the specific transport system, not a generic template.",
+        "ux_principle": "Domain expertise in the search form is a competitive moat. Generic forms lose to domain-specific forms every time.",
+        "industry_position": "Unique Differentiator within Indian rail; conceptually applicable as 'fare class intelligence' in airlines",
+        "saudia_opportunity": "Fare Class Intelligence: when a user selects Economy, show the upgrade probability for Business, the price delta, and the points needed. AI turns fare class selection from a binary choice into a guided decision. 'Economy: SAR 890. Business: SAR 2,100. Your upgrade probability if you book Economy and join the waitlist: 71%.'",
+        "saudia_timeline": "Short-term (6–18 months)",
+        "saudia_feasibility": "Airline-Native"
+      }
+    },
+    {
+      "rank": 5,
+      "step": "08_ancillaries",
+      "file": "03_Screenshots/ixigo/08_ancillaries/01_ixigo_order_food_on_train.png",
+      "label": "Order Food On Train — Journey-Layer AI",
+      "innovation_score": 3.8,
+      "annotation": {
+        "what_is_happening": "ixigo enables IRCTC e-catering: passengers order food from restaurant partners, delivered to their seat at upcoming stations during the journey. The system knows the train, seat, and upcoming station stops.",
+        "why_it_matters": "This is AI delivered at the point of consumption — not at booking, not post-trip. The product is present mid-journey, contextualized to the user's exact location and remaining travel time. This is the first 'journey-layer AI' pattern in the benchmark cycle.",
+        "ux_principle": "AI should be present at the moment of need, not just the moment of planning. The in-journey context is the next frontier.",
+        "industry_position": "Emerging — unique in this benchmark; food delivery apps (Swiggy) integrate with IRCTC separately, but ixigo makes it native to the booking",
+        "saudia_opportunity": "In-flight meal AI pre-selection: AI recommends a meal based on Alfursan dietary history and confirms it before boarding. Crew knows your row. Faster service. Higher NPS. 'Your meal for SV405 is pre-set to Lamb Kabsa based on your last 3 flights. Confirm or change before boarding.'",
+        "saudia_timeline": "Medium-term (18–36 months)",
+        "saudia_feasibility": "Airline-Native (IFE/IFRS integration required)"
+      }
+    },
+    {
+      "rank": 6,
+      "step": "01_entry",
+      "file": "03_Screenshots/ixigo/01_entry/01_ixigo_homepage_full.png",
+      "label": "Homepage — Special Fares Selector + ixigo Pro",
+      "innovation_score": 3.0,
+      "annotation": {
+        "what_is_happening": "The flights search form includes a 'Special Fares' selector: Student / Senior Citizen / Armed Forces. ixigo Pro premium subscription is visible in the navigation bar. AU Bank credit card is promoted alongside booking products.",
+        "why_it_matters": "Three business model signals in one screen: segment-aware search (demographic recognition at entry), subscription loyalty (recurring revenue), and fintech (card interchange revenue). ixigo has diversified its revenue model beyond OTA commissions — a strategic move that increases switching cost and ARPU.",
+        "ux_principle": "Surface your user segments at the first interaction. Don't make travelers hunt for their fare type.",
+        "industry_position": "Segment selector: Emerging. Subscription loyalty: Emerging. OTA+fintech: Gaining Traction.",
+        "saudia_opportunity": "Add a Traveler Segment selector to the Saudia.com search form: Economy / Business / Pilgrim / Military. The Pilgrim segment unlocks the Hajj/Umrah AI companion mode — the highest-value Saudia-exclusive opportunity.",
+        "saudia_timeline": "Now (0–1 month for UX change)",
+        "saudia_feasibility": "Airline-Native (existing fare class logic applies)"
+      }
+    },
+    {
+      "rank": 7,
+      "step": "07_booking",
+      "file": "03_Screenshots/ixigo/07_booking/01_ixigo_trains_irctc_booking.png",
+      "label": "IRCTC Abstraction Layer — UX Arbitrage",
+      "innovation_score": 3.5,
+      "annotation": {
+        "what_is_happening": "ixigo wraps the IRCTC government rail booking system (notoriously poor UX, prone to crashes during Tatkal rush hours) with a clean, modern booking interface. The user gets the same government-authorized booking with dramatically better UX.",
+        "why_it_matters": "This is UX arbitrage: taking a high-demand utility with poor UI and making it delightful. For 200M+ Indian rail passengers who need to book through IRCTC, ixigo's better UX is the single most valuable thing it offers. The business model depends entirely on being better than the native experience.",
+        "ux_principle": "Your competitive moat is only valuable if your UX is better than the alternative. An OTA that is barely easier than the airline website will lose.",
+        "industry_position": "Context-specific — IRCTC/India only. But the principle applies universally.",
+        "saudia_opportunity": "Saudia's direct booking must be demonstrably better than booking via OTA — not just equally functional. If a user can book on Booking.com in the same time as Saudia.com, the OTA wins on breadth. Saudia wins by being the AI-first, personalized, Alfursan-powered experience that no OTA can replicate.",
+        "saudia_timeline": "Ongoing",
+        "saudia_feasibility": "Airline-Native"
+      }
+    },
+    {
+      "rank": 8,
+      "step": "04_ai_interaction",
+      "file": "03_Screenshots/ixigo/04_ai_interaction/03_ixigo_trains_running_status.png",
+      "label": "Live Train Running Status — Real-Time Disruption AI",
+      "innovation_score": 3.5,
+      "annotation": {
+        "what_is_happening": "Real-time GPS tracking of any Indian Railways train: current location, distance from destination, expected arrival time (AI-corrected for delays), station-by-station ETA.",
+        "why_it_matters": "The strongest real-time disruption AI implementation in the benchmark cycle. Unlike TripGenie (Q&A) or generic flight status pages, ixigo's running status gives a continuously-updating AI picture of where the asset is and when it will arrive. The AI layer corrects ETAs based on current delay patterns, not just scheduled times.",
+        "ux_principle": "Real-time > scheduled. AI-corrected ETA > raw timetable. Users in disruption mode need facts, not promises.",
+        "industry_position": "Gaining Traction — first strong implementation. Airlines already have flight trackers; the gap is AI-corrected ETAs and proactive rebooking triggers.",
+        "saudia_opportunity": "Saudia Live Flight AI: live flight tracker with AI-corrected ETA + connection impact calculator + proactive rebooking suggestion when connection is at risk. The disruption co-pilot is the highest-value reactive AI Saudia can build in 2026.",
+        "saudia_timeline": "Short-term (6–18 months)",
+        "saudia_feasibility": "Airline-Native"
+      }
+    }
+  ],
+
+  "journey_timeline": [
+    { "step": "01", "label": "Entry", "score": 3.0, "highlight": "Special Fares selector + ixigo Pro subscription visible" },
+    { "step": "02", "label": "Discovery", "score": 2.8, "highlight": "Feature absent on web — utility-first philosophy" },
+    { "step": "03", "label": "Search", "score": 3.6, "highlight": "Quota-aware train search. Best domain-specific search in cycle." },
+    { "step": "04", "label": "AI Interaction", "score": 4.0, "highlight": "★ STANDOUT: PNR Prediction + Coach Position + Running Status" },
+    { "step": "05", "label": "Recommendations", "score": 3.0, "highlight": "Thin on web; popular routes by volume" },
+    { "step": "06", "label": "Maps", "score": 2.8, "highlight": "Not present on web" },
+    { "step": "07", "label": "Booking", "score": 3.6, "highlight": "IRCTC abstraction + multi-modal (flights+trains+buses+cabs)" },
+    { "step": "08", "label": "Ancillaries", "score": 2.8, "highlight": "Order Food On Train — journey-layer AI first in benchmark" },
+    { "step": "09", "label": "Payment", "score": 3.0, "highlight": "AU Bank co-branded card — OTA+fintech model" },
+    { "step": "10", "label": "Trip Management", "score": 3.5, "highlight": "★ HIGHLIGHT: Complete pre-departure AI suite" },
+    { "step": "11", "label": "Check-in", "score": 2.0, "highlight": "Web check-in 404 — app-only on web" },
+    { "step": "12", "label": "Loyalty", "score": 2.5, "highlight": "ixigo Pro subscription model + rewards app-only" }
+  ],
+
+  "three_benchmark_comparison": {
+    "ai_philosophies": [
+      { "product": "Mindtrip",  "philosophy": "AI-as-Product",   "score": 3.8, "core_insight": "Conversation replaces search; AI IS the product" },
+      { "product": "Trip.com",  "philosophy": "AI-as-Sidekick",  "score": 3.3, "core_insight": "Full OTA inventory + AI layer on top" },
+      { "product": "ixigo",     "philosophy": "AI-as-Predictor", "score": 3.1, "core_insight": "AI forecasts outcomes; reduces uncertainty, not effort" }
+    ],
+    "saudia_synthesis": "Adopt Trip.com's model (AI-as-Sidekick on full airline platform) for the core experience. Borrow Mindtrip's conversational interface for discovery and inspiration. Apply ixigo's AI-as-Predictor philosophy for the post-booking, pre-flight, and in-journey experience where Saudia uniquely owns the data.",
+    "saudia_path": "Sidekick + Predictor hybrid on an airline-native platform = the only model that beats all three at the intersection of their strengths"
+  },
+
+  "patterns_now_in_2_products": [
+    {
+      "pattern": "Multi-Modal Transport OTA",
+      "status": "ESCALATED: Unique Differentiator → Gaining Traction",
+      "products": ["Trip.com", "ixigo"],
+      "signal": "Two geographically distinct OTAs (China-global + India) both building multi-modal. This is a global trend, not an Asian exception.",
+      "action_for_saudia": "Partner with Saudi Railways (SAR) and Careem for a multi-modal Saudia experience. First step: integrate SAR domestic train booking within Saudia app."
+    },
+    {
+      "pattern": "Real-Time Asset Tracking as Trip Intelligence",
+      "status": "NEW TREND: ixigo (strong) now joined by Trip.com (partial via TripGenie)",
+      "products": ["ixigo", "Trip.com"],
+      "signal": "Real-time disruption data + AI layer is confirmed in 2 products. Airline apps without this will fall behind.",
+      "action_for_saudia": "Disruption co-pilot: when a flight is delayed or a connection is at risk, Saudia AI proactively surfaces options and holds a seat. Fastest to build = most impact."
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-travel-benchmark.internal/schemas/vision.schema.json",
+  "title": "Vision Module Contract",
+  "version": "0.1.0",
+  "description": "Design contract for modules/vision. Vision is the only module allowed to touch a live product (via browser automation, once implemented). It turns a capture request into organized screenshot/video evidence on disk, following the Tier 1/2/3 escalation ladder in 00_Project_Management/Benchmark_Workflow.md. This file is not implemented or enforced anywhere yet — it exists to pin the shape orchestrator/ and modules/analysis/ will eventually agree on.",
+  "type": "object",
+  "required": ["input", "output"],
+  "properties": {
+    "input": { "$ref": "#/$defs/VisionInput" },
+    "output": { "$ref": "#/$defs/VisionOutput" }
+  },
+  "$defs": {
+    "JourneyStepId": {
+      "type": "string",
+      "description": "One of the 12 canonical journey steps, matching Master_Benchmark_Matrix.json's schema.journey_steps.",
+      "enum": [
+        "step_01_entry", "step_02_discovery", "step_03_search", "step_04_ai_interaction",
+        "step_05_recommendations", "step_06_maps", "step_07_booking", "step_08_ancillaries",
+        "step_09_payment", "step_10_trip_management", "step_11_checkin", "step_12_loyalty"
+      ]
+    },
+    "CaptureTier": {
+      "type": "string",
+      "description": "The escalation tier from Benchmark_Workflow.md. tier_1 is attempted first, always.",
+      "enum": ["tier_1_playwright", "tier_2_partial_webfetch", "tier_3_full_hybrid"]
+    },
+    "EvidenceLabel": {
+      "type": "string",
+      "description": "Required on every finding not directly observed via Playwright. Mirrors the 'Evidence Labeling' table in Benchmark_Workflow.md.",
+      "enum": [
+        "OBSERVED", "RESEARCHED-WEB", "RESEARCHED-REVIEW", "RESEARCHED-APPSTORE",
+        "RESEARCHED-VIDEO", "INFERRED", "LOGIN-GATED", "APP-ONLY", "NOT-FOUND"
+      ]
+    },
+    "VisionInput": {
+      "type": "object",
+      "description": "What the orchestrator asks Vision to go capture for one company.",
+      "required": ["schema_version", "run_id", "company", "benchmark_type", "journey_steps"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "Version of this contract the caller was built against. Required so the engine can detect drift before it ships bad data.",
+          "const": "0.1.0"
+        },
+        "run_id": {
+          "type": "string",
+          "description": "Identifier for this benchmark run. Expected to align with a Benchmark_Requests.json request id (e.g. 'req_20260707_001') plus the target company slug, so a future orchestrator can post progress back to the existing Queue without inventing a second id scheme.",
+          "pattern": "^req_[0-9]{8}_[0-9]{3}(:[a-z0-9_]+)?$"
+        },
+        "company": {
+          "type": "object",
+          "required": ["slug", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "slug": { "type": "string", "description": "Matches the key used in Master_Benchmark_Matrix.json's companies object." },
+            "name": { "type": "string" },
+            "url": { "type": "string", "format": "uri", "description": "Optional — absent for companies that are hybrid-research-only." },
+            "category": { "type": "string", "description": "Optional. One of: AI-first, OTA, Airline, Big Tech, Super App." }
+          }
+        },
+        "benchmark_type": {
+          "type": "string",
+          "description": "Matches BENCHMARK_TYPES in 10_Dashboard/lib/requestsStore.js — determines how much of the journey Vision is asked to cover.",
+          "enum": ["AI Experience", "UX/UI", "Mobile App", "Website", "Complete Journey", "Feature Benchmark"]
+        },
+        "scope": {
+          "type": "array",
+          "description": "Optional. Matches SCOPE_OPTIONS in requestsStore.js. Narrows which surfaces Vision should prioritize.",
+          "items": {
+            "type": "string",
+            "enum": ["AI only", "UX/UI only", "Mobile", "Web", "End-to-End Journey", "Visual Design", "Interaction Design"]
+          }
+        },
+        "journey_steps": {
+          "type": "array",
+          "description": "Which steps to attempt capture for, in priority order. For 'Feature Benchmark' this is typically a single step; for 'Complete Journey' this is all 12.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/JourneyStepId" }
+        },
+        "capture_tier_preference": {
+          "type": "string",
+          "description": "Optional starting tier. Vision still escalates automatically per the workflow's fix-attempt rules regardless of this hint.",
+          "$ref": "#/$defs/CaptureTier",
+          "default": "tier_1_playwright"
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "Optional override. Defaults to the existing convention: 03_Screenshots/{company.name}/{NN_step_name}/.",
+          "default": "03_Screenshots/{company.name}/"
+        }
+      }
+    },
+    "VisionOutput": {
+      "type": "object",
+      "description": "What Vision hands back to Analysis once capture finishes (successfully or via hybrid fallback).",
+      "required": ["schema_version", "run_id", "company_slug", "capture_tier_used", "steps", "confidence", "captured_at"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "run_id": { "type": "string" },
+        "company_slug": { "type": "string" },
+        "capture_method": {
+          "type": "string",
+          "description": "Optional free-text summary, matching metadata.json's existing 'capture_method' field, e.g. 'Playwright (Tier 1) — primary AI surfaces observed; chatbot login-gated'."
+        },
+        "capture_tier_used": { "$ref": "#/$defs/CaptureTier" },
+        "steps": {
+          "type": "array",
+          "description": "One entry per journey step that was attempted, whether it succeeded or not.",
+          "items": {
+            "type": "object",
+            "required": ["step_id", "state_captures"],
+            "additionalProperties": false,
+            "properties": {
+              "step_id": { "$ref": "#/$defs/JourneyStepId" },
+              "state_captures": {
+                "type": "array",
+                "description": "Zero or more captured assets for this step. Empty means the step was attempted but nothing was captured (see failures).",
+                "items": {
+                  "type": "object",
+                  "required": ["state", "asset_type", "evidence_label"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "description": "Which of the 'States to Always Capture' this asset represents.",
+                      "enum": ["default", "loading", "response", "empty", "error", "filled", "micro_interaction", "voice_input"]
+                    },
+                    "asset_type": { "type": "string", "enum": ["screenshot", "video", "gif"] },
+                    "file_path": {
+                      "type": "string",
+                      "description": "Optional — absent when evidence_label indicates no visual asset exists (e.g. RESEARCHED-WEB, NOT-FOUND)."
+                    },
+                    "evidence_label": { "$ref": "#/$defs/EvidenceLabel" },
+                    "notes": { "type": "string", "description": "Optional free text, e.g. voice-input availability, AI-memory behavior observed at capture time." }
+                  }
+                }
+              },
+              "voice_input_observed": { "type": "boolean", "description": "Optional." },
+              "ai_memory_observed": { "type": "boolean", "description": "Optional." },
+              "embedded_vs_sidebar": {
+                "type": "string",
+                "description": "Optional. One of: embedded, sidebar, none — whether AI on this step is woven into the UI or a chatbot overlay.",
+                "enum": ["embedded", "sidebar", "none"]
+              }
+            }
+          }
+        },
+        "screenshots_total": { "type": "integer", "minimum": 0 },
+        "videos_total": { "type": "integer", "minimum": 0, "description": "Optional, defaults to 0." },
+        "failures": {
+          "type": "array",
+          "description": "Optional. One entry per step where Tier 1 failed and Vision had to escalate or give up, per the workflow's 'Common Playwright fixes' table.",
+          "items": {
+            "type": "object",
+            "required": ["step_id", "reason", "escalated_to"],
+            "additionalProperties": false,
+            "properties": {
+              "step_id": { "$ref": "#/$defs/JourneyStepId" },
+              "reason": { "type": "string" },
+              "fix_attempts": { "type": "array", "items": { "type": "string" }, "description": "Optional log of fixes tried before escalating." },
+              "escalated_to": { "$ref": "#/$defs/CaptureTier" }
+            }
+          }
+        },
+        "confidence": {
+          "type": "string",
+          "description": "Overall confidence in this capture set, mirroring the 'Confidence level' line in hybrid-mode journey step files.",
+          "enum": ["low", "medium", "high"]
+        },
+        "captured_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

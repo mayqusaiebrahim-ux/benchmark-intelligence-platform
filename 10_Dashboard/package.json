@@ -1,0 +1,13 @@
+{
+  "name": "ai-travel-benchmark-dashboard",
+  "version": "1.0.0",
+  "description": "Local dashboard for the AI Travel Benchmark 2026 project",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

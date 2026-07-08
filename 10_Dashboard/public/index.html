@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Travel Benchmark 2026</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">✈</div>
+        <div class="brand-text">
+          <div class="brand-name">AI Travel Benchmark</div>
+          <div class="brand-year">2026</div>
+        </div>
+      </div>
+
+      <nav id="sidebar-nav">
+        <div class="nav-section-label workspace-only">Workspace</div>
+        <a href="#wizard" class="nav-item workspace-only" data-route="wizard">
+          <span class="nav-icon">+</span> New Benchmark
+        </a>
+        <a href="#queue" class="nav-item workspace-only" data-route="queue">
+          <span class="nav-icon">▤</span> Queue
+          <span class="nav-badge" id="badge-queue" style="display:none">0</span>
+        </a>
+
+        <div class="nav-section-label">Overview</div>
+        <a href="#home" class="nav-item" data-route="home">
+          <span class="nav-icon">⬡</span> Home
+        </a>
+        <a href="#benchmarks" class="nav-item" data-route="benchmarks">
+          <span class="nav-icon">◈</span> Benchmark Library
+          <span class="nav-badge" id="badge-count">0</span>
+        </a>
+
+        <div class="nav-section-label" id="section-completed" style="display:none">Completed</div>
+        <div id="nav-companies"></div>
+
+        <div class="nav-section-label">Analysis</div>
+        <a href="#comparison" class="nav-item" data-route="comparison">
+          <span class="nav-icon">⇄</span> Comparison
+        </a>
+        <a href="#matrix" class="nav-item" data-route="matrix">
+          <span class="nav-icon">⊞</span> Master Matrix
+        </a>
+        <a href="#trends" class="nav-item" data-route="trends">
+          <span class="nav-icon">↗</span> Trends
+        </a>
+        <a href="#saudia" class="nav-item" data-route="saudia">
+          <span class="nav-icon">◎</span> Saudia Opportunities
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="presentation-toggle" id="presentation-toggle">
+          <span>Presentation Mode</span>
+          <span class="pt-switch"></span>
+        </div>
+        <div class="progress-label">
+          <span id="progress-text">0 / 0 complete</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+      </div>
+    </aside>
+
+    <main id="main">
+      <div id="topbar">
+        <div id="page-title">Loading…</div>
+        <div id="topbar-center">
+          <div id="global-search">
+            <input type="text" id="global-search-input" placeholder="Search companies, patterns, capabilities…" autocomplete="off" />
+            <div id="global-search-results"></div>
+          </div>
+        </div>
+        <div id="topbar-actions"></div>
+      </div>
+      <div id="content">
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <div>Loading dashboard…</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+{
+  "benchmark_id": "TC-002",
+  "company": "Trip.com",
+  "category": "OTA",
+  "url": "https://www.trip.com",
+  "benchmark_date": "2026-06-30",
+  "overall_score": 3.3,
+  "applicable_steps_score": 3.3,
+  "ai_maturity": "Assistive",
+  "screenshots_count": 38,
+  "patterns_extracted": 6,
+  "innovation_scores": {
+    "clarity": 3.6,
+    "ai_sophistication": 2.8,
+    "personalization": 3.0,
+    "delight": 3.2,
+    "innovation": 3.0,
+    "overall": 3.1,
+    "innovation_count": 3
+  },
+  "journey_scores": {
+    "step_01_entry": 3.2,
+    "step_02_discovery": 3.6,
+    "step_03_search": 3.0,
+    "step_04_ai_interaction": 3.4,
+    "step_05_recommendations": 3.2,
+    "step_06_maps": 3.6,
+    "step_07_booking": 4.2,
+    "step_08_ancillaries": 3.6,
+    "step_09_payment": 3.0,
+    "step_10_trip_management": 3.4,
+    "step_11_checkin": 2.0,
+    "step_12_loyalty": 3.8
+  },
+  "key_ai_features": [
+    "TripGenie — AI Q&A travel assistant",
+    "Trip.Planner (labeled NEW) — structured AI map planner",
+    "Arabic auto-localization with RTL",
+    "Cheap Flight Finder browser extension",
+    "1M+ attractions data layer (AI-powered)"
+  ],
+  "standout_feature": "Trip.Planner with map-integrated AI workflow + TripGenie Q&A",
+  "biggest_gap": "TripGenie is Q&A, not conversational planning — less creative than Mindtrip",
+  "biggest_advantage_over_mindtrip": "Native booking across flights, hotels, trains, cars, activities + full loyalty program",
+  "saudia_relevance": "High",
+  "executive_recommendation": {
+    "one_idea": "Saudia AI Assistant — Scoped FAQ-AI",
+    "description": "A named AI assistant on Saudia.com and the app, scoped to Saudia-exclusive knowledge: Hajj visa process, Alfursan point redemption, fare rules, lounge access, connection intelligence — questions no OTA can answer.",
+    "why_it_matters": "Trip.com's TripGenie demonstrates that an AI layer on a transactional platform reduces friction, improves discovery, and builds brand trust without disrupting the booking engine. Saudia's exclusive knowledge of Islamic travel, Alfursan loyalty, and Saudi routes creates an AI that OTAs literally cannot replicate.",
+    "business_impact": "Reduces call center volume on repeatable queries; improves conversion on complex Hajj/Umrah itineraries where travelers have many questions; creates a proprietary AI personality that no OTA can match on Saudi travel knowledge.",
+    "complexity": "Medium",
+    "timeline": "Mid-term"
+  },
+
+  "paths": {
+    "report": "02_Benchmark_Repository/OTAs/Trip.com/00_report.md",
+    "executive_summary": "02_Benchmark_Repository/OTAs/Trip.com/01_executive_summary.md",
+    "user_journey": "02_Benchmark_Repository/OTAs/Trip.com/02_user_journey/",
+    "ux_analysis": "02_Benchmark_Repository/OTAs/Trip.com/03_ux_analysis.md",
+    "emerging_patterns": "02_Benchmark_Repository/OTAs/Trip.com/04_emerging_patterns.md",
+    "innovation_opportunities": "02_Benchmark_Repository/OTAs/Trip.com/05_innovation_opportunities.md",
+    "screenshots": "03_Screenshots/Trip.com/",
+    "saudia_brief": "07_Saudia_Opportunities/Trip.com_opportunities.md",
+    "figma": "08_Figma/Trip.com/"
+  }
+}

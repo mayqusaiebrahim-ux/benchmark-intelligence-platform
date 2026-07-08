@@ -1,0 +1,77 @@
+{
+  "benchmark_id": "IX-003",
+  "company": "ixigo",
+  "category": "OTA",
+  "url": "https://www.ixigo.com",
+  "benchmark_date": "2026-07-01",
+  "overall_score": 3.1,
+  "applicable_steps_score": 3.3,
+  "ai_maturity": "Assistive",
+  "screenshots_count": 71,
+  "patterns_extracted": 6,
+  "standout_feature": "AI PNR Confirmation Prediction — probabilistic AI tells waitlisted passengers their confirmation odds in real time",
+  "biggest_gap": "Web experience is severely limited vs. the mobile app — many features 404 on web",
+  "biggest_advantage": "Deepest train AI in the benchmark cycle: PNR prediction, coach position, platform locator, food-on-train. No other product comes close for rail travel.",
+  "saudia_relevance": "High — AI-as-Predictor model is directly applicable to Saudia's flight context: upgrade prediction, seat confirmation, disruption alerts",
+  "ai_architecture": "AI-as-Predictor — third distinct AI philosophy confirmed",
+  "key_ai_features": [
+    "PNR Confirmation Probability Prediction — analyses waitlist data and historical trends",
+    "Live Train Running Status — real-time GPS tracking",
+    "Coach Position Predictor — tells you exactly where your coach stops on the platform",
+    "Platform Locator — which platform your train departs from",
+    "Seat Availability Prediction",
+    "Tatkal Reservation AI",
+    "Order Food On Train — meal ordering at your seat mid-journey"
+  ],
+  "innovation_scores": {
+    "clarity": 3.5,
+    "ai_sophistication": 3.0,
+    "personalization": 2.5,
+    "delight": 3.0,
+    "innovation": 3.8,
+    "overall": 3.2,
+    "innovation_count": 2
+  },
+  "journey_scores": {
+    "step_01_entry": 3.0,
+    "step_02_discovery": 2.8,
+    "step_03_search": 3.6,
+    "step_04_ai_interaction": 4.0,
+    "step_05_recommendations": 3.0,
+    "step_06_maps": 2.8,
+    "step_07_booking": 3.6,
+    "step_08_ancillaries": 2.8,
+    "step_09_payment": 3.0,
+    "step_10_trip_management": 3.5,
+    "step_11_checkin": 2.0,
+    "step_12_loyalty": 2.5
+  },
+  "classification": {
+    "ai_maturity": "Assistive",
+    "ai_architecture": "AI-as-Predictor",
+    "primary_market": "India (web + app), expanding internationally",
+    "parent_company": "Le Travenues Technology Ltd. (NSE/BSE listed)",
+    "key_acquisitions": ["ConfirmTkt (AI train prediction)", "AbhiBus (bus booking)", "Confirmtkt"],
+    "note": "ixigo is primarily a mobile-first app. The web experience is substantially thinner than what mobile users see. Scores reflect web benchmark only."
+  },
+  "executive_recommendation": {
+    "one_idea": "Pre-Departure AI Briefing Push Notification",
+    "description": "A single proactive push notification delivered 4 hours before every Saudia departure: on-time probability, upgrade status, seat assignment, gate, boarding group, and connection confidence — all in one card.",
+    "why_it_matters": "ixigo's PNR Prediction proves passengers will engage deeply with AI that resolves pre-travel anxiety with a specific number rather than a vague status. Saudia already owns every data point required. No OTA can send this notification because no OTA has access to Saudia's real-time flight operations, upgrade waitlist, and seat inventory simultaneously.",
+    "business_impact": "Differentiates the Saudia app from every OTA on the market. Reduces pre-departure call center volume. Drives app installs and notification opt-ins. Delivers measurable NPS improvement at the highest-anxiety moment of the traveler journey.",
+    "complexity": "Low",
+    "timeline": "Quick Win"
+  },
+
+  "paths": {
+    "report": "02_Benchmark_Repository/OTAs/ixigo/00_report.md",
+    "executive_summary": "02_Benchmark_Repository/OTAs/ixigo/01_executive_summary.md",
+    "user_journey": "02_Benchmark_Repository/OTAs/ixigo/02_user_journey/",
+    "ux_analysis": "02_Benchmark_Repository/OTAs/ixigo/03_ux_analysis.md",
+    "emerging_patterns": "02_Benchmark_Repository/OTAs/ixigo/04_emerging_patterns.md",
+    "innovation_opportunities": "02_Benchmark_Repository/OTAs/ixigo/05_innovation_opportunities.md",
+    "screenshots": "03_Screenshots/ixigo/",
+    "saudia_brief": "07_Saudia_Opportunities/ixigo_opportunities.md",
+    "figma": "08_Figma/ixigo/"
+  }
+}

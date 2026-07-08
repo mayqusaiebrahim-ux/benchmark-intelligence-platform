@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-travel-benchmark.internal/schemas/pattern.schema.json",
+  "title": "Pattern Module Contract",
+  "version": "0.1.0",
+  "description": "Design contract for the pattern-extraction step (modules/analysis today owns this responsibility per 11_Benchmark_Engine/README.md; this contract is kept separate because Reports and a future Dashboard sync both consume it independently of raw AnalysisOutput). Pattern takes one company's scored findings plus the existing pattern_tracker state and decides which UX patterns are new, which are escalating, and how each should be classified — codifying the 'Pattern Library Rules' and 'Strategic Classification System' from CLAUDE.md. Not implemented yet.",
+  "type": "object",
+  "required": ["input", "output"],
+  "properties": {
+    "input": { "$ref": "#/$defs/PatternInput" },
+    "output": { "$ref": "#/$defs/PatternOutput" }
+  },
+  "$defs": {
+    "IndustryPosition": {
+      "type": "string",
+      "description": "Axis 1 of CLAUDE.md's Strategic Classification System.",
+      "enum": ["Table Stakes", "Emerging Trend", "Unique Differentiator", "Experimental", "Ahead of Its Time"]
+    },
+    "ProductTypeFit": {
+      "type": "string",
+      "description": "Axis 2a — Saudia Feasibility / Product Type Fit.",
+      "enum": ["Airline-Native", "OTA-Adjacent", "Platform-Level", "AI-Native Only"]
+    },
+    "SaudiaTimeline": {
+      "type": "string",
+      "description": "Axis 2b — Saudia Feasibility / Timeline.",
+      "enum": ["Now (0-6 months)", "Short-term (6-18 months)", "Medium-term (18-36 months)", "Long-term (3-5 years)", "Not for Saudia"]
+    },
+    "PatternStatus": {
+      "type": "string",
+      "enum": ["new", "updated", "unchanged"]
+    },
+    "PatternInput": {
+      "type": "object",
+      "description": "What Pattern needs to classify one company's findings against the shared pattern library.",
+      "required": ["schema_version", "run_id", "company_slug", "analysis_output"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "run_id": { "type": "string" },
+        "company_slug": { "type": "string" },
+        "analysis_output": {
+          "description": "Pattern reads ux_patterns and innovation_scores off Analysis's output — it does not re-derive them.",
+          "$ref": "analysis.schema.json#/$defs/AnalysisOutput"
+        },
+        "existing_pattern_tracker": {
+          "type": "object",
+          "description": "Optional. A snapshot of Master_Benchmark_Matrix.json's pattern_tracker at the time of this run, so Pattern can compute deltas (new vs. updated) instead of guessing. Absent on the very first benchmark ever run.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["label", "count", "companies"],
+            "additionalProperties": false,
+            "properties": {
+              "label": { "type": "string" },
+              "count": { "type": "integer", "minimum": 0 },
+              "companies": { "type": "array", "items": { "type": "string" }, "description": "Company slugs the pattern has been seen in so far." },
+              "table_stakes_at": { "type": "integer", "description": "Optional. Defaults to 5 per CLAUDE.md." }
+            }
+          }
+        }
+      }
+    },
+    "PatternOutput": {
+      "type": "object",
+      "description": "The classified pattern findings for this run, ready to (a) feed Reports' emerging_patterns deliverable and (b) be applied as a patch to Master_Benchmark_Matrix.json's pattern_tracker — application is manual, per CLAUDE.md's hard rules; Pattern only proposes.",
+      "required": ["schema_version", "run_id", "findings", "generated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "run_id": { "type": "string" },
+        "findings": {
+          "type": "array",
+          "description": "One entry per UX pattern this company scored 4+ on Innovation for, per CLAUDE.md's pattern-extraction rule ('identify every interaction scoring 4+ on Innovation').",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "status", "companies_seen_in", "count", "industry_position"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "description": "Snake_case id matching (or proposing) a key in Master_Benchmark_Matrix.json's pattern_tracker, e.g. 'geo_aware_cold_start'." },
+              "label": { "type": "string" },
+              "status": { "$ref": "#/$defs/PatternStatus" },
+              "companies_seen_in": {
+                "type": "array",
+                "description": "Full updated list including this run's company — not just this run's contribution.",
+                "items": { "type": "string" },
+                "minItems": 1
+              },
+              "count": { "type": "integer", "minimum": 1, "description": "Equal to companies_seen_in.length; kept explicit to match the existing pattern_tracker shape." },
+              "table_stakes_at": { "type": "integer", "description": "Optional, defaults to 5.", "default": 5 },
+              "industry_position": { "$ref": "#/$defs/IndustryPosition" },
+              "expected_12_24m": {
+                "type": "string",
+                "description": "Optional. Per CLAUDE.md: 'Always note which classification you expect in 12-24 months, not just today.'"
+              },
+              "saudia_feasibility": {
+                "type": "object",
+                "description": "Optional — required before a finding can flow into a Saudia opportunity brief, but Pattern may leave it for Reports to fill in.",
+                "additionalProperties": false,
+                "properties": {
+                  "product_type_fit": { "$ref": "#/$defs/ProductTypeFit" },
+                  "saudia_timeline": { "$ref": "#/$defs/SaudiaTimeline" }
+                }
+              },
+              "notes": { "type": "string", "description": "Optional." }
+            }
+          }
+        },
+        "escalations": {
+          "type": "array",
+          "description": "Optional. Subset of findings whose industry_position changed this run (e.g. Emerging Trend -> Table Stakes at the 5th sighting) — surfaced separately so Reports can call them out explicitly, matching the Dashboard's 'escalate classification' language.",
+          "items": {
+            "type": "object",
+            "required": ["id", "from_status", "to_status"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "from_status": { "$ref": "#/$defs/IndustryPosition" },
+              "to_status": { "$ref": "#/$defs/IndustryPosition" }
+            }
+          }
+        },
+        "generated_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

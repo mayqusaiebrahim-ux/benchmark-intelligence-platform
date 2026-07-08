@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-travel-benchmark.internal/schemas/analysis.schema.json",
+  "title": "Analysis Module Contract",
+  "version": "0.1.0",
+  "description": "Design contract for modules/analysis. Analysis is the only module allowed to render a judgment: it turns Vision's captured evidence into journey scores, innovation scores, AI-capability findings, and answers to the 5 mandatory questions from CLAUDE.md. This is the codified form of the scoring an agent currently does by hand — it is not implemented yet. Output shape intentionally mirrors the company entry shape already used in Master_Benchmark_Matrix.json and per-company metadata.json, so a future writer needs no translation layer.",
+  "type": "object",
+  "required": ["input", "output"],
+  "properties": {
+    "input": { "$ref": "#/$defs/AnalysisInput" },
+    "output": { "$ref": "#/$defs/AnalysisOutput" }
+  },
+  "$defs": {
+    "JourneyStepId": {
+      "type": "string",
+      "enum": [
+        "step_01_entry", "step_02_discovery", "step_03_search", "step_04_ai_interaction",
+        "step_05_recommendations", "step_06_maps", "step_07_booking", "step_08_ancillaries",
+        "step_09_payment", "step_10_trip_management", "step_11_checkin", "step_12_loyalty"
+      ]
+    },
+    "InnovationDimension": {
+      "type": "string",
+      "description": "Matches Master_Benchmark_Matrix.json's schema.innovation_dimensions.",
+      "enum": ["clarity", "ai_sophistication", "personalization", "delight", "innovation"]
+    },
+    "AiMaturityLevel": {
+      "type": "string",
+      "enum": ["Absent", "Basic", "Assistive", "Conversational", "Autonomous"]
+    },
+    "Confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+    "AnalysisInput": {
+      "type": "object",
+      "description": "What the orchestrator hands Analysis once Vision has finished a run.",
+      "required": ["schema_version", "run_id", "company_slug", "vision_output"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "run_id": { "type": "string", "description": "Must match the run_id Vision produced." },
+        "company_slug": { "type": "string" },
+        "vision_output": {
+          "description": "Analysis consumes Vision's output type directly — no separate transport format.",
+          "$ref": "vision.schema.json#/$defs/VisionOutput"
+        },
+        "matrix_context": {
+          "type": "object",
+          "description": "Optional. Prior state from Master_Benchmark_Matrix.json, supplied so Analysis can note deltas against the company's previous run (re-benchmarks) rather than scoring in a vacuum.",
+          "additionalProperties": false,
+          "properties": {
+            "prior_overall_score": { "type": "number", "minimum": 0, "maximum": 5 },
+            "prior_journey_scores": { "type": "object", "description": "Optional. Keyed by JourneyStepId, values 0-5." }
+          }
+        },
+        "mandatory_questions_required": {
+          "type": "boolean",
+          "description": "Optional. When true (default), Analysis must populate mandatory_questions in its output — every benchmark answers all 5 per CLAUDE.md.",
+          "default": true
+        }
+      }
+    },
+    "AnalysisOutput": {
+      "type": "object",
+      "description": "Scored, judged findings for one company — the input Pattern and Reports both build on.",
+      "required": [
+        "schema_version", "run_id", "company_slug", "ai_maturity_level",
+        "journey_scores", "innovation_scores", "ai_capabilities", "ux_patterns",
+        "evidence_confidence", "analyzed_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "run_id": { "type": "string" },
+        "company_slug": { "type": "string" },
+        "ai_maturity_level": { "$ref": "#/$defs/AiMaturityLevel" },
+        "journey_scores": {
+          "type": "object",
+          "description": "Keyed by JourneyStepId. Shape matches Master_Benchmark_Matrix.json's companies[slug].journey_scores.",
+          "propertyNames": { "$ref": "#/$defs/JourneyStepId" },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["applicable"],
+            "additionalProperties": false,
+            "properties": {
+              "applicable": { "type": "boolean", "description": "False when this step doesn't exist for the product (e.g. an OTA has no check-in step)." },
+              "score": { "type": ["number", "null"], "minimum": 1, "maximum": 5, "description": "Required when applicable is true; must be null when applicable is false." },
+              "key_finding": { "type": "string", "description": "Optional one-line summary shown on the Dashboard's Overview tab." }
+            }
+          }
+        },
+        "innovation_scores": {
+          "type": "object",
+          "description": "The 5 dimensions plus their mean. Matches companies[slug].innovation_scores.",
+          "required": ["clarity", "ai_sophistication", "personalization", "delight", "innovation", "overall"],
+          "additionalProperties": false,
+          "properties": {
+            "clarity": { "type": "number", "minimum": 1, "maximum": 5 },
+            "ai_sophistication": { "type": "number", "minimum": 1, "maximum": 5 },
+            "personalization": { "type": "number", "minimum": 1, "maximum": 5 },
+            "delight": { "type": "number", "minimum": 1, "maximum": 5 },
+            "innovation": { "type": "number", "minimum": 1, "maximum": 5 },
+            "overall": { "type": "number", "minimum": 1, "maximum": 5, "description": "Mean of the 5 dimensions — computed, not independently judged." }
+          }
+        },
+        "ai_capabilities": {
+          "type": "object",
+          "description": "Keyed by capability id from Master_Benchmark_Matrix.json's schema.ai_capabilities (e.g. 'conversational_search', 'ai_memory').",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["status", "label"],
+            "additionalProperties": false,
+            "properties": {
+              "status": { "type": "string", "enum": ["present", "partial", "absent"] },
+              "score": { "type": ["number", "null"], "minimum": 1, "maximum": 5, "description": "Optional — null when status is absent." },
+              "label": { "type": "string", "description": "Short display label, e.g. '✅ Full NLP' or '❌'." },
+              "notes": { "type": "string", "description": "Optional supporting detail." }
+            }
+          }
+        },
+        "ux_patterns": {
+          "type": "object",
+          "description": "Keyed by pattern id from Master_Benchmark_Matrix.json's schema.ux_patterns.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["present", "label"],
+            "additionalProperties": false,
+            "properties": {
+              "present": { "type": "boolean" },
+              "quality": { "type": "string", "enum": ["strong", "partial"], "description": "Optional — only meaningful when present is true." },
+              "label": { "type": "string" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "mandatory_questions": {
+          "type": "object",
+          "description": "Optional (see input.mandatory_questions_required), but present on every complete benchmark. The 5 questions from CLAUDE.md, answered for this company.",
+          "additionalProperties": false,
+          "properties": {
+            "what_today": { "type": "string" },
+            "why_valuable": { "type": "string" },
+            "what_trend": { "type": "string" },
+            "how_evolve": { "type": "string" },
+            "saudia_opportunity": { "type": "string" }
+          }
+        },
+        "evidence_confidence": { "$ref": "#/$defs/Confidence" },
+        "analyzed_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
