@@ -1,0 +1,13 @@
+{
+  "name": "benchmark-intelligence-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deployment entry point for the AI Travel Benchmark Dashboard. Installs both 10_Dashboard and 11_Benchmark_Engine (the Dashboard's server.js hard-imports the Engine's orchestrator), then starts the Dashboard server. Business logic lives in 10_Dashboard/ and 11_Benchmark_Engine/ — this file only wires up deployment.",
+  "scripts": {
+    "install:dashboard": "npm install --prefix 10_Dashboard",
+    "install:engine": "npm install --prefix 11_Benchmark_Engine",
+    "install:browsers": "npx --prefix 11_Benchmark_Engine playwright install --with-deps chromium",
+    "postinstall": "npm run install:dashboard && npm run install:engine && npm run install:browsers",
+    "start": "node 10_Dashboard/server.js"
+  }
+}

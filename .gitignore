@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+10_Dashboard/node_modules/
+11_Benchmark_Engine/node_modules/
+
+# Secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Playwright
+11_Benchmark_Engine/test-results/
+11_Benchmark_Engine/playwright-report/
+.playwright-mcp/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

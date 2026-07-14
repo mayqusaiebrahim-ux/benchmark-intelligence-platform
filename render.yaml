@@ -1,0 +1,24 @@
+# Render Blueprint for the Benchmark Intelligence Platform.
+# Deploy root must be this folder (AI_Travel_Benchmark_2026/) — see DEPLOYMENT.md
+# for why (10_Dashboard/server.js reads sibling project folders one level up).
+#
+# NOTE: server.js currently hardcodes `const PORT = 3000` instead of reading
+# process.env.PORT. Render assigns its own PORT and requires the service to
+# bind to it — this will not work until that one line is changed. See
+# DEPLOYMENT.md, "Required code change before first deploy."
+services:
+  - type: web
+    name: benchmark-intelligence-platform
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npx playwright install --with-deps chromium
+    startCommand: npm start
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: 20
+    disk:
+      name: benchmark-data
+      mountPath: /opt/render/project/src
+      sizeGB: 2
