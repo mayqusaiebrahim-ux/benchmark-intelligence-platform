@@ -2,7 +2,7 @@
   "_meta": {
     "schema_version": "1.0",
     "description": "Wizard-created benchmark requests and their per-competitor queue progress. Master_Benchmark_Matrix.json remains the source of truth for completed benchmark data — this file only tracks in-flight work.",
-    "last_updated": "2026-07-07T08:14:56.815Z"
+    "last_updated": "2026-08-20T06:59:48.473Z"
   },
   "requests": [
     {
@@ -23,7 +23,7 @@
           "url": null,
           "is_new_company": false,
           "stage": "preparing",
-          "updated_at": "2026-07-07T08:11:23.785Z",
+          "updated_at": "2026-07-08T08:06:33.817Z",
           "trigger_prompt": "Benchmark Mindtrip — focus: Burger Menu, scope: UX/UI only"
         },
         {
@@ -84,6 +84,255 @@
           "stage": "preparing",
           "updated_at": "2026-07-07T07:43:18.340Z",
           "trigger_prompt": "Benchmark almosafer — focus: Payment, scope: AI only"
+        }
+      ]
+    },
+    {
+      "id": "req_20260723_001",
+      "created_at": "2026-07-23T09:30:30.952Z",
+      "created_by": null,
+      "benchmark_type": "Complete Journey",
+      "feature": "Loyalty",
+      "scope": [
+        "UX/UI only"
+      ],
+      "notes": "",
+      "cancelled": false,
+      "status": "in_progress",
+      "feature_benchmark_path": null,
+      "items": [
+        {
+          "slug": "emirates",
+          "name": "Emirates",
+          "url": null,
+          "is_new_company": false,
+          "stage": "preparing",
+          "updated_at": "2026-07-23T09:30:43.443Z",
+          "trigger_prompt": "Benchmark Emirates — focus: Loyalty, scope: UX/UI only"
+        }
+      ]
+    },
+    {
+      "id": "req_20260723_002",
+      "created_at": "2026-07-23T11:09:25.009Z",
+      "created_by": null,
+      "benchmark_type": "Feature Benchmark",
+      "feature": "Homepage",
+      "scope": [
+        "Visual Design"
+      ],
+      "notes": "V1.5 debug test - safe to interrupt",
+      "cancelled": true,
+      "status": "cancelled",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/homepage",
+      "items": [
+        {
+          "slug": "mindtrip",
+          "name": "Mindtrip",
+          "url": null,
+          "is_new_company": false,
+          "stage": "preparing",
+          "updated_at": "2026-07-23T11:10:09.669Z",
+          "trigger_prompt": "Benchmark Mindtrip — focus: Homepage, scope: Visual Design"
+        }
+      ]
+    },
+    {
+      "id": "req_20260723_003",
+      "created_at": "2026-07-23T11:53:08.995Z",
+      "created_by": null,
+      "benchmark_type": "Feature Benchmark",
+      "feature": "Homepage",
+      "scope": [
+        "Visual Design"
+      ],
+      "notes": "V1.6 queue-sync evidence test - safe to interrupt",
+      "cancelled": true,
+      "status": "cancelled",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/homepage",
+      "items": [
+        {
+          "slug": "mindtrip",
+          "name": "Mindtrip",
+          "url": null,
+          "is_new_company": false,
+          "stage": "completed",
+          "updated_at": "2026-07-23T12:01:29.609Z",
+          "trigger_prompt": "Benchmark Mindtrip — focus: Homepage, scope: Visual Design",
+          "started_at": "2026-07-23T11:55:29.621Z",
+          "completed_at": "2026-07-23T12:01:29.607Z",
+          "execution_status": "success",
+          "execution_message": "Completed successfully"
+        }
+      ]
+    },
+    {
+      "id": "req_20260723_004",
+      "created_at": "2026-07-23T12:03:58.404Z",
+      "created_by": null,
+      "benchmark_type": "Feature Benchmark",
+      "feature": "Homepage",
+      "scope": [
+        "Visual Design"
+      ],
+      "notes": "V1.6 failure-path evidence test - safe to interrupt",
+      "cancelled": true,
+      "status": "cancelled",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/homepage",
+      "items": [
+        {
+          "slug": "trip_com",
+          "name": "Trip.com",
+          "url": null,
+          "is_new_company": false,
+          "stage": "queued",
+          "updated_at": "2026-07-23T12:03:58.404Z",
+          "trigger_prompt": "Benchmark Trip.com — focus: Homepage, scope: Visual Design"
+        }
+      ]
+    },
+    {
+      "id": "req_20260806_001",
+      "created_at": "2026-08-06T08:30:40.915Z",
+      "created_by": null,
+      "benchmark_type": "Feature Benchmark",
+      "feature": "AI Chat Entry Point",
+      "scope": [
+        "AI only"
+      ],
+      "notes": "Sprint 17 integration verification � real end-to-end run through the migrated Dashboard -> Orchestrator -> Provider Registry -> ClaudeProvider path.",
+      "cancelled": false,
+      "status": "complete",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/ai_chat_entry_point",
+      "items": [
+        {
+          "slug": "mindtrip",
+          "name": "Mindtrip",
+          "url": "https://mindtrip.ai",
+          "is_new_company": false,
+          "stage": "completed",
+          "updated_at": "2026-08-06T08:41:15.554Z",
+          "trigger_prompt": "Benchmark Mindtrip — focus: AI Chat Entry Point, scope: AI only",
+          "started_at": "2026-08-06T08:31:49.469Z",
+          "completed_at": "2026-08-06T08:41:15.552Z",
+          "execution_status": "success",
+          "execution_message": "Completed successfully"
+        }
+      ]
+    },
+    {
+      "id": "req_20260806_002",
+      "created_at": "2026-08-06T09:06:46.381Z",
+      "created_by": null,
+      "benchmark_type": "Feature Benchmark",
+      "feature": "Sprint 18 Failure Path Verification (throwaway)",
+      "scope": [
+        "AI only"
+      ],
+      "notes": "Disposable request created only to verify the Sprint 18 Runtime failure-propagation fix. Safe to cancel/ignore.",
+      "cancelled": true,
+      "status": "cancelled",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/sprint_18_failure_path_verification_throwaway",
+      "items": [
+        {
+          "slug": "sprint18verifyfailure",
+          "name": "Sprint18VerifyFailure",
+          "url": "https://example.com",
+          "is_new_company": true,
+          "stage": "failed",
+          "updated_at": "2026-08-06T09:06:46.394Z",
+          "trigger_prompt": "Benchmark Sprint18VerifyFailure — focus: Sprint 18 Failure Path Verification (throwaway), scope: AI only",
+          "started_at": "2026-08-06T09:06:46.384Z",
+          "completed_at": "2026-08-06T09:06:46.393Z",
+          "execution_status": "failed",
+          "execution_message": "Stage \"reasoning\" failed: Could not start claude CLI: spawn C:\\WINDOWS\\system32\\cmd.exe ENOENT"
+        }
+      ]
+    },
+    {
+      "id": "req_20260806_003",
+      "created_at": "2026-08-06T09:10:59.531Z",
+      "created_by": null,
+      "benchmark_type": "Feature Benchmark",
+      "feature": "Sprint 18 Runtime Verification",
+      "scope": [
+        "AI only"
+      ],
+      "notes": "Sprint 18 integration verification - real run through the new BenchmarkRuntime/Pipeline/Stage path.",
+      "cancelled": false,
+      "status": "complete",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/sprint_18_runtime_verification",
+      "items": [
+        {
+          "slug": "mindtrip",
+          "name": "Mindtrip",
+          "url": "https://mindtrip.ai",
+          "is_new_company": false,
+          "stage": "completed",
+          "updated_at": "2026-08-06T09:16:21.484Z",
+          "trigger_prompt": "Benchmark Mindtrip — focus: Sprint 18 Runtime Verification, scope: AI only",
+          "started_at": "2026-08-06T09:11:14.273Z",
+          "completed_at": "2026-08-06T09:16:21.483Z",
+          "execution_status": "success",
+          "execution_message": "Completed successfully"
+        }
+      ]
+    },
+    {
+      "id": "req_20260806_004",
+      "created_at": "2026-08-06T09:51:55.442Z",
+      "created_by": null,
+      "benchmark_type": "Feature Benchmark",
+      "feature": "Sprint 19 Navigation Stage Verification",
+      "scope": [
+        "AI only"
+      ],
+      "notes": "Sprint 19 integration verification - real run through Dashboard -> Runtime -> Navigation Stage -> Playwright -> Reasoning Stage -> Claude.",
+      "cancelled": false,
+      "status": "complete",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/sprint_19_navigation_stage_verification",
+      "items": [
+        {
+          "slug": "mindtrip",
+          "name": "Mindtrip",
+          "url": "https://mindtrip.ai",
+          "is_new_company": false,
+          "stage": "completed",
+          "updated_at": "2026-08-06T09:55:04.609Z",
+          "trigger_prompt": "Benchmark Mindtrip — focus: Sprint 19 Navigation Stage Verification, scope: AI only",
+          "started_at": "2026-08-06T09:52:03.394Z",
+          "completed_at": "2026-08-06T09:55:04.608Z",
+          "execution_status": "success",
+          "execution_message": "Completed successfully"
+        }
+      ]
+    },
+    {
+      "id": "req_20260806_005",
+      "created_at": "2026-08-06T10:19:14.875Z",
+      "created_by": null,
+      "benchmark_type": "Feature Benchmark",
+      "feature": "Sprint 20 Screenshot Stage Verification",
+      "scope": [
+        "AI only"
+      ],
+      "notes": "Sprint 20 integration verification - real run through Dashboard -> Runtime -> Navigation -> Screenshot -> Reasoning -> Claude.",
+      "cancelled": false,
+      "status": "complete",
+      "feature_benchmark_path": "02_Benchmark_Repository/_Feature_Benchmarks/sprint_20_screenshot_stage_verification",
+      "items": [
+        {
+          "slug": "mindtrip",
+          "name": "Mindtrip",
+          "url": "https://mindtrip.ai",
+          "is_new_company": false,
+          "stage": "completed",
+          "updated_at": "2026-08-06T10:22:13.496Z",
+          "trigger_prompt": "Benchmark Mindtrip — focus: Sprint 20 Screenshot Stage Verification, scope: AI only",
+          "started_at": "2026-08-06T10:19:26.158Z",
+          "completed_at": "2026-08-06T10:22:13.496Z",
+          "execution_status": "success",
+          "execution_message": "Completed successfully"
         }
       ]
     }

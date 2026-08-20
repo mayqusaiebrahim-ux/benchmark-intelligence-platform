@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-travel-benchmark.internal/schemas/discovery.schema.json",
+  "title": "Discovery Module Contract",
+  "version": "0.2.0",
+  "description": "Contract for modules/discovery, implemented in 11_Benchmark_Engine/modules/discovery/. Discovery is the reconnaissance stage that runs before Vision: given only a URL, it understands an unknown travel website through safe, narrowly-scoped exploration (dismissing a cookie banner, expanding a collapsed nav menu) and read-only observation — never search, forms, login, booking, checkout, or any transaction. It produces a DiscoveryReport describing the site, then decides (rule-based, no AI calls) a suggested_benchmark_journey and a single safe_next_action for the orchestrator to hand to Vision. v0.2.0 renames several fields and adds consent_status/actions_taken/safe_next_action versus the v0.1.0 shape, reflecting the move from pure observation to bounded safe interaction.",
+  "type": "object",
+  "required": ["input", "output"],
+  "properties": {
+    "input": { "$ref": "#/$defs/DiscoveryInput" },
+    "output": { "$ref": "#/$defs/DiscoveryOutput" }
+  },
+  "$defs": {
+    "JourneyStepId": {
+      "type": "string",
+      "description": "Matches vision.schema.json#/$defs/JourneyStepId and Master_Benchmark_Matrix.json's schema.journey_steps.",
+      "enum": [
+        "step_01_entry", "step_02_discovery", "step_03_search", "step_04_ai_interaction",
+        "step_05_recommendations", "step_06_maps", "step_07_booking", "step_08_ancillaries",
+        "step_09_payment", "step_10_trip_management", "step_11_checkin", "step_12_loyalty"
+      ]
+    },
+    "Confidence": {
+      "type": "string",
+      "description": "Matches analysis.schema.json#/$defs/Confidence.",
+      "enum": ["low", "medium", "high"]
+    },
+    "WebsiteType": {
+      "type": "string",
+      "description": "Matches the category vocabulary already rendered by 10_Dashboard/public/app.js's CATEGORY_CLASS badges, plus 'Other/Unknown' for a low-confidence guess.",
+      "enum": ["Airline", "OTA", "AI-first", "Super App", "Big Tech", "Other/Unknown"]
+    },
+    "ObstacleType": {
+      "type": "string",
+      "enum": ["consent_banner", "interstitial_modal", "login_wall", "blocked_or_error"]
+    },
+    "AiFeatureType": {
+      "type": "string",
+      "enum": ["chat_widget", "ai_cta", "embedded_assistant", "voice_trigger", "mentioned_in_copy"]
+    },
+    "SearchType": {
+      "type": "string",
+      "enum": ["flight_search", "generic_search", "nlp_search", "none"]
+    },
+    "SafeActionType": {
+      "type": "string",
+      "description": "The only two interactions this module is ever allowed to perform.",
+      "enum": ["dismiss_consent_banner", "expand_navigation_menu"]
+    },
+    "EntryPointType": {
+      "type": "string",
+      "enum": ["nav_link", "cta", "ai_surface", "search_form", "account_link"]
+    },
+    "NavItem": {
+      "type": "object",
+      "required": ["label", "href"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "href": { "type": "string" }
+      }
+    },
+    "DiscoveryInput": {
+      "type": "object",
+      "description": "What the orchestrator hands Discovery. A URL is the only hard requirement — the platform's starting condition is 'given only a URL'.",
+      "required": ["schema_version", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.2.0" },
+        "url": { "type": "string", "format": "uri" },
+        "company_slug": { "type": "string", "description": "Optional hint, matching a Master_Benchmark_Matrix.json companies key if this is a known re-benchmark." },
+        "company_name": { "type": "string", "description": "Optional hint, used only for display/logging." }
+      }
+    },
+    "DiscoveryOutput": {
+      "type": "object",
+      "description": "The Discovery Report. Reflects one homepage visit plus at most two safe, reversible UI actions (see actions_taken) — never a second page, never a transaction.",
+      "required": [
+        "schema_version", "requested_url", "resolved_url", "website_type", "confidence",
+        "navigation", "primary_user_goals", "detected_ai_capabilities", "visible_entry_points",
+        "search_capability", "account_capability", "language_selector", "device_indicators",
+        "consent_status", "obstacles", "suggested_benchmark_journey", "safe_next_action",
+        "actions_taken", "discovered_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.2.0" },
+        "company_slug": { "type": ["string", "null"] },
+        "company_name": { "type": ["string", "null"] },
+        "requested_url": { "type": "string", "format": "uri" },
+        "resolved_url": { "type": "string", "format": "uri", "description": "The URL actually rendered after any redirect — comparing this to requested_url is itself an obstacle signal (login_wall, geo-redirect)." },
+        "http_status": { "type": ["integer", "null"] },
+        "website_type": { "$ref": "#/$defs/WebsiteType" },
+        "confidence": { "$ref": "#/$defs/Confidence", "description": "Overall confidence in this report as a whole." },
+        "navigation": {
+          "type": "array",
+          "description": "Main navigation links as observed, after any safe menu-expand action.",
+          "items": { "$ref": "#/$defs/NavItem" }
+        },
+        "primary_user_goals": {
+          "type": "array",
+          "description": "What a user can plausibly accomplish here, inferred from which journey steps got applicable_guess=true, ordered by suggested_benchmark_journey's priority. Falls back to the meta description when nothing matched.",
+          "items": { "type": "string" }
+        },
+        "detected_ai_capabilities": {
+          "type": "array",
+          "description": "Zero or more AI-related signals found, strongest evidence first.",
+          "items": {
+            "type": "object",
+            "required": ["type", "label", "evidence", "confidence"],
+            "additionalProperties": false,
+            "properties": {
+              "type": { "$ref": "#/$defs/AiFeatureType" },
+              "label": { "type": "string" },
+              "evidence": { "type": "array", "items": { "type": "string" } },
+              "confidence": { "$ref": "#/$defs/Confidence" }
+            }
+          }
+        },
+        "visible_entry_points": {
+          "type": "array",
+          "description": "Consolidated, de-duplicated doors into the product — nav links, CTAs, AI surfaces, search, account — for Vision to choose where to look next. Distinct from the raw navigation list.",
+          "items": {
+            "type": "object",
+            "required": ["type", "label", "href"],
+            "additionalProperties": false,
+            "properties": {
+              "type": { "$ref": "#/$defs/EntryPointType" },
+              "label": { "type": "string" },
+              "href": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "search_capability": {
+          "type": "object",
+          "required": ["present", "type", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "present": { "type": "boolean" },
+            "type": { "$ref": "#/$defs/SearchType" },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "account_capability": {
+          "type": "object",
+          "required": ["present", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "present": { "type": "boolean" },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "language_selector": {
+          "type": "object",
+          "required": ["present", "detected_languages", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "present": { "type": "boolean" },
+            "detected_languages": { "type": "array", "items": { "type": "string" } },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "device_indicators": {
+          "type": "object",
+          "required": ["responsive_meta_present", "app_store_links"],
+          "additionalProperties": false,
+          "properties": {
+            "responsive_meta_present": { "type": "boolean" },
+            "viewport_meta": { "type": ["string", "null"] },
+            "app_store_links": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "consent_status": {
+          "type": "object",
+          "description": "Reflects the outcome of the safe-exploration attempt, not just whether a banner exists. No vendor guess — vendor fingerprinting would require a hardcoded product-selector table, which this module deliberately avoids.",
+          "required": ["present", "dismissed", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "present": { "type": "boolean" },
+            "dismissed": { "type": "boolean", "description": "True only if Discovery itself clicked an Accept-style control this run." },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "obstacles": {
+          "type": "array",
+          "description": "Anything still standing in the way after safe exploration — informs whether Vision should escalate per the Tier 1/2/3 ladder.",
+          "items": {
+            "type": "object",
+            "required": ["type", "description", "evidence"],
+            "additionalProperties": false,
+            "properties": {
+              "type": { "$ref": "#/$defs/ObstacleType" },
+              "description": { "type": "string" },
+              "evidence": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "suggested_benchmark_journey": {
+          "type": "array",
+          "description": "One entry per canonical journey step, ordered by capture priority (AI interaction first when evidenced, per CLAUDE.md's AI-first mandate, then by confidence). Replaces vision.schema.json's VisionInput.journey_steps as a discovered, provisional list rather than an assumed one.",
+          "items": {
+            "type": "object",
+            "required": ["step_id", "applicable_guess", "confidence", "matched_signals", "priority_rank"],
+            "additionalProperties": false,
+            "properties": {
+              "step_id": { "$ref": "#/$defs/JourneyStepId" },
+              "applicable_guess": { "type": "boolean", "description": "Best-effort guess only — Vision's actual capture is what confirms or overturns this." },
+              "confidence": { "$ref": "#/$defs/Confidence" },
+              "matched_signals": { "type": "array", "items": { "type": "string" } },
+              "priority_rank": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "safe_next_action": {
+          "type": "string",
+          "description": "The single rule-based recommendation for what the orchestrator should do next (proceed to Vision at a given step, retry, or escalate to hybrid research). Not free-form AI output — deterministic given the fields above."
+        },
+        "actions_taken": {
+          "type": "array",
+          "description": "Audit trail of every click Discovery actually performed this run. Empty when nothing needed clearing.",
+          "items": {
+            "type": "object",
+            "required": ["action", "evidence"],
+            "additionalProperties": false,
+            "properties": {
+              "action": { "$ref": "#/$defs/SafeActionType" },
+              "evidence": { "type": "string", "description": "The accessible name of the control that was clicked." }
+            }
+          }
+        },
+        "discovered_at": { "type": "string", "format": "date-time" },
+        "execution_time_ms": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

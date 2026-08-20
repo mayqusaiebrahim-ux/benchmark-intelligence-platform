@@ -4,9 +4,9 @@
 Every benchmark updates the JSON source of truth first. This Markdown is auto-generated — do not edit it directly.
 Run `node scripts/generate_matrix.js` to regenerate after any JSON update.
 
-**Last updated:** 2026-07-02
-**Benchmarks complete:** 4 / 15
-**Companies:** Mindtrip ✓ | Google Travel | Trip.com ✓ | Layla | Roam Around | Airbnb | Booking.com ✓ | Expedia | Kayak | Emirates | Singapore Airlines | Turkish Airlines | Qatar Airways | Grab | Naver | ixigo ✓
+**Last updated:** 2026-07-13
+**Benchmarks complete:** 4 / 17
+**Companies:** Mindtrip ✓ | Google Travel | Trip.com ✓ | Layla | Roam Around | Airbnb | Booking.com ✓ | Expedia | Kayak | Emirates | Singapore Airlines | Turkish Airlines | Qatar Airways | Grab | Naver | ixigo ✓ | almosafer
 
 ---
 
@@ -25,61 +25,61 @@ Run `node scripts/generate_matrix.js` to regenerate after any JSON update.
 
 ## SECTION 1 — PRODUCT OVERVIEW
 
-| Dimension | Mindtrip | Google Travel | Trip.com | Layla | Roam Around | Airbnb | Booking.com | Expedia | Kayak | Emirates | Singapore Airlines | Turkish Airlines | Qatar Airways | Grab | Naver | ixigo | **Saudia** (baseline) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Category** | AI-first | — | OTA | — | — | — | OTA | — | — | — | — | — | — | — | — | OTA | Airline |
-| **AI Maturity** | Conversational | — | Assistive | — | — | — | Assistive | — | — | — | — | — | — | — | — | Assistive | Basic |
-| **Business Model** | Referral + B2B SaaS | — | Full OTA (commission) | — | — | — | OTA — commission on accommodations + flights + activities | — | — | — | — | — | — | — | — | Full OTA (commission) + Fintech (co-branded card) | Direct airline |
-| **Has Loyalty Program** | ❌ | — | ✅ Trip Coins + Tiered Membership | — | — | — | ✅ Genius (3 tiers) | — | — | — | — | — | — | — | — | ✅ ixigo Pro (subscription) + AU Bank Credit Card | ✅ Alfursan |
-| **Native Booking** | ❌ | — | ✅ | — | — | — | ✅ | — | — | — | — | — | — | — | — | ✅ | ✅ |
-| **B2B / API Platform** | ✅ Boss the Bot® | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Funding / Scale** | $7M seed | — | Public, $20B+ market cap (Nasdaq: TCOM) | — | — | — | Public (BKNG) — $150B+ market cap | — | — | — | — | — | — | — | — | Public, Le Travenues Technology Ltd. (NSE/BSE listed) | National carrier |
+| Dimension | Mindtrip | Google Travel | Trip.com | Layla | Roam Around | Airbnb | Booking.com | Expedia | Kayak | Emirates | Singapore Airlines | Turkish Airlines | Qatar Airways | Grab | Naver | ixigo | almosafer | **Saudia** (baseline) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Category** | AI-first | — | OTA | — | — | — | OTA | — | — | — | — | — | — | — | — | OTA | — | Airline |
+| **AI Maturity** | Conversational | — | Assistive | — | — | — | Assistive | — | — | — | — | — | — | — | — | Assistive | — | Basic |
+| **Business Model** | Referral + B2B SaaS | — | Full OTA (commission) | — | — | — | OTA — commission on accommodations + flights + activities | — | — | — | — | — | — | — | — | Full OTA (commission) + Fintech (co-branded card) | — | Direct airline |
+| **Has Loyalty Program** | ❌ | — | ✅ Trip Coins + Tiered Membership | — | — | — | ✅ Genius (3 tiers) | — | — | — | — | — | — | — | — | ✅ ixigo Pro (subscription) + AU Bank Credit Card | — | ✅ Alfursan |
+| **Native Booking** | ❌ | — | ✅ | — | — | — | ✅ | — | — | — | — | — | — | — | — | ✅ | — | ✅ |
+| **B2B / API Platform** | ✅ Boss the Bot® | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Funding / Scale** | $7M seed | — | Public, $20B+ market cap (Nasdaq: TCOM) | — | — | — | Public (BKNG) — $150B+ market cap | — | — | — | — | — | — | — | — | Public, Le Travenues Technology Ltd. (NSE/BSE listed) | — | National carrier |
 
 ---
 
 ## SECTION 2 — AI CAPABILITIES
 
-| AI Capability | Mindtrip | Google Travel | Trip.com | Layla | Roam Around | Airbnb | Booking.com | Expedia | Kayak | Emirates | Singapore Airlines | Turkish Airlines | Qatar Airways | Grab | Naver | ixigo | **Saudia** (baseline) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Conversational Search** | ✅ Full NLP | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **AI Itinerary Generation** | ✅ Multi-day | — | ⚡ Trip.Planner (New) | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Proactive AI (pre-input)** | ✅ Geo cold-start | — | ❌ | — | — | — | ✅ Geo cold start | — | — | — | — | — | — | — | — | ⚡ PNR push alerts | ❌ |
-| **AI Memory / Continuity** | ⚡ Session only | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Personalization Depth** | 4.1 / 5 | — | 3.0 / 5 | — | — | — | 3.5 / 5 | — | — | — | — | — | — | — | — | 2.0 / 5 | 2.0 / 5 |
-| **Voice Input** | ⚡ iOS only | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Visual AI / Camera** | ⚡ iOS Magic Camera | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Embedded AI** | ✅ Fully embedded | — | ❌ | — | — | — | ✅ 6 signals | — | — | — | — | — | — | — | — | ✅ Train intelligence suite | ❌ |
-| **AI Sidebar / Chatbot** | ❌ | — | ⚡ TripGenie (separate page) | — | — | — | 🔐 Penny | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **AI-Explained Decisions** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ⚡ PNR probability explainer | ❌ |
-| **AI Disclaimer** | ✅ Inline | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Real-Time Data** | ✅ Events | — | ✅ Flights + Hotels + Trains | — | — | — | ⚡ Review data | — | — | — | — | — | — | — | — | ✅ Live train GPS + PNR | ⚡ Flight status |
-| **Multi-Turn Conversation** | ✅ Core feature | — | ❌ | — | — | — | 🔐 Penny only | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Arabic Language AI** | ⚡ Content only | — | ⚡ Full UI, no AI yet | — | — | — | ⚡ Geo-adapted | — | — | — | — | — | — | — | — | ❌ | ⚡ Partial |
+| AI Capability | Mindtrip | Google Travel | Trip.com | Layla | Roam Around | Airbnb | Booking.com | Expedia | Kayak | Emirates | Singapore Airlines | Turkish Airlines | Qatar Airways | Grab | Naver | ixigo | almosafer | **Saudia** (baseline) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Conversational Search** | ✅ Full NLP | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **AI Itinerary Generation** | ✅ Multi-day | — | ⚡ Trip.Planner (New) | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Proactive AI (pre-input)** | ✅ Geo cold-start | — | ❌ | — | — | — | ✅ Geo cold start | — | — | — | — | — | — | — | — | ⚡ PNR push alerts | — | ❌ |
+| **AI Memory / Continuity** | ⚡ Session only | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Personalization Depth** | 4.1 / 5 | — | 3.0 / 5 | — | — | — | 3.5 / 5 | — | — | — | — | — | — | — | — | 2.0 / 5 | — | 2.0 / 5 |
+| **Voice Input** | ⚡ iOS only | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Visual AI / Camera** | ⚡ iOS Magic Camera | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Embedded AI** | ✅ Fully embedded | — | ❌ | — | — | — | ✅ 6 signals | — | — | — | — | — | — | — | — | ✅ Train intelligence suite | — | ❌ |
+| **AI Sidebar / Chatbot** | ❌ | — | ⚡ TripGenie (separate page) | — | — | — | 🔐 Penny | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **AI-Explained Decisions** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ⚡ PNR probability explainer | — | ❌ |
+| **AI Disclaimer** | ✅ Inline | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Real-Time Data** | ✅ Events | — | ✅ Flights + Hotels + Trains | — | — | — | ⚡ Review data | — | — | — | — | — | — | — | — | ✅ Live train GPS + PNR | — | ⚡ Flight status |
+| **Multi-Turn Conversation** | ✅ Core feature | — | ❌ | — | — | — | 🔐 Penny only | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Arabic Language AI** | ⚡ Content only | — | ⚡ Full UI, no AI yet | — | — | — | ⚡ Geo-adapted | — | — | — | — | — | — | — | — | ❌ | — | ⚡ Partial |
 
 ---
 
 ## SECTION 3 — CORE UX PATTERNS
 
-| UX Pattern | Mindtrip | Google Travel | Trip.com | Layla | Roam Around | Airbnb | Booking.com | Expedia | Kayak | Emirates | Singapore Airlines | Turkish Airlines | Qatar Airways | Grab | Naver | ixigo | **Saudia** (baseline) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Zero-Friction Entry (no auth wall)** | ✅ | — | ❌ | — | — | — | ✅ | — | — | — | — | — | — | — | — | ⚡ | ❌ |
-| **Geo-Aware Cold Start** | ✅ | — | ❌ | — | — | — | ✅ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Quick Filter Strip** | ✅ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Creator / Editorial Content Layer** | ✅ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Email Receipt / Doc Management** | ✅ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Collaborative Trip Planning** | ✅ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **AI-Filtered Map / Near Me** | ⚡ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **BNPL / Installment Travel** | ⚡ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Loyalty AI Integration** | ❌ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ⚡ | ⚡ |
-| **B2B White-Label AI** | ✅ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Shariah-Compliant Features** | ❌ | — | ❌ | — | — | — | ⚡ | — | — | — | — | — | — | — | — | ❌ | ⚡ |
-| **Hajj / Umrah Planning** | ⚡ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ⚡ |
-| **Group / Family Booking AI** | ⚡ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ⚡ | ❌ |
-| **Ancillary AI (seats, bags, insurance)** | ❌ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ⚡ | ⚡ |
-| **In-flight AI / IFE Integration** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ⚡ |
-| **Post-Flight AI (feedback, rebooking)** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ❌ |
-| **Check-in AI** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | ⚡ |
-| **Real-Time Disruption AI** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ✅ | ❌ |
+| UX Pattern | Mindtrip | Google Travel | Trip.com | Layla | Roam Around | Airbnb | Booking.com | Expedia | Kayak | Emirates | Singapore Airlines | Turkish Airlines | Qatar Airways | Grab | Naver | ixigo | almosafer | **Saudia** (baseline) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Zero-Friction Entry (no auth wall)** | ✅ | — | ❌ | — | — | — | ✅ | — | — | — | — | — | — | — | — | ⚡ | — | ❌ |
+| **Geo-Aware Cold Start** | ✅ | — | ❌ | — | — | — | ✅ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Quick Filter Strip** | ✅ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Creator / Editorial Content Layer** | ✅ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Email Receipt / Doc Management** | ✅ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Collaborative Trip Planning** | ✅ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **AI-Filtered Map / Near Me** | ⚡ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **BNPL / Installment Travel** | ⚡ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Loyalty AI Integration** | ❌ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ⚡ | — | ⚡ |
+| **B2B White-Label AI** | ✅ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Shariah-Compliant Features** | ❌ | — | ❌ | — | — | — | ⚡ | — | — | — | — | — | — | — | — | ❌ | — | ⚡ |
+| **Hajj / Umrah Planning** | ⚡ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ⚡ |
+| **Group / Family Booking AI** | ⚡ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ⚡ | — | ❌ |
+| **Ancillary AI (seats, bags, insurance)** | ❌ | — | ⚡ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ⚡ | — | ⚡ |
+| **In-flight AI / IFE Integration** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ⚡ |
+| **Post-Flight AI (feedback, rebooking)** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ❌ |
+| **Check-in AI** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ❌ | — | ⚡ |
+| **Real-Time Disruption AI** | ❌ | — | ❌ | — | — | — | ❌ | — | — | — | — | — | — | — | — | ✅ | — | ❌ |
 
 ---
 
@@ -182,7 +182,7 @@ Run `node scripts/generate_matrix.js` to regenerate after any JSON update.
 
 ## SECTION 8 — BENCHMARK PROGRESS
 
-**4 / 16 complete**
+**4 / 17 complete**
 
 | # | Company | Category | Status | Date | Overall Score |
 | --- | --- | --- | --- | --- | --- |
@@ -202,6 +202,7 @@ Run `node scripts/generate_matrix.js` to regenerate after any JSON update.
 | 14 | **Grab** | Super App | 🔲 Queued | — | — |
 | 15 | **Naver** | Super App | 🔲 Queued | — | — |
 | 16 | **ixigo** | OTA | ✅ Complete | 2026-07-01 | 3.1 |
+| 17 | **almosafer** | AI-first | 🔲 Queued | — | — |
 
 ---
 

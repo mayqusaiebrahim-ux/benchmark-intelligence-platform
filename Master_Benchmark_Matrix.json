@@ -2,12 +2,37 @@
   "_meta": {
     "schema_version": "1.0",
     "description": "Single source of truth for the AI Travel Benchmark Matrix. The Markdown file is generated from this JSON. Never edit the Markdown directly.",
-    "last_updated": "2026-07-02",
+    "last_updated": "2026-07-13",
     "total_benchmarks_complete": 4,
     "total_benchmarks_planned": 17,
     "generate_md_command": "node scripts/generate_matrix.js",
     "primary_artifact": "Master_Benchmark_Matrix.md",
-    "sync_rule": "Update this JSON first. Run generate_matrix.js. The Markdown is output only — not a source of truth."
+    "sync_rule": "Update this JSON first. Run generate_matrix.js. The Markdown is output only — not a source of truth.",
+    "homepage_benchmarks_note": "homepage_benchmarks (below) tracks the separate, lighter-weight Homepage Benchmark pipeline (02_Benchmark_Repository/_Homepage_Benchmarks/{slug}/) established for the Saudia baseline audit. It is additive and does not set benchmark_plan[].status or populate companies{} — those remain reserved for the full 12-step / 11-deliverable pipeline. A company can be homepage-benchmarked without its full pipeline entry changing."
+  },
+  "homepage_benchmarks": {
+    "saudia": {
+      "role": "baseline",
+      "version": "1.0",
+      "frozen": true,
+      "date": "2026-07-13",
+      "report_path": "02_Benchmark_Repository/_Homepage_Benchmarks/saudia/report.md",
+      "overall_score": 2.7
+    },
+    "emirates": {
+      "role": "competitor",
+      "tier": "Tier 1 — Gulf/regional peer",
+      "date": "2026-07-13",
+      "report_path": "02_Benchmark_Repository/_Homepage_Benchmarks/emirates/report.md",
+      "overall_score": 3.4
+    },
+    "qatar_airways": {
+      "role": "competitor",
+      "tier": "Tier 1 — Gulf/regional peer",
+      "date": "2026-07-13",
+      "report_path": "02_Benchmark_Repository/_Homepage_Benchmarks/qatar_airways/report.md",
+      "overall_score": 3.1
+    }
   },
   "benchmark_plan": [
     {

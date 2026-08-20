@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-travel-benchmark.internal/schemas/vision_ux_analysis.schema.json",
+  "title": "Vision UX Analysis Contract (Qualitative, No Scoring)",
+  "version": "0.1.0",
+  "description": "Contract for modules/analysis's first prototype, implemented in 11_Benchmark_Engine/modules/analysis/. Distinct from analysis.schema.json: that contract is reserved for the future SCORED AnalysisOutput (journey_scores, innovation_scores, ai_maturity_level, mandatory_questions). This contract is a single-homepage, qualitative, non-comparative UX read — a screenshot plus a Discovery Report go in, a structured but unscored analysis comes out. No scoring, no cross-company comparison, no benchmark verdict. Sprint 6 wires the interface and data flow only; the model call itself (modules/analysis/visionModelClient.js) is a stub until a later sprint connects a real vision-capable model (e.g. GPT-5 Vision).",
+  "type": "object",
+  "required": ["input", "output"],
+  "properties": {
+    "input": { "$ref": "#/$defs/VisionUXAnalysisInput" },
+    "output": { "$ref": "#/$defs/VisionUXAnalysisOutput" }
+  },
+  "$defs": {
+    "VisionUXAnalysisInput": {
+      "type": "object",
+      "description": "Everything the analyzer needs: one screenshot, one Discovery Report. Nothing else — no other screenshots, no other companies, no prior benchmark state.",
+      "required": ["schema_version", "screenshot_path", "discovery_report"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "screenshot_path": { "type": "string", "description": "Path to a single homepage screenshot, as produced by modules/vision/screenshotRunner.js." },
+        "discovery_report": {
+          "description": "Consumed directly as Discovery's output type — no separate transport format, same pattern analysis.schema.json already uses for vision_output.",
+          "$ref": "discovery.schema.json#/$defs/DiscoveryOutput"
+        },
+        "company_slug": { "type": "string" },
+        "company_name": { "type": "string" },
+        "url": { "type": "string", "format": "uri" }
+      }
+    },
+    "VisionUXAnalysisOutput": {
+      "type": "object",
+      "required": ["schema_version", "screenshot_path", "model", "analyzed_at", "findings"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "company_slug": { "type": ["string", "null"] },
+        "company_name": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "screenshot_path": { "type": "string" },
+        "model": { "type": "string", "description": "Name/version of the vision model that produced this — recorded for provenance once a real call is wired in." },
+        "analyzed_at": { "type": "string", "format": "date-time" },
+        "findings": { "$ref": "#/$defs/Findings" }
+      }
+    },
+    "Findings": {
+      "type": "object",
+      "description": "Every field is a short, evidence-grounded paragraph describing what is visible in the screenshot — no numeric score, no rating, no comparison to any other product.",
+      "required": [
+        "first_impression", "visual_hierarchy", "main_cta_effectiveness", "navigation_clarity",
+        "ai_feature_visibility", "information_density", "trust_signals", "accessibility_observations",
+        "top_5_ux_strengths", "top_5_ux_improvement_opportunities"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "first_impression": { "type": "string", "description": "What a first-time visitor would register in the first few seconds." },
+        "visual_hierarchy": { "type": "string", "description": "What draws the eye first, second, third, and whether that order matches likely user intent." },
+        "main_cta_effectiveness": { "type": "string", "description": "Whether the primary call-to-action is identifiable, prominent, and unambiguous." },
+        "navigation_clarity": { "type": "string", "description": "Whether a visitor could tell where to go next, independent of Discovery's structural nav findings." },
+        "ai_feature_visibility": { "type": "string", "description": "Whether any AI capability is visually evident on the homepage itself, not just present in copy/markup (cross-checked against discovery_report.detected_ai_capabilities)." },
+        "information_density": { "type": "string", "description": "Whether the page feels sparse, balanced, or overloaded." },
+        "trust_signals": { "type": "string", "description": "Visible credibility markers: reviews, press mentions, security badges, familiar brand patterns — or their absence." },
+        "accessibility_observations": { "type": "string", "description": "Visually apparent accessibility concerns: contrast, text size, reliance on color alone, crowded tap targets. Not a WCAG audit." },
+        "top_5_ux_strengths": {
+          "type": "array", "minItems": 5, "maxItems": 5,
+          "items": { "type": "string" }
+        },
+        "top_5_ux_improvement_opportunities": {
+          "type": "array", "minItems": 5, "maxItems": 5,
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

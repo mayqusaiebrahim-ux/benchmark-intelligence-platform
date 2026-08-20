@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-travel-benchmark.internal/schemas/journey_plan.schema.json",
+  "title": "Journey Mapper Contract",
+  "version": "0.1.0",
+  "description": "Contract for modules/journey_mapper, implemented in 11_Benchmark_Engine/modules/journey_mapper/. Journey Mapper is a planning engine only: it never navigates, clicks, or uses Playwright. Given a Discovery Report, an optional UI Map, and a homepage screenshot path (referenced only, not pixel-analyzed), it produces a JourneyPlan — an ordered, reasoned sequence of journey steps a future Navigation Runner (Sprint 10) should attempt, why, and how confident this module is in each. Not wired into the orchestrator yet.",
+  "type": "object",
+  "required": ["input", "output"],
+  "properties": {
+    "input": { "$ref": "#/$defs/JourneyPlanInput" },
+    "output": { "$ref": "#/$defs/JourneyPlanOutput" }
+  },
+  "$defs": {
+    "JourneyStepId": {
+      "type": "string",
+      "description": "Matches vision.schema.json#/$defs/JourneyStepId and discovery.schema.json#/$defs/JourneyStepId.",
+      "enum": [
+        "step_01_entry", "step_02_discovery", "step_03_search", "step_04_ai_interaction",
+        "step_05_recommendations", "step_06_maps", "step_07_booking", "step_08_ancillaries",
+        "step_09_payment", "step_10_trip_management", "step_11_checkin", "step_12_loyalty"
+      ]
+    },
+    "Confidence": {
+      "type": "string",
+      "description": "Matches analysis.schema.json#/$defs/Confidence and discovery.schema.json#/$defs/Confidence — the same three-value vocabulary used everywhere in this Engine.",
+      "enum": ["low", "medium", "high"]
+    },
+    "PriorityTier": {
+      "type": "integer",
+      "description": "1 = AI-first experience, 2 = Trip Planning/personalization, 3 = Search, 4 = Booking, 5 = everything else. Fixed ranking this module optimizes for, per the platform's AI-first mandate.",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "UIMapElement": {
+      "type": "object",
+      "description": "Mirrors the UI Map element shape designed alongside Discovery (id, label, role, element_type, locator_strategy, href, clickable, visible, confidence, bounding_box, parent_section, related_journey_step). No module produces this yet — Journey Mapper accepts it as an optional enrichment input and degrades gracefully to text-only reasoning when it is absent, recording that as an explicit assumption rather than guessing locators itself.",
+      "required": ["id", "label", "role", "clickable", "visible", "related_journey_step"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "role": { "type": "string" },
+        "element_type": { "type": "string" },
+        "locator_strategy": { "type": "object" },
+        "href": { "type": ["string", "null"] },
+        "clickable": { "type": "boolean" },
+        "visible": { "type": "boolean" },
+        "confidence": { "$ref": "#/$defs/Confidence" },
+        "bounding_box": { "type": "object" },
+        "parent_section": { "type": "string" },
+        "related_journey_step": { "$ref": "#/$defs/JourneyStepId" }
+      }
+    },
+    "JourneyPlanInput": {
+      "type": "object",
+      "required": ["schema_version", "discovery_report"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "discovery_report": {
+          "description": "Consumed directly as Discovery's output type — no separate transport format.",
+          "$ref": "discovery.schema.json#/$defs/DiscoveryOutput"
+        },
+        "ui_map": {
+          "type": "array",
+          "description": "Optional. Empty/absent until a UI Map producer exists — see UIMapElement.",
+          "items": { "$ref": "#/$defs/UIMapElement" },
+          "default": []
+        },
+        "screenshot_path": {
+          "type": ["string", "null"],
+          "description": "Optional. Referenced for traceability only — this module does not analyze image content."
+        }
+      }
+    },
+    "JourneyStep": {
+      "type": "object",
+      "required": [
+        "id", "title", "goal", "reason", "priority", "confidence",
+        "expected_result", "depends_on_previous", "possible_failure"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/JourneyStepId" },
+        "title": { "type": "string", "description": "Short, human-readable label for this step." },
+        "goal": { "type": "string", "description": "What evidence this step is meant to gather." },
+        "reason": { "type": "string", "description": "Why this step was included — cites the Discovery/UI Map evidence behind it." },
+        "priority": { "$ref": "#/$defs/PriorityTier" },
+        "confidence": { "$ref": "#/$defs/Confidence" },
+        "expected_result": { "type": "string", "description": "What a successful capture at this step should look like." },
+        "depends_on_previous": {
+          "type": "boolean",
+          "description": "True if this step only makes sense after another already-planned step succeeded (e.g. booking after search)."
+        },
+        "possible_failure": { "type": "string", "description": "How this step could fail to produce evidence, so the Navigation Runner knows what to watch for." }
+      }
+    },
+    "Blocker": {
+      "type": "object",
+      "required": ["type", "description", "affects"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "affects": { "type": "string", "description": "Which step id(s) this blocker affects, or 'all steps until resolved'." }
+      }
+    },
+    "AlternativePath": {
+      "type": "object",
+      "required": ["trigger", "sequence", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "trigger": { "type": "string", "description": "The condition under which the Navigation Runner should switch to this path." },
+        "sequence": { "type": "array", "items": { "type": "string" }, "description": "Step ids (or a recovery action id) in fallback order." },
+        "reason": { "type": "string" }
+      }
+    },
+    "JourneyPlanOutput": {
+      "type": "object",
+      "required": [
+        "schema_version", "starting_url", "primary_goal", "confidence",
+        "recommended_first_action", "recommended_journey", "alternative_paths",
+        "estimated_steps", "blockers", "assumptions", "planned_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "string", "const": "0.1.0" },
+        "company_slug": { "type": ["string", "null"] },
+        "company_name": { "type": ["string", "null"] },
+        "starting_url": { "type": "string", "format": "uri", "description": "Discovery's resolved_url — the already-established entry point; not itself a planned step." },
+        "primary_goal": { "type": "string", "description": "One-line statement of what this journey is optimizing to learn first." },
+        "confidence": { "$ref": "#/$defs/Confidence", "description": "Overall confidence in this plan as a whole — never higher than its weakest planned step." },
+        "recommended_first_action": { "type": "string", "description": "The single next thing the orchestrator/Navigation Runner should do." },
+        "recommended_journey": {
+          "type": "array",
+          "description": "Ordered by priority tier, then by confidence. Only includes steps with actual Discovery evidence (applicable_guess: true) — this module does not fabricate steps it has no evidence for.",
+          "items": { "$ref": "#/$defs/JourneyStep" }
+        },
+        "alternative_paths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AlternativePath" }
+        },
+        "estimated_steps": { "type": "integer", "minimum": 0, "description": "Equal to recommended_journey.length." },
+        "blockers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Blocker" }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Explicit list of what this plan assumes due to missing or partial input (no UI Map, copy-only AI evidence, no screenshot, etc.)."
+        },
+        "planned_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

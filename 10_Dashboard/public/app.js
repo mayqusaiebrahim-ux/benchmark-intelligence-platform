@@ -16,12 +16,15 @@ const JOURNEY_STEP_LABELS = {
   step_12_loyalty:         '12 Loyalty',
 };
 
+// Sprint 27 (P1-4): `desc` added so every render site can offer a plain-
+// language definition on hover instead of a bare rubric term — wording
+// matches CLAUDE.md's own 1/3/5 scoring rubric, not invented fresh.
 const INNOVATION_DIMS = [
-  { id: 'clarity',           label: 'Clarity' },
-  { id: 'ai_sophistication', label: 'AI Sophistication' },
-  { id: 'personalization',   label: 'Personalization' },
-  { id: 'delight',           label: 'Delight' },
-  { id: 'innovation',        label: 'Innovation' },
+  { id: 'clarity',           label: 'Clarity',           desc: 'How understandable the UI is at a glance — confusing (1) to instantly obvious (5).' },
+  { id: 'ai_sophistication', label: 'AI Sophistication',  desc: 'How capable the AI is — no AI present (1) to proactive, contextual AI (5).' },
+  { id: 'personalization',   label: 'Personalization',   desc: 'How tailored the experience is to the individual user — fully generic (1) to deeply personalized (5).' },
+  { id: 'delight',           label: 'Delight',           desc: 'How the experience feels to use — frustrating (1) to surprising and joyful (5).' },
+  { id: 'innovation',        label: 'Innovation',        desc: 'How new the idea is versus the rest of the industry — direct copycat (1) to category-defining (5).' },
 ];
 
 const CHART_COLORS = ['#f59e0b', '#3b82f6', '#22c55e', '#a855f7', '#ec4899'];
@@ -53,6 +56,7 @@ const CATEGORY_CLASS = {
 const STAGE_LABELS = {
   queued:                 'Queued',
   preparing:              'Preparing',
+  running:                'Running',
   opening_website:        'Opening Website',
   capturing_screenshots:  'Capturing Screenshots',
   analyzing_ux:           'Analyzing UX',
@@ -60,7 +64,43 @@ const STAGE_LABELS = {
   updating_matrix:        'Updating Matrix',
   generating_dashboard:   'Generating Dashboard',
   completed:              'Completed',
+  failed:                 'Failed',
+  // Sprint 24 — Output Verification Layer
+  runtime_failed:         'Runtime Failed',
+  reasoning_failed:       'Reasoning Failed',
+  verification_failed:    'Verification Failed',
+  // Sprint 26 — Live Runtime Progress: real Runtime stage ids, shown WHILE
+  // that stage is running (see benchmarkService.js). Same ids Output
+  // Verification's own error.stageId already used in Sprint 24 — reused
+  // here as display labels rather than invented fresh.
+  navigation:              'Navigation',
+  screenshot:              'Screenshot',
+  vision:                  'Vision Analysis',
+  reasoning:               'Reasoning',
+  output_verification:     'Output Verification',
 };
+
+// Sprint 27 (P0-3): plain-language explanations for the three failure
+// states, so "Reasoning Failed" doesn't require knowing what "Reasoning"
+// means internally — shown as a tooltip and, in the Queue, inline under the
+// badge (see the AUTOMATED_STAGES rendering branch below).
+const FAILURE_STAGE_DESC = {
+  runtime_failed:      'The automated capture (opening the site, taking a screenshot, or reading it with AI Vision) hit an error before analysis could even begin.',
+  reasoning_failed:    'The AI research agent that writes the actual report did not finish successfully.',
+  verification_failed: 'The AI research agent finished, but one or more expected report files were missing or incomplete — nothing was silently marked "done."',
+  failed:              'The benchmark did not complete, for a reason outside the categories above.',
+};
+
+// Sprint 26: the two possible Runtime stage sequences fullPipeline.js
+// actually runs (13_Orchestrator/pipelines/fullPipeline.js) — url-present
+// requests get all five stages, url-less requests skip straight to
+// Reasoning. Mirrored here only for display (which segments to draw, how
+// many total steps for the progress %) — not a second source of truth,
+// since which sequence applies is derived from the item's own existing
+// `url` field, not guessed.
+const RUNTIME_STAGES_WITH_URL = ['navigation', 'screenshot', 'vision', 'reasoning', 'output_verification'];
+const RUNTIME_STAGES_NO_URL = ['reasoning', 'output_verification'];
+const RUNTIME_STAGE_SET = new Set(RUNTIME_STAGES_WITH_URL);
 const STAGE_ORDER = Object.keys(STAGE_LABELS);
 
 const BENCHMARK_TYPE_INFO = [
@@ -102,7 +142,6 @@ const ROADMAP_ITEMS = [
   { title: 'Video Capture',           desc: 'Motion & micro-interaction recording' },
   { title: 'Heatmaps',                desc: 'Attention and interaction heatmaps' },
   { title: 'Analytics',               desc: 'Usage analytics across the knowledge base' },
-  { title: 'Claude Integration',      desc: 'Direct handoff from Launch Benchmark into a live session' },
 ];
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -156,14 +195,31 @@ function lastUpdatedAt(request) {
   return new Date(Math.max(...times));
 }
 
+// ─── Keyboard accessibility for interactive non-native elements ─────────────
+// Chips, filter pills, gallery items, and icon-only close buttons are
+// <div>/<span> with onclick — native HTML never makes those keyboard-
+// focusable or operable. style.css already defines :focus-visible outlines
+// for .chip/.filter-chip/.nav-item, but they were inert without a tabindex.
+// Rather than converting every one to a <button> (touching each call site's
+// layout), templates get role="button" + tabindex="0", and this one
+// delegated listener maps Enter/Space to the same click each already
+// handles — it only adds keyboard operability, never changes behavior.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target.closest('[role="button"]');
+  if (!el) return;
+  e.preventDefault();
+  el.click();
+});
+
 // ─── Generic Modal ────────────────────────────────────────────────────────────
 function modalEscHandler(e) { if (e.key === 'Escape') closeModal(); }
 
-window.openModal = function(html) {
+window.openModal = function(html, { wide = false } = {}) {
   document.getElementById('modal-overlay')?.remove();
   const m = document.createElement('div');
   m.id = 'modal-overlay';
-  m.innerHTML = `<div id="modal-box">${html}</div>`;
+  m.innerHTML = `<div id="modal-box" class="${wide ? 'modal-box-wide' : ''}">${html}</div>`;
   m.addEventListener('click', e => { if (e.target === m) closeModal(); });
   document.body.appendChild(m);
   document.addEventListener('keydown', modalEscHandler);
@@ -172,6 +228,56 @@ window.openModal = function(html) {
 window.closeModal = function() {
   document.getElementById('modal-overlay')?.remove();
   document.removeEventListener('keydown', modalEscHandler);
+};
+
+// Sprint 27 — Internal Beta Polish (P1-1): replaces native alert()/confirm()
+// with the app's own modal chrome, so an error or a destructive-action
+// confirmation looks like the rest of the product instead of a jarring
+// browser-native dialog. Same openModal()/closeModal() every other dialog
+// in the app already uses — no new UI system.
+window.showAlertModal = function(message, { title = 'Something went wrong' } = {}) {
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">${title}</div>
+      <div class="modal-close" role="button" tabindex="0" aria-label="Close dialog" onclick="closeModal()">✕</div>
+    </div>
+    <div class="modal-body"><p class="text-2" style="line-height:1.5">${message}</p></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:0 20px 20px">
+      <button class="btn btn-primary" onclick="closeModal()">OK</button>
+    </div>`);
+};
+
+// Sprint 27 (Priority 6 — missing success messages): a small, non-blocking
+// toast for "this worked" confirmations — a full modal would force a click
+// to dismiss right when the user is already navigating on, which is worse
+// than no feedback at all. Auto-dismisses; doesn't stack (one at a time is
+// enough for this app's action volume).
+window.showToast = function(message) {
+  document.getElementById('atb-toast')?.remove();
+  const t = document.createElement('div');
+  t.id = 'atb-toast';
+  t.className = 'atb-toast';
+  t.textContent = message;
+  document.body.appendChild(t);
+  setTimeout(() => t.classList.add('visible'), 10);
+  setTimeout(() => { t.classList.remove('visible'); setTimeout(() => t.remove(), 300); }, 3200);
+};
+
+window.showConfirmModal = function(message, { title = 'Please confirm', confirmLabel = 'Confirm' } = {}) {
+  return new Promise((resolve) => {
+    openModal(`
+      <div class="modal-header">
+        <div class="modal-title">${title}</div>
+        <div class="modal-close" role="button" tabindex="0" aria-label="Close dialog" onclick="closeModal()">✕</div>
+      </div>
+      <div class="modal-body"><p class="text-2" style="line-height:1.5">${message}</p></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;padding:0 20px 20px">
+        <button class="btn btn-ghost" id="confirm-modal-cancel">Cancel</button>
+        <button class="btn btn-danger" id="confirm-modal-ok">${confirmLabel}</button>
+      </div>`);
+    document.getElementById('confirm-modal-cancel').onclick = () => { closeModal(); resolve(false); };
+    document.getElementById('confirm-modal-ok').onclick = () => { closeModal(); resolve(true); };
+  });
 };
 
 // ─── API ──────────────────────────────────────────────────────────────────────
@@ -228,12 +334,50 @@ function fmt(val) {
   return typeof val === 'number' ? val.toFixed(1) : val;
 }
 
-function badge(text, cls) {
-  return `<span class="badge ${cls}">${text}</span>`;
+function badge(text, cls, title) {
+  return `<span class="badge ${cls}"${title ? ` title="${title}"` : ''}>${text}</span>`;
+}
+
+// Sprint 27 (P1-4): plain-language definitions for the AI Maturity ladder,
+// wording matches CLAUDE.md's own "AI Maturity Level" scale.
+const MATURITY_DESC = {
+  'Autonomous':     'AI takes action on its own — proactive monitoring, multi-step tasks without being asked.',
+  'Conversational': 'AI holds a real back-and-forth conversation, not just single-turn suggestions.',
+  'Assistive':      'AI offers helpful suggestions, but the user drives every step.',
+  'Basic':          'Some AI-labeled features exist, but they are simple, not contextual.',
+  'Absent':         'No meaningful AI present in this experience.',
+};
+
+// Sprint 27 (Priority 5): pulled out of renderTabOverview() and rendered
+// directly under the company header in renderCompany() instead — the
+// single highest-signal "key finding" this report has (one prioritized
+// idea, why it matters, business impact) was previously visible only after
+// clicking into the Overview tab specifically. Same data, same card, no
+// new fetch — just shown where a scanning reader actually looks first.
+function executiveRecommendationHtml(rec) {
+  if (!rec) return '';
+  const complexityBadge = rec.complexity === 'Low' ? 'badge-green'
+    : rec.complexity === 'High' ? 'badge-red' : 'badge-yellow';
+  const timelineBadge = rec.timeline === 'Quick Win' ? 'badge-accent'
+    : rec.timeline === 'Long-term' ? 'badge-purple' : 'badge-blue';
+  return `
+    <div class="exec-rec-card mb-4">
+      <div class="exec-rec-eyebrow">If Saudia adopts only ONE idea from this benchmark</div>
+      <div class="exec-rec-idea">${rec.one_idea}</div>
+      ${rec.description ? `<p class="exec-rec-desc">${rec.description}</p>` : ''}
+      <div class="exec-rec-details">
+        ${rec.why_it_matters ? `<div><div class="exec-rec-label">Why it matters</div><div class="exec-rec-text">${rec.why_it_matters}</div></div>` : ''}
+        ${rec.business_impact ? `<div><div class="exec-rec-label">Business impact</div><div class="exec-rec-text">${rec.business_impact}</div></div>` : ''}
+      </div>
+      <div class="exec-rec-footer">
+        ${rec.complexity ? `<span class="badge ${complexityBadge}">${rec.complexity} Complexity</span>` : ''}
+        ${rec.timeline ? `<span class="badge ${timelineBadge}">${rec.timeline}</span>` : ''}
+      </div>
+    </div>`;
 }
 
 function maturityBadge(m) {
-  return badge(m || '—', MATURITY_CLASS[m] || 'badge-gray');
+  return badge(m || '—', MATURITY_CLASS[m] || 'badge-gray', MATURITY_DESC[m] || 'AI Maturity — how capable this product\'s AI actually is.');
 }
 
 function categoryBadge(c) {
@@ -287,8 +431,21 @@ function radarChart(datasets, labels, size = 220, maxVal = 5) {
   for (let i = 0; i < N; i++) {
     const [x2, y2] = pt(i, maxVal);
     axes += `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" stroke="#252a3a" stroke-width="1"/>`;
-    const [lx, ly] = pt(i, maxVal + 0.9);
-    lbls += `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" fill="#8892a8" font-size="10">${labels[i]}</text>`;
+    // 1.6, not the smaller offset a middle-anchored label could use: with
+    // directional anchors below, side labels grow back toward center from
+    // this point, so it needs enough clearance from the r=maxVal data ring
+    // that the text doesn't overlap the plotted polygon itself.
+    const [lx, ly] = pt(i, maxVal + 1.6);
+    // A label straight off the right/left edge grows further past the
+    // viewBox under text-anchor="middle" (confirmed: "AI Sophistication"
+    // clipped to "AI Sophisticati" in both the company header and the
+    // Comparison page radar). Anchor right-side labels to grow leftward
+    // (toward center) and left-side labels to grow rightward instead —
+    // the standard fix for polar/radar chart label placement — so long
+    // labels stay inside the chart regardless of size.
+    const cosA = Math.cos(i * ang - Math.PI / 2);
+    const anchor = cosA > 0.3 ? 'end' : cosA < -0.3 ? 'start' : 'middle';
+    lbls += `<text x="${lx}" y="${ly}" text-anchor="${anchor}" dominant-baseline="middle" fill="#8892a8" font-size="10">${labels[i]}</text>`;
   }
 
   // Score value labels on first axis at each grid level
@@ -350,6 +507,7 @@ async function route(hash) {
   switch (h) {
     case 'home':        await renderHome(); break;
     case 'benchmarks':  await renderBenchmarks(query); break;
+    case 'homepage-benchmarks': await renderHomepageBenchmarks(); break;
     case 'comparison':  await renderComparison(); break;
     case 'matrix':      await renderMatrix(); break;
     case 'trends':      await renderTrends(); break;
@@ -382,8 +540,10 @@ function setupPresentationMode() {
   }
   const toggle = document.getElementById('presentation-toggle');
   if (!toggle) return;
+  toggle.setAttribute('aria-pressed', document.body.classList.contains('presentation-mode') ? 'true' : 'false');
   toggle.addEventListener('click', () => {
     const on = document.body.classList.toggle('presentation-mode');
+    toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
     localStorage.setItem('presentationMode', on ? 'true' : 'false');
     route(location.hash);
   });
@@ -550,6 +710,37 @@ function roadmapSectionHtml() {
     </div>`;
 }
 
+// Sprint 28 — Product Identity: replaces Sprint 27's dismissible onboarding
+// tip with a permanent hero. The two jobs are different — Sprint 27's panel
+// was a one-time explainer; this is the page's actual identity and primary
+// action, so it doesn't hide itself the way a tip should. Answers, in
+// order, the three things GOAL asks for within 10 seconds: what this is
+// (kicker + headline), why it's valuable (subheadline, in outcomes, not
+// mechanism), what to do next (one primary CTA — "Start Benchmark", not
+// two competing ones). The New Benchmark / Homepage Benchmark distinction
+// Sprint 27 established is kept, but demoted to a small text line under the
+// CTA — real information, not competing for the same visual weight as the
+// primary action.
+function heroSectionHtml(stats) {
+  return `
+    <div class="hero">
+      <div class="hero-kicker">AI Travel Benchmark Platform</div>
+      <h1 class="hero-title">See how travel’s best AI experiences actually work — automatically.</h1>
+      <p class="hero-sub">Point it at a competitor and get back a scored, evidence-backed read on their AI: what they built, how it compares, and what Saudia should build next — no manual research pass required.</p>
+      <div class="hero-actions">
+        <a href="#wizard" class="btn btn-hero-primary">Start Benchmark →</a>
+        <span class="hero-secondary-link">or run a <a href="#homepage-benchmarks">quick homepage scan</a> instead</span>
+      </div>
+      <div class="hero-proof">
+        <span><strong>${stats.benchmarks_complete}</strong> products benchmarked</span>
+        <span class="hero-proof-dot">·</span>
+        <span><strong>${stats.patterns_discovered}</strong> AI patterns identified</span>
+        <span class="hero-proof-dot">·</span>
+        <span><strong>${stats.saudia_opportunities}</strong> opportunities for Saudia</span>
+      </div>
+    </div>`;
+}
+
 async function renderHome() {
   setTitle('AI Travel Benchmark 2026');
   setTopbarActions('');
@@ -569,6 +760,7 @@ async function renderHome() {
   const requests = requestsData.requests || [];
 
   setContent(`
+    ${heroSectionHtml(stats)}
     <div class="section-header">
       <div><div class="section-title">Platform Statistics</div></div>
     </div>
@@ -665,7 +857,7 @@ function benchmarkCardHtml(b) {
       <div class="bc-bars">
         ${INNOVATION_DIMS.map(d => `
           <div class="bc-bar-row">
-            <div class="bc-bar-label">${d.label}</div>
+            <div class="bc-bar-label" title="${d.desc}">${d.label}</div>
             <div class="bc-bar"><div class="bc-bar-fill" style="width:${((scores[d.id] || 0) / 5) * 100}%;background:${scoreColor(scores[d.id])}"></div></div>
             <div class="bc-bar-val">${fmt(scores[d.id])}</div>
           </div>`).join('')}
@@ -731,10 +923,10 @@ function renderWizardStep() {
 function wizardStep1() {
   return `
     <h2>Choose Benchmark Type</h2>
-    <div class="section-sub">What kind of benchmark is this?</div>
+    <div class="section-sub">What kind of benchmark is this? (Looking for a quick automated homepage-only scan instead — airlines only, no setup? Use <a href="#homepage-benchmarks" class="btn-link" style="font-size:inherit">Homepage Benchmark</a> from the sidebar instead of this wizard.)</div>
     <div class="chip-group" style="flex-direction:column;align-items:stretch">
       ${BENCHMARK_TYPE_INFO.map(t => `
-        <div class="chip ${_wizard.benchmark_type === t.id ? 'selected' : ''}" onclick="wizardSetType('${t.id}')" style="text-align:left">
+        <div class="chip ${_wizard.benchmark_type === t.id ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${_wizard.benchmark_type === t.id}" onclick="wizardSetType('${t.id}')" style="text-align:left">
           <div>${t.id}</div>
           <div class="chip-desc">${t.desc}</div>
         </div>`).join('')}
@@ -752,7 +944,7 @@ function wizardStep2() {
     <h2>Select Feature</h2>
     <div class="section-sub">What are we benchmarking?</div>
     <div class="chip-group">
-      ${FEATURE_PRESETS.map(f => `<div class="chip ${_wizard.feature === f ? 'selected' : ''}" onclick="wizardSetFeature('${f}')">${f}</div>`).join('')}
+      ${FEATURE_PRESETS.map(f => `<div class="chip ${_wizard.feature === f ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${_wizard.feature === f}" onclick="wizardSetFeature('${f}')">${f}</div>`).join('')}
     </div>
     <div class="form-group mt-4">
       <label class="form-label">Or enter a custom feature</label>
@@ -770,7 +962,7 @@ function wizardStep3() {
     <div class="competitor-row">
       <div class="competitor-name">${c.name}</div>
       <div class="competitor-url">${c.url || '—'}</div>
-      <div class="competitor-remove" onclick="wizardRemoveCompetitor(${i})">✕</div>
+      <div class="competitor-remove" role="button" tabindex="0" aria-label="Remove ${c.name}" onclick="wizardRemoveCompetitor(${i})">✕</div>
     </div>`).join('');
 
   const suggestions = COMPETITOR_SUGGESTIONS.filter(s => !_wizard.competitors.some(c => c.name === s));
@@ -790,7 +982,7 @@ function wizardStep3() {
       <button class="btn btn-primary" onclick="wizardAddCompetitor()" style="flex:0 0 auto">+ Add</button>
     </div>
     ${suggestions.length ? `<div class="competitor-suggestions">
-      ${suggestions.map(s => `<div class="competitor-suggestion" onclick="wizardQuickAddCompetitor('${s}')">+ ${s}</div>`).join('')}
+      ${suggestions.map(s => `<div class="competitor-suggestion" role="button" tabindex="0" onclick="wizardQuickAddCompetitor('${s}')">+ ${s}</div>`).join('')}
     </div>` : ''}
     <div class="competitor-list">${rows || '<div class="text-2 text-sm mt-2">No competitors added yet.</div>'}</div>
     ${wizardErrorHtml()}
@@ -806,7 +998,7 @@ function wizardStep4() {
     <div class="section-sub">Select all that apply.</div>
     <div class="chip-group" style="flex-direction:column;align-items:stretch">
       ${SCOPE_INFO.map(s => `
-        <div class="chip ${_wizard.scope.includes(s.id) ? 'selected' : ''}" onclick="wizardToggleScope('${s.id}')" style="text-align:left">
+        <div class="chip ${_wizard.scope.includes(s.id) ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${_wizard.scope.includes(s.id)}" onclick="wizardToggleScope('${s.id}')" style="text-align:left">
           <div>${s.id}</div>
           <div class="chip-desc">${s.desc}</div>
         </div>`).join('')}
@@ -830,7 +1022,7 @@ function wizardStep5() {
 
   return `
     <h2>Review &amp; Start</h2>
-    <div class="section-sub">This creates a benchmark request and queues one item per competitor. Hand the trigger prompt below to a Claude Code benchmarking session for each competitor — the Queue page tracks real progress.</div>
+    <div class="section-sub">This creates one queued item per competitor below. Clicking "Start Benchmark" queues the request — from there, pressing ▶ Start on an item in the Queue runs it automatically (no manual steps), and typically takes several minutes per competitor for a full benchmark.</div>
     <div class="wizard-review-row"><label>Type</label><span class="value">${_wizard.benchmark_type}</span></div>
     <div class="wizard-review-row"><label>Feature</label><span class="value">${_wizard.feature}</span></div>
     <div class="wizard-review-row"><label>Scope</label><span class="value">${scopeText}</span></div>
@@ -839,7 +1031,8 @@ function wizardStep5() {
       <label class="form-label">Notes (optional)</label>
       <textarea class="form-textarea" oninput="wizardSetNotes(this.value)">${_wizard.notes || ''}</textarea>
     </div>
-    <h3 class="mt-4">Trigger Prompts</h3>
+    <h3 class="mt-4">What Each Competitor Will Run</h3>
+    <div class="text-3 mb-2" style="font-size:11px">For reference — this is the exact instruction each queued benchmark will run automatically.</div>
     <div class="mt-2">${rows}</div>
     ${wizardErrorHtml()}
     <div class="wizard-actions">
@@ -918,6 +1111,7 @@ window.wizardSubmit = async function() {
     _matrix = null;
     _wizard = null;
     navigate('queue');
+    showToast('Benchmark request created — track its progress in the Queue below.');
   } catch (e) {
     _wizard.submitting = false;
     _wizard.error = e.message || 'Could not create the request.';
@@ -928,12 +1122,26 @@ window.wizardSubmit = async function() {
 // ─── Page: Benchmark Queue ────────────────────────────────────────────────────
 const QUEUE_STATUS_BADGE = { complete: 'badge-green', in_progress: 'badge-accent', queued: 'badge-gray', cancelled: 'badge-red' };
 
+// Sprint 26 — Live Runtime Progress: stages worth polling for, i.e. "this
+// item might change again soon without a user action." Reuses the exact
+// same Runtime stage ids already defined above — not a new vocabulary.
+const ACTIVE_QUEUE_STAGES = new Set(['preparing', 'running', ...RUNTIME_STAGES_WITH_URL]);
+let _queue_poll_timer = null;
+
+function formatElapsed(ms) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
 async function renderQueue() {
   setTitle('Benchmark Queue');
   setTopbarActions(`<a href="#wizard" class="btn btn-primary workspace-only">+ New Benchmark</a>`);
-  setContent(`<div class="loading-state"><div class="spinner"></div></div>`);
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
+  clearInterval(_queue_poll_timer);
 
-  const { requests, stages } = await getRequests(true);
+  let { requests, stages } = await getRequests(true);
 
   if (requests.length === 0) {
     setContent(`<div class="empty-state"><div class="empty-icon">▤</div><h3>No benchmark requests yet</h3><p>Start one from the New Benchmark wizard.</p></div>`);
@@ -945,7 +1153,7 @@ async function renderQueue() {
     ['queued', 'in_progress', 'complete', 'cancelled'].forEach(s => { counts[s] = requests.filter(r => r.status === s).length; });
     const labels = [['All', 'All'], ['queued', 'Queued'], ['in_progress', 'In Progress'], ['complete', 'Completed'], ['cancelled', 'Cancelled']];
     return `<div class="filter-bar">
-      ${labels.map(([id, label]) => `<div class="filter-chip ${_queue_filter === id ? 'active' : ''}" onclick="queueStatusFilter('${id}')">${label} <span class="text-3">${counts[id] ?? 0}</span></div>`).join('')}
+      ${labels.map(([id, label]) => `<div class="filter-chip ${_queue_filter === id ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${_queue_filter === id}" onclick="queueStatusFilter('${id}')">${label} <span class="text-3">${counts[id] ?? 0}</span></div>`).join('')}
     </div>`;
   }
 
@@ -966,17 +1174,102 @@ async function renderQueue() {
       const badgeCls = QUEUE_STATUS_BADGE[r.status] || 'badge-gray';
       const isActive = r.status === 'queued' || r.status === 'in_progress';
 
+      // V1.6: stages driven by the automated pipeline (benchmarkService ->
+      // ClaudeProvider) — as opposed to the older granular stages a human
+      // manually walks a dropdown through. These get a status badge instead
+      // of the generic segment bar: mapping 'failed' onto a fixed position
+      // in the granular STAGES list would render every earlier segment as
+      // "done" (looks like it finished successfully), which is exactly
+      // backwards. Reuses the badge classes/colors the Homepage Benchmark
+      // run panel already defined — no new CSS.
+      //
+      // Sprint 24 — Output Verification Layer: three failure stages
+      // (runtime_failed / reasoning_failed / verification_failed) all map
+      // to the same red "failed" badge color — deliberately not inventing a
+      // fourth badge color, since STAGE_LABELS already makes them
+      // text-distinguishable ("Runtime Failed" vs "Reasoning Failed" vs
+      // "Verification Failed"), which is what the Dashboard needed to
+      // "clearly distinguish" them; a new color per failure type is a
+      // bigger visual-design decision this sprint didn't ask for.
+      const AUTOMATED_STAGES = {
+        running: 'running',
+        completed: 'succeeded',
+        failed: 'failed',
+        runtime_failed: 'failed',
+        reasoning_failed: 'failed',
+        verification_failed: 'failed',
+      };
+      const FAILURE_STAGES = new Set(['failed', 'runtime_failed', 'reasoning_failed', 'verification_failed']);
+
       const itemRows = r.items.map(item => {
-        const stageIdx = stages.indexOf(item.stage);
-        const segs = stages.map((s, i) => `<div class="seg ${i <= stageIdx ? 'done' : ''}"></div>`).join('');
         const options = stages.map(s => `<option value="${s}" ${s === item.stage ? 'selected' : ''}>${STAGE_LABELS[s] || s}</option>`).join('');
         const startBtn = item.stage === 'queued' && r.status !== 'cancelled'
           ? `<button class="btn btn-primary workspace-only" style="font-size:11px;padding:5px 10px" onclick="openStartBenchmarkModal('${r.id}','${item.slug}')">▶ Start</button>`
           : '';
+
+        let stageCell;
+        if (RUNTIME_STAGE_SET.has(item.stage)) {
+          // Sprint 26 — Live Runtime Progress: item.stage is now one of the
+          // real Runtime stage ids (set by benchmarkService.js's onProgress
+          // handler as each stage actually starts) — reuses the exact same
+          // segment-bar markup the legacy manual STAGES already render
+          // with below, just against the Runtime's own fixed sequence
+          // instead of the old 9-step manual one, plus a `.current` marker
+          // on the in-flight segment (new, small CSS addition) so "current
+          // stage" and "completed stages" are both visible at a glance.
+          const seq = item.url ? RUNTIME_STAGES_WITH_URL : RUNTIME_STAGES_NO_URL;
+          const stageIdx = seq.indexOf(item.stage);
+          const segs = seq.map((s, i) => `<div class="seg ${i < stageIdx ? 'done' : i === stageIdx ? 'current' : ''}"></div>`).join('');
+          const pct = seq.length ? Math.round(((stageIdx + 1) / seq.length) * 100) : 0;
+          const elapsed = item.started_at ? formatElapsed(Date.now() - new Date(item.started_at).getTime()) : null;
+          stageCell = `
+            <div class="queue-item-stage-bar" style="display:block">
+              <div style="display:flex;gap:2px;margin-bottom:4px">${segs}</div>
+              <span class="hb-stage-badge running">${STAGE_LABELS[item.stage] || item.stage}</span>
+              <span class="text-3" style="font-size:11px;margin-left:8px">Step ${stageIdx + 1} of ${seq.length} · ~${pct}%${elapsed ? ` · ${elapsed} elapsed` : ''}</span>
+            </div>`;
+        } else if (AUTOMATED_STAGES[item.stage]) {
+          const timing = [
+            item.started_at ? `Started ${new Date(item.started_at).toLocaleTimeString()}` : null,
+            item.completed_at ? `Finished ${new Date(item.completed_at).toLocaleTimeString()}` : null,
+          ].filter(Boolean).join(' · ');
+          // Sprint 26: "the stage where execution stopped" — item.failed_stage
+          // is the raw Runtime stage id benchmarkService.js captured right
+          // before overwriting item.stage with the classified failure state.
+          const isFailure = FAILURE_STAGES.has(item.stage);
+          const stoppedAt = isFailure && item.failed_stage
+            ? `<div class="text-3" style="font-size:11px;margin-top:2px">Stopped at: ${STAGE_LABELS[item.failed_stage] || item.failed_stage}</div>`
+            : '';
+          // Sprint 27 (P0-3, Priority 4): a plain-language "what does this
+          // mean" line under every failure badge (FAILURE_STAGE_DESC), not
+          // just a hover tooltip — and, for a completed item, the success
+          // message benchmarkService.js already writes
+          // ("Completed successfully — output verified.") now actually
+          // reaches the UI instead of being silently discarded (it was
+          // only ever read for failure stages before this sprint).
+          const explanation = isFailure
+            ? `<div class="text-3" style="font-size:11px;margin-top:2px;line-height:1.5">${FAILURE_STAGE_DESC[item.stage] || ''}</div>`
+            : item.stage === 'completed' && item.execution_message
+              ? `<div class="text-3" style="font-size:11px;margin-top:2px;color:var(--green)">✓ ${item.execution_message}</div>`
+              : '';
+          stageCell = `
+            <div class="queue-item-stage-bar" style="display:block">
+              <span class="hb-stage-badge ${AUTOMATED_STAGES[item.stage]}" title="${isFailure ? (FAILURE_STAGE_DESC[item.stage] || '') : ''}">${STAGE_LABELS[item.stage]}</span>
+              ${timing ? `<span class="text-3" style="font-size:11px;margin-left:8px">${timing}</span>` : ''}
+              ${stoppedAt}
+              ${explanation}
+              ${isFailure && item.execution_message ? `<div class="text-sm" style="color:var(--red);margin-top:4px">${item.execution_message}</div>` : ''}
+            </div>`;
+        } else {
+          const stageIdx = stages.indexOf(item.stage);
+          const segs = stages.map((s, i) => `<div class="seg ${i <= stageIdx ? 'done' : ''}"></div>`).join('');
+          stageCell = `<div class="queue-item-stage-bar">${segs}</div>`;
+        }
+
         return `
           <div class="queue-item-row">
             <div class="queue-item-name">${item.name}${item.is_new_company ? ' <span class="badge badge-purple" style="font-size:9px">New</span>' : ''}</div>
-            <div class="queue-item-stage-bar">${segs}</div>
+            ${stageCell}
             <div class="queue-item-stage-label">${STAGE_LABELS[item.stage] || item.stage}</div>
             <div class="queue-item-actions workspace-only" style="display:flex;gap:6px;align-items:center">
               ${startBtn}
@@ -985,8 +1278,9 @@ async function renderQueue() {
           </div>`;
       }).join('');
 
+      const isCancelled = r.status === 'cancelled';
       return `
-        <div class="queue-batch">
+        <div class="queue-batch ${isCancelled ? 'cancelled' : ''}">
           <div class="queue-batch-header">
             <div>
               <div class="queue-batch-title">${r.feature} <span class="badge badge-gray" style="margin-left:6px">${r.benchmark_type}</span></div>
@@ -1000,7 +1294,7 @@ async function renderQueue() {
             </div>
             <div style="text-align:right">
               <span class="badge ${badgeCls}">${r.status.replace('_', ' ')}</span>
-              <div class="queue-progress-pct mt-2" style="color:${scoreColor(pct / 20)}">${pct}%</div>
+              <div class="queue-progress-pct mt-2" style="color:${isCancelled ? 'var(--text-3)' : scoreColor(pct / 20)}">${pct}%</div>
               <div class="queue-batch-progress">${doneCount} / ${r.items.length} completed</div>
               ${r.status !== 'complete' && r.status !== 'cancelled' ? `<button class="btn btn-ghost workspace-only mt-2" style="font-size:11px;padding:4px 10px" onclick="cancelBatch('${r.id}')">Cancel</button>` : ''}
             </div>
@@ -1021,6 +1315,25 @@ async function renderQueue() {
     <div id="queue-filter-bar">${filterBarHtml()}</div>
     <div id="queue-list"></div>`);
   renderList();
+
+  // Sprint 26 — Live Runtime Progress: poll while anything is actually in
+  // flight, so a running benchmark's segment bar/elapsed time advance on
+  // their own instead of only updating on the next manual navigation —
+  // same 2s-interval idiom hbPollRun() already uses for the Homepage
+  // Benchmark run panel, not a new polling mechanism.
+  const hasActiveItem = () => requests.some(r => r.items.some(i => ACTIVE_QUEUE_STAGES.has(i.stage)));
+  if (hasActiveItem()) {
+    _queue_poll_timer = setInterval(async () => {
+      try {
+        const fresh = await getRequests(true);
+        requests = fresh.requests;
+        renderList();
+        if (!hasActiveItem()) clearInterval(_queue_poll_timer);
+      } catch {
+        clearInterval(_queue_poll_timer);
+      }
+    }, 2000);
+  }
 }
 
 window.queueAdvance = async function(requestId, slug, stage) {
@@ -1029,18 +1342,18 @@ window.queueAdvance = async function(requestId, slug, stage) {
     await renderQueue();
     await initSidebar();
   } catch (e) {
-    alert(e.message || 'Could not update stage.');
+    showAlertModal(e.message || 'Could not update stage.');
   }
 };
 
 window.cancelBatch = async function(requestId) {
-  if (!confirm('Cancel this benchmark request? This cannot be undone.')) return;
+  if (!(await showConfirmModal('Cancel this benchmark request? This cannot be undone.', { title: 'Cancel benchmark request', confirmLabel: 'Cancel Request' }))) return;
   try {
     await api.post(`/api/requests/${requestId}/cancel`, {});
     await renderQueue();
     await initSidebar();
   } catch (e) {
-    alert(e.message || 'Could not cancel request.');
+    showAlertModal(e.message || 'Could not cancel request.');
   }
 };
 
@@ -1057,7 +1370,7 @@ window.openStartBenchmarkModal = async function(requestId, slug) {
   openModal(`
     <div class="modal-header">
       <div class="modal-title">Start Benchmark</div>
-      <div class="modal-close" onclick="closeModal()">✕</div>
+      <div class="modal-close" role="button" tabindex="0" aria-label="Close dialog" onclick="closeModal()">✕</div>
     </div>
     <div class="modal-body">
       <div class="wizard-review-row"><label>Company</label><span class="value">${item.name}</span></div>
@@ -1076,7 +1389,7 @@ window.openStartBenchmarkModal = async function(requestId, slug) {
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="copyModalPrompt()">Copy Prompt</button>
-      <button class="btn btn-primary" onclick="launchBenchmark('${requestId}','${slug}')">▶ Launch Benchmark</button>
+      <button class="btn btn-primary" onclick="launchBenchmark('${requestId}','${slug}')">▶ Run Benchmark</button>
     </div>
   `);
 };
@@ -1099,7 +1412,7 @@ window.launchBenchmark = async function(requestId, slug) {
     await renderQueue();
     await initSidebar();
   } catch (e) {
-    alert(e.message || 'Could not launch benchmark.');
+    showAlertModal(e.message || 'Could not launch benchmark.');
   }
 };
 
@@ -1107,7 +1420,7 @@ window.launchBenchmark = async function(requestId, slug) {
 async function renderBenchmarks(query) {
   setTitle('Benchmark Library');
   setTopbarActions('');
-  setContent(`<div class="loading-state"><div class="spinner"></div></div>`);
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   const queryFeature = query?.get('feature');
   if (queryFeature) { _library_filters.feature = queryFeature; _library_filters.view = 'All'; }
@@ -1138,20 +1451,20 @@ async function renderBenchmarks(query) {
     return `
       <div class="filter-bar">
         <input type="text" class="form-input filter-search-input" placeholder="Search by company name…" value="${f.q}" oninput="libraryFilterChanged(this.value)" />
-        ${categories.map(c => `<div class="filter-chip ${f.category === c ? 'active' : ''}" onclick="libraryCategoryFilter('${c}')">${CATEGORY_LABELS[c] || c}</div>`).join('')}
-        <div class="filter-chip ${f.ai ? 'active' : ''}" onclick="libraryToggleAI()">AI</div>
+        ${categories.map(c => `<div class="filter-chip ${f.category === c ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${f.category === c}" onclick="libraryCategoryFilter('${c}')">${CATEGORY_LABELS[c] || c}</div>`).join('')}
+        <div class="filter-chip ${f.ai ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${f.ai}" onclick="libraryToggleAI()">AI</div>
         <span style="width:1px;background:var(--border);align-self:stretch"></span>
-        ${['All', 'Complete', 'Pending'].map(s => `<div class="filter-chip ${f.status === s ? 'active' : ''}" onclick="libraryStatusFilter('${s}')">${s}</div>`).join('')}
+        ${['All', 'Complete', 'Pending'].map(s => `<div class="filter-chip ${f.status === s ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${f.status === s}" onclick="libraryStatusFilter('${s}')">${s}</div>`).join('')}
       </div>
       <div class="filter-bar">
         <select class="form-select" style="max-width:220px" onchange="libraryFeatureFilter(this.value)">
           <option value="All" ${f.feature === 'All' ? 'selected' : ''}>All Features</option>
           ${featureNames.map(n => `<option value="${n}" ${f.feature === n ? 'selected' : ''}>${n}</option>`).join('')}
         </select>
-        ${['All', 'Complete Journey', 'Feature Benchmark'].map(v => `<div class="filter-chip ${f.view === v ? 'active' : ''}" onclick="libraryViewFilter('${v}')">${v}</div>`).join('')}
+        ${['All', 'Complete Journey', 'Feature Benchmark'].map(v => `<div class="filter-chip ${f.view === v ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${f.view === v}" onclick="libraryViewFilter('${v}')">${v}</div>`).join('')}
         <span style="width:1px;background:var(--border);align-self:stretch"></span>
-        <div class="filter-chip ${f.dateSort === 'newest' ? 'active' : ''}" onclick="libraryDateSort('newest')">Newest</div>
-        <div class="filter-chip ${f.dateSort === 'oldest' ? 'active' : ''}" onclick="libraryDateSort('oldest')">Oldest</div>
+        <div class="filter-chip ${f.dateSort === 'newest' ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${f.dateSort === 'newest'}" onclick="libraryDateSort('newest')">Newest</div>
+        <div class="filter-chip ${f.dateSort === 'oldest' ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${f.dateSort === 'oldest'}" onclick="libraryDateSort('oldest')">Oldest</div>
       </div>`;
   }
 
@@ -1246,13 +1559,309 @@ async function renderBenchmarks(query) {
   renderFeatureSection();
 }
 
+// ─── Page: Homepage Benchmarks ────────────────────────────────────────────────
+const CONFIDENCE_BADGE = { high: 'badge-green', medium: 'badge-yellow', low: 'badge-red' };
+let _homepage_benchmarks_cache = [];
+
+// Run panel state: select airlines -> Start -> live progress. Nothing here
+// requires a manual prompt — Start fires the real parallel Scheduler
+// immediately and the panel polls its own progress until done.
+let _hb_airlines_cache = [];
+let _hb_selected = new Set();
+let _hb_active_run = null;
+let _hb_poll_timer = null;
+let _hb_starting = false;
+
+function hbStageBadgeClass(job) {
+  if (job.status === 'succeeded') return 'succeeded';
+  if (job.status === 'failed') return 'failed';
+  if (job.status === 'retrying') return 'retrying';
+  if (job.status === 'running') return 'running';
+  return 'queued';
+}
+
+function hbStageLabel(job) {
+  const STAGE_TEXT = {
+    queued: 'Queued', antibot_probe: 'Checking access…', discovery: 'Discovery', screenshot: 'Screenshot',
+    analysis: 'AI Vision Analysis', report: 'Writing report', done: 'Done',
+  };
+  if (job.status === 'succeeded') return `Succeeded — ${job.result?.mdPath ? 'report saved' : 'done'}`;
+  if (job.status === 'failed') return `Failed after ${job.attempts} attempt${job.attempts === 1 ? '' : 's'}`;
+  if (job.status === 'retrying') return `Retrying (attempt ${job.attempts + 1} next)`;
+  if (job.status === 'queued') return 'Queued';
+  const stage = String(job.stage || '');
+  if (stage.startsWith('antibot_probe')) return 'Checking access…';
+  return STAGE_TEXT[stage] || stage || 'Running…';
+}
+
+function hbAirlineRowHtml(a) {
+  const checked = _hb_selected.has(a.slug);
+  const statusText = a.already_benchmarked
+    ? `✓ Benchmarked ${a.last_benchmarked_at ? new Date(a.last_benchmarked_at).toLocaleDateString() : ''}`
+    : 'Not yet benchmarked';
+  return `
+    <label class="hb-airline-row ${checked ? 'checked' : ''}" onclick="event.preventDefault(); hbToggleAirline('${a.slug}')">
+      <input type="checkbox" ${checked ? 'checked' : ''} readonly />
+      <div>
+        <div class="hb-airline-row-name">${a.name}</div>
+        <div class="hb-airline-row-status">${statusText}</div>
+      </div>
+    </label>`;
+}
+
+function hbProgressPanelHtml(run) {
+  const rows = (run.jobs || []).map((job) => `
+    <div class="hb-progress-row">
+      <div class="hb-progress-row-name">${job.job.companyName}</div>
+      <div class="hb-progress-row-bar">${scoreBar(
+        job.status === 'succeeded' ? 5 : job.status === 'failed' ? 5 : job.status === 'queued' ? 0 : 2.5,
+        5,
+        job.status === 'succeeded' ? '#22c55e' : job.status === 'failed' ? '#ef4444' : job.status === 'queued' ? '#5a6480' : '#3b82f6',
+      )}</div>
+      <div class="hb-progress-row-stage">
+        <span class="hb-stage-badge ${hbStageBadgeClass(job)}">${job.status}</span>
+        <span>${hbStageLabel(job)}</span>
+      </div>
+    </div>`).join('');
+
+  const succeeded = (run.jobs || []).filter((j) => j.status === 'succeeded').length;
+  const failed = (run.jobs || []).filter((j) => j.status === 'failed').length;
+  const total = (run.jobs || []).length;
+
+  return `
+    <div class="hb-run-progress">
+      <div class="hb-run-progress-list">${rows}</div>
+      <div class="hb-run-summary">
+        ${run.complete
+          ? `Batch complete — ${succeeded}/${total} succeeded${failed ? `, ${failed} failed` : ''}.`
+          : `Running… ${succeeded + failed}/${total} finished so far.`}
+      </div>
+    </div>`;
+}
+
+async function hbRenderRunPanel() {
+  const panel = document.getElementById('hb-run-panel-body');
+  if (!panel) return;
+
+  const airlineList = `
+    <div class="hb-airline-list">${_hb_airlines_cache.map(hbAirlineRowHtml).join('')}</div>
+    <div class="hb-run-panel-actions">
+      <button class="btn btn-primary" onclick="hbStartBenchmark()" ${_hb_starting || _hb_selected.size === 0 ? 'disabled' : ''}>
+        ${_hb_starting ? 'Starting…' : `Start Benchmark (${_hb_selected.size} selected)`}
+      </button>
+      <button class="btn-link" onclick="hbSelectAll()">Select all</button>
+      <button class="btn-link" onclick="hbSelectNone()">Clear</button>
+    </div>`;
+
+  const progress = _hb_active_run ? hbProgressPanelHtml(_hb_active_run) : '';
+  panel.innerHTML = airlineList + progress;
+}
+
+window.hbToggleAirline = function (slug) {
+  if (_hb_selected.has(slug)) _hb_selected.delete(slug); else _hb_selected.add(slug);
+  hbRenderRunPanel();
+};
+window.hbSelectAll = function () {
+  _hb_airlines_cache.forEach((a) => _hb_selected.add(a.slug));
+  hbRenderRunPanel();
+};
+window.hbSelectNone = function () {
+  _hb_selected.clear();
+  hbRenderRunPanel();
+};
+
+window.hbStartBenchmark = async function () {
+  if (_hb_selected.size === 0 || _hb_starting) return;
+  _hb_starting = true;
+  hbRenderRunPanel();
+
+  try {
+    const { runId } = await api.post('/api/homepage-benchmarks/run', { slugs: [..._hb_selected] });
+    _hb_active_run = { runId, jobs: [], complete: false };
+    hbPollRun(runId);
+  } catch (err) {
+    // A 409 (already running) still gives us a runId to attach to instead of failing silently.
+    const match = /runId["\s:]+["']?([\w-]+)/.exec(err.message);
+    if (match) {
+      _hb_active_run = { runId: match[1], jobs: [], complete: false };
+      hbPollRun(match[1]);
+    } else {
+      showAlertModal(err.message || 'Could not start the benchmark.');
+    }
+  } finally {
+    _hb_starting = false;
+    hbRenderRunPanel();
+  }
+};
+
+function hbPollRun(runId) {
+  clearInterval(_hb_poll_timer);
+  const tick = async () => {
+    try {
+      const run = await api.get(`/api/homepage-benchmarks/run/${runId}`);
+      _hb_active_run = run;
+      hbRenderRunPanel();
+      if (run.complete) {
+        clearInterval(_hb_poll_timer);
+        // Refresh the results grid below with whatever just finished.
+        const data = await api.get('/api/homepage-benchmarks');
+        _homepage_benchmarks_cache = data.items || [];
+        const grid = document.getElementById('hb-results-grid');
+        if (grid) grid.outerHTML = hbResultsGridHtml(_homepage_benchmarks_cache);
+      }
+    } catch {
+      clearInterval(_hb_poll_timer);
+    }
+  };
+  tick();
+  _hb_poll_timer = setInterval(tick, 2000);
+}
+
+function hbResultsGridHtml(items) {
+  if (items.length === 0) {
+    return `<div class="empty-state" id="hb-results-grid"><div class="empty-icon">⌂</div><h3>No homepage benchmarks yet</h3><p>Select airlines above and click Start.</p></div>`;
+  }
+  return `<div class="card-grid hb-grid" id="hb-results-grid">${items.map(homepageBenchmarkCardHtml).join('')}</div>`;
+}
+
+function homepageBenchmarkCardHtml(item) {
+  const analysis = item.ai_ux_analysis;
+  const summary = analysis ? analysis.first_impression : (item.ai_ux_analysis_error || 'AI analysis not available for this run.');
+  const strengths = analysis?.top_5_ux_strengths || [];
+  const opportunities = analysis?.top_5_ux_improvement_opportunities || [];
+  const lastAnalyzed = item.benchmark_timestamp ? new Date(item.benchmark_timestamp).toLocaleString() : '—';
+
+  return `
+    <div class="card hb-card">
+      <div class="hb-card-header">
+        <div>
+          <div class="hb-card-name">${item.website_name || item.slug}</div>
+          <a class="hb-card-url" href="${item.url}" target="_blank" rel="noopener">${item.url || ''}</a>
+        </div>
+        ${badge(item.confidence || '—', CONFIDENCE_BADGE[item.confidence] || 'badge-gray')}
+      </div>
+
+      ${item.screenshot_url
+        ? `<div class="hb-screenshot" onclick="openLightbox('${item.screenshot_url}','${item.website_name || item.slug}')">
+             <img src="${item.screenshot_url}" alt="${item.website_name || item.slug} homepage" loading="lazy" />
+           </div>`
+        : `<div class="hb-screenshot hb-screenshot-empty">No screenshot</div>`}
+
+      <div class="hb-block">
+        <div class="hb-block-label">AI Summary</div>
+        <p class="hb-summary-text">${summary}</p>
+      </div>
+
+      <div class="hb-columns">
+        <div>
+          <div class="hb-block-label">Top 5 Strengths</div>
+          <ul class="hb-list">${strengths.map(s => `<li>${s}</li>`).join('') || '<li class="text-3">—</li>'}</ul>
+        </div>
+        <div>
+          <div class="hb-block-label">Top 5 Opportunities</div>
+          <ul class="hb-list">${opportunities.map(s => `<li>${s}</li>`).join('') || '<li class="text-3">—</li>'}</ul>
+        </div>
+      </div>
+
+      <div class="hb-card-footer">
+        <div class="text-2" style="font-size:11px">Last analyzed: ${lastAnalyzed}</div>
+        <button class="btn btn-primary" onclick="openHomepageFullReport('${item.slug}')">Open Full Report</button>
+      </div>
+    </div>`;
+}
+
+window.openHomepageFullReport = async function(slug) {
+  const item = _homepage_benchmarks_cache.find(i => i.slug === slug);
+  if (!item) return;
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">${item.website_name || item.slug} — Full Report</div>
+      <div class="modal-close" role="button" tabindex="0" aria-label="Close dialog" onclick="closeModal()">✕</div>
+    </div>
+    <div class="modal-body" id="hb-report-modal-body">
+      <div class="loading-state"><div class="spinner"></div></div>
+    </div>`, { wide: true });
+
+  try {
+    const r = await api.get(`/api/markdown?path=${encodeURIComponent(item.report_md_path)}`);
+    document.getElementById('hb-report-modal-body').innerHTML = `<div class="md-content">${marked.parse(r.content)}</div>`;
+  } catch {
+    document.getElementById('hb-report-modal-body').innerHTML = `<div class="text-2">Could not load the full report.</div>`;
+  }
+};
+
+async function renderHomepageBenchmarks() {
+  setTitle('Homepage Benchmark');
+  setTopbarActions('');
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
+
+  clearInterval(_hb_poll_timer);
+  _hb_active_run = null;
+
+  let items = [];
+  let airlines = [];
+  try {
+    const [hbData, airlinesData] = await Promise.all([
+      api.get('/api/homepage-benchmarks'),
+      api.get('/api/homepage-benchmarks/airlines'),
+    ]);
+    items = hbData.items || [];
+    airlines = airlinesData.items || [];
+  } catch {
+    setContent(`<div class="empty-state"><h3>Could not load Homepage Benchmark</h3></div>`);
+    return;
+  }
+
+  _homepage_benchmarks_cache = items;
+  _hb_airlines_cache = airlines;
+  _hb_selected = new Set(airlines.filter((a) => !a.already_benchmarked).map((a) => a.slug));
+
+  // Reattach to a run already in flight (e.g. started before a page reload)
+  // instead of showing an empty selector as if nothing were happening.
+  try {
+    const current = await api.get('/api/homepage-benchmarks/run/current');
+    if (current.runId) {
+      _hb_active_run = current;
+      if (!current.complete) hbPollRun(current.runId);
+    }
+  } catch { /* no active run — normal case */ }
+
+  setContent(`
+    <div class="hb-run-panel">
+      <div class="hb-run-panel-header">
+        <div>
+          <div class="section-title">Homepage Benchmark</div>
+          <div class="section-sub">Select airlines, click Start. Discovery, screenshot, and AI Vision analysis run in parallel — results appear below as each one finishes.</div>
+        </div>
+      </div>
+      <div id="hb-run-panel-body"></div>
+    </div>
+
+    <div class="section-header">
+      <div>
+        <div class="section-title">Results</div>
+        <div class="section-sub">${items.length} homepage${items.length === 1 ? '' : 's'} analyzed — Discovery + GPT Vision UX Analysis</div>
+      </div>
+    </div>
+    ${hbResultsGridHtml(items)}
+  `);
+
+  hbRenderRunPanel();
+}
+
 // ─── Page: Company Detail ─────────────────────────────────────────────────────
 async function renderCompany(slug, tab) {
-  setContent(`<div class="loading-state"><div class="spinner"></div></div>`);
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   let co;
   try { co = await api.get(`/api/company/${slug}`); }
-  catch { setContent(`<div class="empty-state"><h3>Company not found</h3><p>Slug: ${slug}</p></div>`); return; }
+  catch {
+    setTitle('Company Not Found');
+    setTopbarActions('');
+    setContent(`<div class="empty-state"><div class="empty-icon">⚠</div><h3>Company not found</h3><p>Slug: ${slug}</p></div>`);
+    return;
+  }
 
   const plan = co.plan || {};
   const data = co.company_data || {};
@@ -1329,7 +1938,7 @@ async function renderCompany(slug, tab) {
   const header = `
     <div class="company-header">
       <div class="ch-score-block">
-        <div class="ch-score" style="color:${scoreColor(overallScore)}">${fmt(overallScore)}</div>
+        <div class="ch-score" style="color:${scoreColor(overallScore)}" title="Average of Clarity, AI Sophistication, Personalization, Delight, and Innovation, across all 12 journey steps (out of 5.0).">${fmt(overallScore)}</div>
         <div class="ch-score-label">Overall Score</div>
         <div class="mt-2">${maturityBadge(overview.ai_maturity)}</div>
       </div>
@@ -1372,6 +1981,20 @@ async function renderCompany(slug, tab) {
       </div>
     </div>`;
 
+  // Sprint 27 (Priority 5): the single highest-signal finding (Executive
+  // Recommendation) now renders directly under the header — visible
+  // immediately regardless of which tab is open. Paired with a one-line
+  // "jump to" row so a scanning reader knows exactly which tab holds the
+  // fuller UX findings / opportunities list, instead of guessing among
+  // unlabeled tab names.
+  const execRecTop = executiveRecommendationHtml(co.meta?.executive_recommendation);
+  const jumpRow = (co.has_ux_analysis || co.has_opportunities) ? `
+    <div class="text-3 mb-4" style="font-size:12px">
+      Full findings: ${co.has_ux_analysis ? `<a href="#company/${slug}/ux_analysis" class="btn-link" style="font-size:12px">UX Analysis →</a>` : ''}
+      ${co.has_ux_analysis && co.has_opportunities ? ' &nbsp;·&nbsp; ' : ''}
+      ${co.has_opportunities ? `<a href="#company/${slug}/opportunities" class="btn-link" style="font-size:12px">Top Opportunities →</a>` : ''}
+    </div>` : '';
+
   const tabBar = `
     <div class="tab-bar">
       ${tabs.map(t => `<button class="tab-btn ${t.id === tab ? 'active' : ''}" onclick="switchTab('${slug}','${t.id}')">${t.label}</button>`).join('')}
@@ -1387,7 +2010,7 @@ async function renderCompany(slug, tab) {
     default:              tabContent = await renderTabOverview(co, data, scores, jScores);
   }
 
-  setContent(header + tabBar + tabContent);
+  setContent(header + execRecTop + jumpRow + tabBar + tabContent);
   setupLightbox();
 }
 
@@ -1432,27 +2055,6 @@ async function renderTabOverview(co, data, scores, jScores, rankInfo = {}, extra
       </div>`;
   }).join('');
 
-  // Executive recommendation (from metadata.json, stored in co.meta)
-  const rec = co.meta?.executive_recommendation;
-  const complexityBadge = rec?.complexity === 'Low' ? 'badge-green'
-    : rec?.complexity === 'High' ? 'badge-red' : 'badge-yellow';
-  const timelineBadge = rec?.timeline === 'Quick Win' ? 'badge-accent'
-    : rec?.timeline === 'Long-term' ? 'badge-purple' : 'badge-blue';
-  const execRecHtml = rec ? `
-    <div class="exec-rec-card mb-4">
-      <div class="exec-rec-eyebrow">If Saudia adopts only ONE idea from this benchmark</div>
-      <div class="exec-rec-idea">${rec.one_idea}</div>
-      ${rec.description ? `<p class="exec-rec-desc">${rec.description}</p>` : ''}
-      <div class="exec-rec-details">
-        ${rec.why_it_matters ? `<div><div class="exec-rec-label">Why it matters</div><div class="exec-rec-text">${rec.why_it_matters}</div></div>` : ''}
-        ${rec.business_impact ? `<div><div class="exec-rec-label">Business impact</div><div class="exec-rec-text">${rec.business_impact}</div></div>` : ''}
-      </div>
-      <div class="exec-rec-footer">
-        ${rec.complexity ? `<span class="badge ${complexityBadge}">${rec.complexity} Complexity</span>` : ''}
-        ${rec.timeline ? `<span class="badge ${timelineBadge}">${rec.timeline}</span>` : ''}
-      </div>
-    </div>` : '';
-
   // Executive summary MD
   let summaryHtml = '';
   if (co.folder) {
@@ -1463,10 +2065,9 @@ async function renderTabOverview(co, data, scores, jScores, rankInfo = {}, extra
   }
 
   return `
-    ${execRecHtml}
     ${summaryHtml ? `<div class="card mb-4">${summaryHtml}</div>` : ''}
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+    <div class="two-col-grid">
       <div class="card">
         <h3>Journey Score Breakdown</h3>
         <div class="mt-3">${journeyBars}</div>
@@ -1510,10 +2111,15 @@ async function renderTabJourney(co, data, jScores) {
   const cards = Object.entries(JOURNEY_STEP_LABELS).map(([key, label]) => {
     const s = jScores[key] || {};
     const isNA = s.applicable === false;
+    // N/A steps still carry a placeholder numeric `score` in the data (seen:
+    // score:1 alongside applicable:false) — scoreColor(1) reads as red,
+    // making "N/A" look like a failing score instead of "not applicable."
+    // The Comparison page's journey table already colors N/A cells neutral
+    // gray; match that here instead of passing the underlying score through.
     return `
       <div class="journey-step ${isNA ? 'na' : ''}" onclick="openJourneyStep('${co.slug}','${key}')">
         <div class="js-label">${label}</div>
-        <div class="js-score" style="color:${scoreColor(s.score)}">${isNA ? 'N/A' : fmt(s.score)}</div>
+        <div class="js-score" style="color:${isNA ? 'var(--text-3)' : scoreColor(s.score)}">${isNA ? 'N/A' : fmt(s.score)}</div>
         ${scoreBar(isNA ? 0 : (s.score || 0))}
         ${s.key_finding ? `<div class="js-finding">${s.key_finding}</div>` : ''}
       </div>`;
@@ -1587,7 +2193,7 @@ async function renderTabScreenshots(slug) {
     const isAI = AI_HIGHLIGHT_STEPS.some(p => step.includes(p));
     return `
       <div class="step-gallery-section">
-        <div class="gallery-title" onclick="toggleGallerySection(this)">
+        <div class="gallery-title" role="button" tabindex="0" aria-expanded="true" onclick="toggleGallerySection(this)">
           <span>${step.replace(/_/g, ' ')}</span>
           <span class="badge badge-gray" style="margin-left:8px">${imgs.length}</span>
           ${isAI ? `<span class="badge badge-accent" style="margin-left:4px;font-size:9px;padding:1px 5px">AI</span>` : ''}
@@ -1595,7 +2201,7 @@ async function renderTabScreenshots(slug) {
         </div>
         <div class="gallery-grid">
           ${imgs.map(img => `
-            <div class="gallery-item" onclick="openLightbox('${img.url}','${img.name}')">
+            <div class="gallery-item" role="button" tabindex="0" aria-label="Open ${img.name} enlarged" onclick="openLightbox('${img.url}','${img.name}')">
               <img src="${img.url}" alt="${img.name}" loading="lazy" onerror="this.style.background='var(--surface-3)';this.src=''"/>
               <div class="gallery-item-name">${img.name}</div>
             </div>`).join('')}
@@ -1622,7 +2228,7 @@ async function renderTabScreenshots(slug) {
     </div>
     <div class="gallery-grid mb-4">
       ${highlights.map(img => `
-        <div class="gallery-item" onclick="openLightbox('${img.url}','${img.name}')">
+        <div class="gallery-item" role="button" tabindex="0" aria-label="Open ${img.name} enlarged" onclick="openLightbox('${img.url}','${img.name}')">
           <img src="${img.url}" alt="${img.name}" loading="lazy" onerror="this.style.background='var(--surface-3)';this.src=''"/>
           <div class="gallery-item-name">${img.name}</div>
         </div>`).join('')}
@@ -1648,6 +2254,7 @@ window.toggleGallerySection = function(titleEl) {
   const hidden = grid.style.display === 'none';
   grid.style.display = hidden ? '' : 'none';
   if (toggle) toggle.textContent = hidden ? '▾' : '▸';
+  titleEl.setAttribute('aria-expanded', hidden ? 'true' : 'false');
 };
 
 // ─── Company Tab: UX Analysis ─────────────────────────────────────────────────
@@ -1694,7 +2301,7 @@ window.presetComparison = function(slug) {
 // ─── Page: Comparison ─────────────────────────────────────────────────────────
 async function renderComparison() {
   setTitle('Company Comparison');
-  setContent(`<div class="loading-state"><div class="spinner"></div></div>`);
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   const [benchmarks, matrix] = await Promise.all([getBenchmarks(), getMatrix()]);
   const complete = benchmarks.filter(b => b.status === 'complete');
@@ -1713,6 +2320,7 @@ async function renderComparison() {
       <div class="comparison-selector">
         ${benchmarks.map(b => `
           <div class="company-toggle ${b.status === 'complete' ? (_comparison_selected.has(b.slug) ? 'selected' : '') : 'pending'}"
+               ${b.status === 'complete' ? `role="button" tabindex="0" aria-pressed="${_comparison_selected.has(b.slug)}"` : ''}
                onclick="${b.status === 'complete' ? `toggleCompany('${b.slug}')` : ''}">
             <span style="color:${scoreColor(b.overall_score)}">${fmt(b.overall_score)}</span>
             ${b.name}
@@ -1802,8 +2410,8 @@ async function renderComparison() {
 
 // ─── Page: Master Matrix ──────────────────────────────────────────────────────
 async function renderMatrix() {
-  setTitle('Master Benchmark Matrix');
-  setContent(`<div class="loading-state"><div class="spinner"></div></div>`);
+  setTitle('Score Matrix');
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   const matrix = await getMatrix();
   const benchmarks = await getBenchmarks();
@@ -1899,7 +2507,7 @@ async function renderMatrix() {
 // ─── Page: Trends ─────────────────────────────────────────────────────────────
 async function renderTrends() {
   setTitle('Emerging Trends & Patterns');
-  setContent(`<div class="loading-state"><div class="spinner"></div></div>`);
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   const { patterns } = await api.get('/api/patterns');
   const benchmarks = await getBenchmarks();
@@ -1953,7 +2561,7 @@ async function renderTrends() {
     </div>`).join('');
 
   setContent(`
-    <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;margin-bottom:24px">
+    <div class="two-col-grid-wide">
       <div>
         <div class="section-header">
           <div class="section-title">Pattern Tracker</div>
@@ -1981,51 +2589,77 @@ async function renderTrends() {
 // ─── Page: Saudia Opportunities ───────────────────────────────────────────────
 async function renderSaudia() {
   setTitle('Saudia Opportunities');
-  setContent(`<div class="loading-state"><div class="spinner"></div></div>`);
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   const data = await api.get('/api/saudia');
   const { gap, briefs, key_insights } = data;
 
-  const PRIORITY_CLASS = { 'Critical': 'badge-red', 'High': 'badge-accent', 'Medium': 'badge-yellow', 'Low': 'badge-gray' };
+  // The matrix's gap severity lives in the free-text `gap` field (values like
+  // "Critical", "High — Saudia has all data needed…") — not `priority`, which
+  // instead holds an execution tag (P0/P1/P2/✅ Done/🟢 Own It). Bucketing by
+  // `priority` (its exact values never match Critical/High/Medium/Low) left
+  // every row unbucketed and this entire section rendered as "No gap data
+  // yet" despite always having real records. Classify by matching a known
+  // severity word at the start of `gap` instead; anything else (e.g. "Saudia
+  // uniquely positioned to own this") is a strength, not a gap, so it gets
+  // its own bucket rather than being silently dropped.
+  const SEVERITY_WORDS = ['Critical', 'High', 'Medium', 'Low', 'None'];
+  function gapSeverity(text) {
+    const t = String(text || '');
+    return SEVERITY_WORDS.find(w => t.startsWith(w)) || 'Opportunity';
+  }
+
+  const PRIORITY_CLASS = {
+    'Critical': 'badge-red', 'High': 'badge-accent', 'Medium': 'badge-yellow', 'Low': 'badge-gray',
+    'Opportunity': 'badge-purple', 'None': 'badge-green',
+  };
 
   const gapEntries = Object.entries(gap);
-  const byPriority = {};
+  const bySeverity = {};
   gapEntries.forEach(([id, g]) => {
-    const p = g.priority || 'Medium';
-    if (!byPriority[p]) byPriority[p] = [];
-    byPriority[p].push([id, g]);
+    const s = gapSeverity(g.gap);
+    if (!bySeverity[s]) bySeverity[s] = [];
+    bySeverity[s].push([id, g]);
   });
 
-  const priorityOrder = ['Critical', 'High', 'Medium', 'Low'];
+  const severityOrder = ['Critical', 'High', 'Medium', 'Low', 'Opportunity', 'None'];
   let gapHtml = '';
-  for (const priority of priorityOrder) {
-    const items = byPriority[priority] || [];
+  for (const severity of severityOrder) {
+    const items = bySeverity[severity] || [];
     if (!items.length) continue;
     gapHtml += `
       <div class="section-header mt-4">
-        <div>${badge(priority, PRIORITY_CLASS[priority] || 'badge-gray')} Priority</div>
-        <div class="section-sub">${items.length} gap(s)</div>
+        <div>${badge(severity, PRIORITY_CLASS[severity] || 'badge-gray')} Severity</div>
+        <div class="section-sub">${items.length} area${items.length === 1 ? '' : 's'}</div>
       </div>`;
-    gapHtml += items.map(([id, g]) => `
+    gapHtml += items.map(([id, g]) => {
+      // saudia_today is sometimes descriptive text ("None") rather than a
+      // number — fall back to 0 for color/math, but still display the
+      // original text via fmt() rather than coercing it to "0".
+      const todayNum = typeof g.saudia_today === 'number' ? g.saudia_today : 0;
+      return `
       <div class="gap-row">
         <div class="gap-header">
           <div class="gap-label">${g.label || id.replace(/_/g,' ')}</div>
           <div class="gap-best">Best: <strong>${g.best_in_class || '—'}</strong> (${fmt(g.best_score)}/5)</div>
+          ${g.priority ? `<span class="badge badge-gray">${g.priority}</span>` : ''}
           <span class="badge badge-gray">${g.timeline || '—'}</span>
         </div>
         <div class="gap-body">
           <div class="gap-item">
             <label>Saudia Today</label>
-            <span style="color:${scoreColor(g.saudia_today)}">${fmt(g.saudia_today)} / 5</span>
-            ${scoreBar(g.saudia_today || 0)}
+            <span style="color:${scoreColor(todayNum)}">${fmt(g.saudia_today)} / 5</span>
+            ${scoreBar(todayNum)}
           </div>
           <div class="gap-item">
             <label>Gap to Best</label>
-            <span style="color:var(--red)">−${fmt((g.best_score || 0) - (g.saudia_today || 0))}</span>
+            <span style="color:var(--red)">−${fmt((g.best_score || 0) - todayNum)}</span>
           </div>
+          ${g.gap ? `<div class="text-2 text-sm" style="grid-column:1/-1">${g.gap}</div>` : ''}
           ${g.saudia_action ? `<div class="gap-action">${g.saudia_action}</div>` : ''}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   // Opportunity briefs (MD files)
@@ -2118,7 +2752,7 @@ window.openLightbox = function(url, name) {
   const lb = document.createElement('div');
   lb.id = 'lightbox';
   lb.innerHTML = `
-    <div id="lightbox-close" onclick="document.getElementById('lightbox').remove()">✕</div>
+    <div id="lightbox-close" role="button" tabindex="0" aria-label="Close" onclick="document.getElementById('lightbox').remove()">✕</div>
     <img src="${url}" alt="${name}"/>
     <div id="lightbox-caption">${name}</div>`;
   lb.addEventListener('click', e => { if (e.target === lb) lb.remove(); });
@@ -2131,11 +2765,63 @@ function setupLightbox() {
   });
 }
 
+// ─── Mobile sidebar drawer ────────────────────────────────────────────────────
+function setupMobileSidebar() {
+  const toggleBtn = document.getElementById('sidebar-toggle-btn');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const sidebar = document.getElementById('sidebar');
+  if (!toggleBtn || !backdrop || !sidebar) return;
+
+  function close() {
+    document.body.classList.remove('sidebar-open');
+    toggleBtn.setAttribute('aria-expanded', 'false');
+  }
+  function open() {
+    document.body.classList.add('sidebar-open');
+    toggleBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    document.body.classList.contains('sidebar-open') ? close() : open();
+  });
+  backdrop.addEventListener('click', close);
+  // Any in-sidebar navigation (nav item, company link) should also close the
+  // drawer — otherwise it stays open covering the page after navigating.
+  sidebar.addEventListener('click', e => { if (e.target.closest('a')) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+}
+
+// Sprint 27 (P1-2): same open/close pattern as setupMobileSidebar() above —
+// toggles a body class the CSS uses to drop the existing search bar down as
+// an overlay row, reusing the same #global-search markup/logic untouched.
+function setupMobileSearch() {
+  const toggleBtn = document.getElementById('mobile-search-toggle-btn');
+  const input = document.getElementById('global-search-input');
+  if (!toggleBtn || !input) return;
+
+  function close() {
+    document.body.classList.remove('mobile-search-open');
+    toggleBtn.setAttribute('aria-expanded', 'false');
+  }
+  function open() {
+    document.body.classList.add('mobile-search-open');
+    toggleBtn.setAttribute('aria-expanded', 'true');
+    input.focus();
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    document.body.classList.contains('mobile-search-open') ? close() : open();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   try {
     setupPresentationMode();
     setupGlobalSearch();
+    setupMobileSidebar();
+    setupMobileSearch();
     await initSidebar();
     await route(location.hash);
   } catch (e) {

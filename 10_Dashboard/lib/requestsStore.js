@@ -11,6 +11,7 @@ import { join, dirname } from 'path';
 export const STAGES = [
   'queued',
   'preparing',
+  'running',   // V1.6: the automated benchmarkService/ClaudeProvider pipeline is executing
   'opening_website',
   'capturing_screenshots',
   'analyzing_ux',
@@ -18,6 +19,27 @@ export const STAGES = [
   'updating_matrix',
   'generating_dashboard',
   'completed',
+  'failed',              // V1.6: the automated pipeline finished with a non-zero exit, cause unclassified
+  // Sprint 24 — Output Verification Layer: replaces the single generic
+  // 'failed' with three distinguishable terminal states, so the Queue never
+  // has to guess whether Navigation/Screenshot/Vision broke (runtime_failed),
+  // the spawned reasoning agent itself failed (reasoning_failed), or the
+  // agent exited cleanly but its actual deliverables were missing/invalid
+  // (verification_failed) — see 13_Orchestrator/stages/outputVerificationStage.js.
+  'runtime_failed',
+  'reasoning_failed',
+  'verification_failed',
+  // Sprint 26 — Live Runtime Progress: the actual Runtime stage ids
+  // (13_Orchestrator/stages/*Stage.js), set as item.stage WHILE that stage
+  // is running — not new concepts, just the existing Runtime progress
+  // events (BenchmarkOrchestrator's onProgress) persisted the same way
+  // every other stage transition already is, via this same setStage(). See
+  // benchmarkService.js's Sprint 26 addition.
+  'navigation',
+  'screenshot',
+  'vision',
+  'reasoning',
+  'output_verification',
 ];
 
 export const BENCHMARK_TYPES = [
@@ -186,7 +208,28 @@ export function createRequest(projectRoot, payload) {
   return request;
 }
 
-export function setStage(projectRoot, requestId, slug, stage) {
+/**
+ * setStage — unchanged 4-arg contract for every existing caller (the Queue's
+ * manual dropdown, cancelRequest, etc.). V1.6 adds an optional 5th `meta`
+ * argument so benchmarkService can record execution metadata in the same
+ * read-modify-write as the stage change itself, rather than a second,
+ * separately-racing disk write.
+ *
+ * @param {object} [meta]
+ * @param {string} [meta.started_at]
+ * @param {string} [meta.completed_at]
+ * @param {'success'|'failed'} [meta.execution_status]
+ * @param {string} [meta.execution_message]
+ * @param {string} [meta.failed_stage] Sprint 26: the raw Runtime stage id
+ *   ('navigation'|'screenshot'|'vision'|'reasoning'|'output_verification')
+ *   the pipeline had reached when it failed — set alongside a
+ *   runtime_failed/reasoning_failed/verification_failed stage transition so
+ *   the Queue can show "stopped at: X" even after item.stage itself moves
+ *   on to the terminal failure state. Left as-is (not cleared) on any other
+ *   transition, matching how execution_message/execution_status already
+ *   behave — only ever meaningful next to a failure stage.
+ */
+export function setStage(projectRoot, requestId, slug, stage, meta = {}) {
   if (!STAGES.includes(stage)) {
     throw new Error(`Unknown stage "${stage}". Valid stages: ${STAGES.join(', ')}`);
   }
@@ -198,6 +241,11 @@ export function setStage(projectRoot, requestId, slug, stage) {
 
   item.stage = stage;
   item.updated_at = new Date().toISOString();
+  if (meta.started_at !== undefined) item.started_at = meta.started_at;
+  if (meta.completed_at !== undefined) item.completed_at = meta.completed_at;
+  if (meta.execution_status !== undefined) item.execution_status = meta.execution_status;
+  if (meta.execution_message !== undefined) item.execution_message = meta.execution_message;
+  if (meta.failed_stage !== undefined) item.failed_stage = meta.failed_stage;
   request.status = computeBatchStatus(request);
 
   writeRequests(projectRoot, data);

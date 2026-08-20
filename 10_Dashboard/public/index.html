@@ -4,8 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Travel Benchmark 2026</title>
+  <!-- Sprint 27 (P1-7): inline SVG favicon, matches the sidebar's ✈ brand icon — no external asset. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23f59e0b'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%23111'%3E%E2%9C%88%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Sprint 27 (P1-6): served locally instead of from a CDN — a report/markdown
+       view no longer silently breaks on a network that blocks cdn.jsdelivr.net
+       (a real risk for an internal, corporate-network audience). -->
+  <script src="/marked.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -20,7 +25,7 @@
 
       <nav id="sidebar-nav">
         <div class="nav-section-label workspace-only">Workspace</div>
-        <a href="#wizard" class="nav-item workspace-only" data-route="wizard">
+        <a href="#wizard" class="nav-item workspace-only" data-route="wizard" title="Full, in-depth benchmark for any company — the 11-deliverable research pass. Takes several minutes.">
           <span class="nav-icon">+</span> New Benchmark
         </a>
         <a href="#queue" class="nav-item workspace-only" data-route="queue">
@@ -36,16 +41,19 @@
           <span class="nav-icon">◈</span> Benchmark Library
           <span class="nav-badge" id="badge-count">0</span>
         </a>
+        <a href="#homepage-benchmarks" class="nav-item" data-route="homepage-benchmarks" title="Quick automated homepage-only scan, airlines only — done in under a minute, no setup.">
+          <span class="nav-icon">⌂</span> Homepage Benchmark
+        </a>
 
         <div class="nav-section-label" id="section-completed" style="display:none">Completed</div>
         <div id="nav-companies"></div>
 
         <div class="nav-section-label">Analysis</div>
-        <a href="#comparison" class="nav-item" data-route="comparison">
+        <a href="#comparison" class="nav-item" data-route="comparison" title="Side-by-side view for 2–4 companies you pick.">
           <span class="nav-icon">⇄</span> Comparison
         </a>
-        <a href="#matrix" class="nav-item" data-route="matrix">
-          <span class="nav-icon">⊞</span> Master Matrix
+        <a href="#matrix" class="nav-item" data-route="matrix" title="Every benchmarked company and every score dimension, in one table.">
+          <span class="nav-icon">⊞</span> Score Matrix
         </a>
         <a href="#trends" class="nav-item" data-route="trends">
           <span class="nav-icon">↗</span> Trends
@@ -56,8 +64,14 @@
       </nav>
 
       <div class="sidebar-footer">
-        <div class="presentation-toggle" id="presentation-toggle">
-          <span>Presentation Mode</span>
+        <!-- Sprint 27 (P0-5): this used to be an unexplained switch that
+             silently hides New Benchmark/Queue when turned on — the
+             subtitle below is the fix, no behavior change. -->
+        <div class="presentation-toggle" id="presentation-toggle" role="button" tabindex="0" aria-pressed="false" title="Hides New Benchmark and Queue — for showing this dashboard to stakeholders without exposing in-progress work.">
+          <span>
+            Presentation Mode
+            <div class="presentation-toggle-sub">Hides New Benchmark &amp; Queue for demos</div>
+          </span>
           <span class="pt-switch"></span>
         </div>
         <div class="progress-label">
@@ -70,7 +84,9 @@
     </aside>
 
     <main id="main">
+      <div id="sidebar-backdrop"></div>
       <div id="topbar">
+        <button id="sidebar-toggle-btn" aria-label="Open navigation menu" aria-expanded="false">☰</button>
         <div id="page-title">Loading…</div>
         <div id="topbar-center">
           <div id="global-search">
@@ -78,6 +94,10 @@
             <div id="global-search-results"></div>
           </div>
         </div>
+        <!-- Sprint 27 (P1-2): below 900px #topbar-center (and search with it)
+             is hidden entirely with no other way to reach it — this button
+             is the replacement, shown only at that width via CSS. -->
+        <button id="mobile-search-toggle-btn" aria-label="Search" aria-expanded="false">⌕</button>
         <div id="topbar-actions"></div>
       </div>
       <div id="content">

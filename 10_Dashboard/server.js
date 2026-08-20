@@ -13,10 +13,43 @@ import {
   listRequests, createRequest, setStage, cancelRequest, listFeatureBenchmarks,
   STAGES, BENCHMARK_TYPES, SCOPE_OPTIONS,
 } from './lib/requestsStore.js';
+// Sprint V1.5: startBenchmark now comes from the Dashboard's own Benchmark
+// Service (Dashboard -> Benchmark Service -> Agent Provider -> Claude
+// Provider), not the Engine. 11_Benchmark_Engine/orchestrator/index.js's
+// startBenchmark() stub is intentionally left untouched and unused — the
+// Engine itself is not modified by this sprint.
+import { startBenchmark } from './lib/benchmarkService.js';
+import { BenchmarkScheduler } from '../11_Benchmark_Engine/scheduler/BenchmarkScheduler.js';
+import { EVENTS } from '../11_Benchmark_Engine/scheduler/progressEvents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT = join(__dirname, '..');   // AI_Travel_Benchmark_2026/ folder
 const PORT = process.env.PORT || 3000;
+
+// ─── Homepage Benchmark Beta: airlines the "Select airlines" step offers ────
+// Dashboard-layer data only — the engine (Discovery/Vision/Reports/Scheduler/
+// Anti-Bot) is untouched; this just tells the UI what it's allowed to queue.
+const HOMEPAGE_BENCHMARK_AIRLINES = [
+  { slug: 'emirates', name: 'Emirates', url: 'https://www.emirates.com/' },
+  { slug: 'qatar_airways', name: 'Qatar Airways', url: 'https://www.qatarairways.com/' },
+  { slug: 'etihad_airways', name: 'Etihad Airways', url: 'https://www.etihad.com/en-ae/' },
+  { slug: 'turkish_airlines', name: 'Turkish Airlines', url: 'https://www.turkishairlines.com/en-int/' },
+  { slug: 'singapore_airlines', name: 'Singapore Airlines', url: 'https://www.singaporeair.com/' },
+  { slug: 'lufthansa', name: 'Lufthansa', url: 'https://www.lufthansa.com/' },
+  { slug: 'air_france', name: 'Air France', url: 'https://wwws.airfrance.us/' },
+  { slug: 'klm', name: 'KLM', url: 'https://www.klm.com/' },
+  { slug: 'delta_air_lines', name: 'Delta Air Lines', url: 'https://www.delta.com/' },
+  { slug: 'united_airlines', name: 'United Airlines', url: 'https://www.united.com/' },
+  { slug: 'alaska_airlines', name: 'Alaska Airlines', url: 'https://www.alaskaair.com/' },
+  { slug: 'airasia', name: 'AirAsia', url: 'https://www.airasia.com/' },
+];
+const HOMEPAGE_BENCHMARK_CONCURRENCY = 3; // fixed default — not a user-facing choice, per "everything else stays behind the scenes"
+
+// In-memory only: the most recent (or currently running) parallel Homepage
+// Benchmark batch. No persistence needed for the Beta — a server restart
+// mid-run simply loses live progress; every job that already finished has
+// already saved its own report.json/report.md to disk regardless.
+let activeHomepageRun = null;
 
 const app = express();
 app.use(express.json());
@@ -183,6 +216,122 @@ app.get('/api/screenshots/:slug', (req, res) => {
   res.json(result);
 });
 
+// ─── API: Homepage Benchmarks (11_Benchmark_Engine MVP pipeline) ────────────
+app.get('/api/homepage-benchmarks', (req, res) => {
+  const root = join(PROJECT, '02_Benchmark_Repository', '_Homepage_Benchmarks');
+  if (!existsSync(root)) return res.json({ items: [] });
+
+  const items = [];
+  for (const dir of readdirSync(root, { withFileTypes: true })) {
+    if (!dir.isDirectory()) continue;
+
+    const report = readJSON(`02_Benchmark_Repository/_Homepage_Benchmarks/${dir.name}/report.json`);
+    if (!report) continue;
+
+    const screenshotFile = report.screenshot_path ? report.screenshot_path.split(/[\\/]/).pop() : null;
+
+    items.push({
+      slug: dir.name,
+      website_name: report.website_name,
+      url: report.url,
+      website_type: report.website_type,
+      confidence: report.confidence,
+      benchmark_timestamp: report.benchmark_timestamp,
+      screenshot_url: screenshotFile ? `/screenshots/${screenshotFile}` : null,
+      ai_ux_analysis: report.ai_ux_analysis || null,
+      ai_ux_analysis_error: report.ai_ux_analysis_error || null,
+      report_md_path: `02_Benchmark_Repository/_Homepage_Benchmarks/${dir.name}/report.md`,
+    });
+  }
+
+  items.sort((a, b) => new Date(b.benchmark_timestamp || 0) - new Date(a.benchmark_timestamp || 0));
+  res.json({ items });
+});
+
+// ─── API: Homepage Benchmark Beta — select airlines, start, watch progress ──
+// "Select Homepage Benchmark -> Select airlines -> Click Start -> View
+// results" with nothing manual in between. Wraps the existing, unmodified
+// Sprint 13 BenchmarkScheduler directly — no new engine capability, just a
+// Dashboard-layer trigger for something that already worked from the CLI.
+app.get('/api/homepage-benchmarks/airlines', (req, res) => {
+  const items = HOMEPAGE_BENCHMARK_AIRLINES.map((a) => {
+    const report = readJSON(`02_Benchmark_Repository/_Homepage_Benchmarks/${a.slug}/report.json`);
+    return {
+      ...a,
+      already_benchmarked: !!report,
+      last_benchmarked_at: report?.benchmark_timestamp || null,
+    };
+  });
+  res.json({ items, default_concurrency: HOMEPAGE_BENCHMARK_CONCURRENCY });
+});
+
+app.post('/api/homepage-benchmarks/run', (req, res) => {
+  const slugs = Array.isArray(req.body?.slugs) ? req.body.slugs : [];
+  if (slugs.length === 0) {
+    return res.status(400).json({ error: 'Select at least one airline.' });
+  }
+
+  const bySlug = new Map(HOMEPAGE_BENCHMARK_AIRLINES.map((a) => [a.slug, a]));
+  const unknown = slugs.filter((s) => !bySlug.has(s));
+  if (unknown.length > 0) {
+    return res.status(400).json({ error: `Unknown airline slug(s): ${unknown.join(', ')}` });
+  }
+
+  if (activeHomepageRun && !activeHomepageRun.complete) {
+    return res.status(409).json({ error: 'A Homepage Benchmark run is already in progress.', runId: activeHomepageRun.runId });
+  }
+
+  const companies = slugs.map((slug) => {
+    const a = bySlug.get(slug);
+    return { companySlug: a.slug, companyName: a.name, url: a.url };
+  });
+
+  const scheduler = new BenchmarkScheduler({ companies, concurrency: HOMEPAGE_BENCHMARK_CONCURRENCY });
+
+  activeHomepageRun = {
+    runId: scheduler.runId,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    complete: false,
+    concurrency: HOMEPAGE_BENCHMARK_CONCURRENCY,
+    jobs: scheduler.getStatusSnapshot(),
+  };
+
+  const refreshJobs = () => { activeHomepageRun.jobs = scheduler.getStatusSnapshot(); };
+  for (const evt of [EVENTS.QUEUED, EVENTS.STARTED, EVENTS.PROGRESS, EVENTS.RETRY, EVENTS.SUCCEEDED, EVENTS.FAILED]) {
+    scheduler.on(evt, refreshJobs);
+  }
+  scheduler.on(EVENTS.BATCH_COMPLETE, () => {
+    refreshJobs();
+    activeHomepageRun.complete = true;
+    activeHomepageRun.finishedAt = new Date().toISOString();
+  });
+
+  // Not awaited — the run continues after this response goes out. The
+  // frontend polls GET /run/:runId for live status instead of holding the
+  // HTTP request open for what can be several minutes.
+  scheduler.run().catch((err) => {
+    activeHomepageRun.complete = true;
+    activeHomepageRun.finishedAt = new Date().toISOString();
+    activeHomepageRun.error = err.message;
+  });
+
+  res.status(202).json({ runId: scheduler.runId });
+});
+
+// Lets the frontend reattach to an in-flight (or just-finished) run after a
+// page reload/navigation without needing to already know its runId.
+app.get('/api/homepage-benchmarks/run/current', (req, res) => {
+  res.json(activeHomepageRun || { runId: null });
+});
+
+app.get('/api/homepage-benchmarks/run/:runId', (req, res) => {
+  if (!activeHomepageRun || activeHomepageRun.runId !== req.params.runId) {
+    return res.status(404).json({ error: 'No such run (or it predates this server session).' });
+  }
+  res.json(activeHomepageRun);
+});
+
 // ─── API: Patterns ──────────────────────────────────────────────────────────
 app.get('/api/patterns', (req, res) => {
   const matrix = getMatrix();
@@ -296,8 +445,27 @@ app.post('/api/requests', (req, res) => {
 
 app.patch('/api/requests/:id/items/:slug', (req, res) => {
   try {
-    const request = setStage(PROJECT, req.params.id, req.params.slug, req.body?.stage);
+    const stage = req.body?.stage;
+    const request = setStage(PROJECT, req.params.id, req.params.slug, stage);
     res.json(request);
+
+    // "Run Benchmark" sends stage: 'preparing' — hand off to the Benchmark
+    // Service without making the API response wait on it. The item's
+    // trigger_prompt already exists (built once at request-creation time by
+    // requestsStore.js's unchanged buildTriggerPrompt()) — this is the exact
+    // text a human used to copy and paste by hand.
+    if (stage === 'preparing') {
+      const item = request.items.find(i => i.slug === req.params.slug);
+      startBenchmark({
+        company: item?.name,
+        feature: request.feature,
+        requestId: request.id,
+        slug: req.params.slug,
+        prompt: item?.trigger_prompt,
+        projectRoot: PROJECT,
+        url: item?.url,
+      });
+    }
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

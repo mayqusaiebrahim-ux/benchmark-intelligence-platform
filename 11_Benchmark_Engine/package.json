@@ -1,0 +1,11 @@
+{
+  "name": "benchmark-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Travel Benchmark — capture/analysis/report engine. Frozen at v1.0 (Sprint 15): Discovery, Navigation Runner, Vision Analysis, Reports, the parallel Scheduler, and the Anti-Bot Layer are the stable feature set. No new engine capabilities are being added while Sprint 16 focuses on Dashboard integration.",
+  "dependencies": {
+    "openai": "^6.45.0",
+    "playwright": "^1.61.1"
+  }
+}

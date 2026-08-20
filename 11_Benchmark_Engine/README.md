@@ -1,5 +1,15 @@
 # Benchmark Engine — Architecture
 
+> **Frozen at v1.0.** Discovery, the Navigation Runner, Vision Analysis, Reports,
+> the parallel `scheduler/` (Sprint 13), and the `modules/antibot/` layer (Sprint 14)
+> are the stable, shipped feature set as of this freeze. No new engine capabilities
+> are being added for now — active work has moved to wiring this engine into
+> `10_Dashboard/` for the Homepage Benchmark Beta. The section below is the
+> original Sprint 1 scaffolding description and is now historical — the modules
+> it describes as "nothing here executes yet" are, as of this freeze, real and
+> in production use; see `scheduler/README.md` and `modules/antibot/README.md`
+> for what actually exists today.
+
 **Status: scaffolding only.** No AI, no Playwright, no wiring to anything else in this
 repository. This document describes the intended responsibility of each folder so that
 future work has a place to go — nothing here executes yet.

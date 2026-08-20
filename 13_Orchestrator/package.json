@@ -1,0 +1,7 @@
+{
+  "name": "orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sprint 16 — Benchmark Orchestrator. The single entry point for every benchmark execution: reads a benchmark request, resolves it to a pipeline by type, runs that pipeline (each step either a Provider Registry capability call, or — where reuse demands it — an existing Engine-owned composed function), and reports progress/results through its own EventEmitter. Never imports 10_Dashboard/lib/requestsStore.js. Imports downward only, into 12_Provider_Layer and 11_Benchmark_Engine; modifies neither."
+}

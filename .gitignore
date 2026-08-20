@@ -20,3 +20,22 @@ npm-debug.log*
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+
+# Generated benchmark output — Mindtrip, Trip.com, Booking.com, and ixigo
+# are kept as representative samples (full 11-deliverable reports,
+# screenshots, Saudia briefs, Figma annotations where available).
+# Everything below is regenerable runtime/pipeline output, not source.
+02_Benchmark_Repository/_Homepage_Benchmarks/
+02_Benchmark_Repository/_Feature_Benchmarks/
+02_Benchmark_Repository/_Parallel_Runs/
+02_Benchmark_Repository/_Navigation_Runs/
+02_Benchmark_Repository/_Protection_Reports/
+
+03_Screenshots/Emirates/
+03_Screenshots/QatarAirways/
+03_Screenshots/Saudia/
+03_Screenshots/AI_Products/
+03_Screenshots/Airlines/
+03_Screenshots/OTAs/
+03_Screenshots/Videos/
+03_Screenshots/*.png

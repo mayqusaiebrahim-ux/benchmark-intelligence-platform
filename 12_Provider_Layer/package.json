@@ -1,0 +1,10 @@
+{
+  "name": "provider-layer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sprint 15 — AI Provider Independence. The Capability Layer both 10_Dashboard/ and 11_Benchmark_Engine/ import downward into. Defines one provider interface per capability (Navigation, Vision, Reasoning, Reports, Embeddings) and a config-driven registry that resolves each to a concrete implementation. Sprint 19 adds NavigationProvider.navigate() with a real Playwright dependency of its own — the one deliberate exception to this layer's original zero-dependency, pure-facade design; see capabilities/navigation/README.md.",
+  "dependencies": {
+    "playwright": "1.61.1"
+  }
+}
