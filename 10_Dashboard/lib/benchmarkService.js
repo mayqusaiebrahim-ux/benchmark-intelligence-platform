@@ -43,19 +43,31 @@ const runStatus = new Map();
  * the HTTP response, matching the stub's original fire-and-forget contract.
  *
  * @param {object} args
- * @param {string} args.company     - display name, for logging only
- * @param {string} args.feature     - for logging only
+ * @param {string} args.company     - display name; forwarded to the Feature Benchmark
+ *                                    pipeline's Discovery/Reasoning/Report stages, and
+ *                                    used for logging by the Full Benchmark pipeline
+ * @param {string} args.feature     - the item's "focus" text; forwarded to the Feature
+ *                                    Benchmark pipeline for feature-to-journey-step
+ *                                    mapping and report storage, and used for logging
+ *                                    by the Full Benchmark pipeline
+ * @param {string} [args.benchmarkType] - request.benchmark_type ('Feature Benchmark'
+ *                                    routes to the 'feature' pipeline; anything else
+ *                                    keeps the existing 'full' pipeline, unchanged)
  * @param {string} args.requestId
  * @param {string} args.slug
  * @param {string} args.prompt      - the item's existing trigger_prompt, unchanged
  * @param {string} args.projectRoot - becomes the agent's cwd, so it writes into the
  *                                    existing Benchmark Repository structure unmodified
- * @param {string|null} [args.url]  - the item's existing url field, forwarded so
- *                                    fullPipeline.js can run its Navigation stage;
- *                                    null/undefined is valid and means "skip Navigation"
+ * @param {string|null} [args.url]  - the item's existing url field. Full Benchmark
+ *                                    treats it as optional (null/undefined skips
+ *                                    Navigation); Feature Benchmark requires it —
+ *                                    validated by featurePipeline.requiredFields via
+ *                                    BenchmarkOrchestrator, same mechanism as any other
+ *                                    missing required field.
  */
-export function startBenchmark({ company, feature, requestId, slug, prompt, projectRoot, url }) {
+export function startBenchmark({ company, feature, benchmarkType, requestId, slug, prompt, projectRoot, url }) {
   const jobId = `${requestId}:${slug}`;
+  const type = benchmarkType === 'Feature Benchmark' ? 'feature' : 'full';
 
   if (runStatus.get(jobId) === 'running') {
     console.log(`[benchmarkService] ${company} is already running for ${requestId} — ignoring duplicate start.`);
@@ -101,7 +113,7 @@ export function startBenchmark({ company, feature, requestId, slug, prompt, proj
   let lastProgressStage = null;
 
   orchestrator.runBenchmark(
-    { type: 'full', requestId, prompt, cwd: projectRoot, jobId, url },
+    { type, requestId, prompt, cwd: projectRoot, jobId, url, feature, company },
     {
       onProgress: (event) => {
         if (!RUNTIME_STAGE_IDS.has(event.stage) || event.status !== 'running') return;

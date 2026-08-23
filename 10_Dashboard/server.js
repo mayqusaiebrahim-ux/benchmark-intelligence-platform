@@ -459,6 +459,7 @@ app.patch('/api/requests/:id/items/:slug', (req, res) => {
       startBenchmark({
         company: item?.name,
         feature: request.feature,
+        benchmarkType: request.benchmark_type,
         requestId: request.id,
         slug: req.params.slug,
         prompt: item?.trigger_prompt,

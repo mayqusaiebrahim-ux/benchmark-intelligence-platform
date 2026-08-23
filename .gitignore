@@ -38,4 +38,9 @@ Thumbs.db
 03_Screenshots/Airlines/
 03_Screenshots/OTAs/
 03_Screenshots/Videos/
+03_Screenshots/Mindtrip/
 03_Screenshots/*.png
+
+# Feature Benchmark proof-of-concept / verification scripts — not part of
+# the deployed application.
+10_Dashboard/poc/

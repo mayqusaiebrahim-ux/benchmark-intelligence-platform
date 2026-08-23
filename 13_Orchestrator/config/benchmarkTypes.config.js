@@ -6,6 +6,7 @@
  */
 import * as homepagePipeline from '../pipelines/homepagePipeline.js';
 import * as fullPipeline from '../pipelines/fullPipeline.js';
+import * as featurePipeline from '../pipelines/featurePipeline.js';
 
 export const benchmarkTypes = {
   homepage: {
@@ -18,14 +19,13 @@ export const benchmarkTypes = {
     run: fullPipeline.run,
     requiredFields: fullPipeline.requiredFields,
   },
+  feature: {
+    label: 'Feature Benchmark (one concise report)',
+    run: featurePipeline.run,
+    requiredFields: featurePipeline.requiredFields,
+  },
 
-  // Future, NOT implemented this sprint — named here so they aren't lost,
-  // not stubbed with fake modules:
-  //
-  // journey: a multi-step, non-homepage-only Navigation flow. Would wrap
-  //   modules/navigation_runner's runJourney — already exposed via
-  //   NavigationProvider.runJourney() (12_Provider_Layer), but unwired
-  //   anywhere today.
+  // Future, NOT implemented this sprint:
   //
   // pattern_extraction: no module producing this exists anywhere in the
   //   codebase yet. Do not add an entry until one does.
