@@ -11,21 +11,25 @@ services:
     name: benchmark-intelligence-platform
     runtime: node
     plan: starter
-    buildCommand: npm install
-    startCommand: npm start
+    # PLAYWRIGHT_BROWSERS_PATH=0 is set inline on both commands, not via the
+    # envVars list below. Confirmed directly: the browser install command
+    # and PLAYWRIGHT_BROWSERS_PATH's effect on it both work correctly when
+    # the var is actually present in that process's environment. What is
+    # NOT independently verifiable from this repo is whether Render's
+    # separate envVars list actually reaches an already-deployed service's
+    # runtime process without a manual Blueprint re-sync — the most likely
+    # explanation for the var appearing to have no effect, but not something
+    # this repo can confirm on Render's side. Inlining the var on both
+    # commands removes the dependency on that mechanism entirely: build and
+    # start now carry it directly, in the exact command strings Render has
+    # been observed to execute verbatim.
+    buildCommand: PLAYWRIGHT_BROWSERS_PATH=0 npm install
+    startCommand: PLAYWRIGHT_BROWSERS_PATH=0 npm start
     envVars:
       - key: OPENAI_API_KEY
         sync: false
       - key: NODE_VERSION
         value: 20
-      # Without this, Playwright downloads Chromium to $HOME/.cache/ms-playwright,
-      # which does not reliably survive Render's build -> runtime transition
-      # (confirmed: "Executable doesn't exist at /opt/render/.cache/ms-playwright/...").
-      # PLAYWRIGHT_BROWSERS_PATH=0 installs each package's browser inside its own
-      # node_modules/playwright-core/.local-browsers instead, which is part of the
-      # actual build output and does persist. See package.json's install:browsers.
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: "0"
     disk:
       name: benchmark-data
       mountPath: /opt/render/project/src
