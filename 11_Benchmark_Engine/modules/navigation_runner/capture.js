@@ -41,9 +41,19 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
 
   let screenshotSaved = false;
   try {
-    await page.screenshot({ path: screenshotPath, fullPage: true });
+    // Render Free (512MB) memory optimization: viewport-only capture
+    // (fullPage: false, the default) instead of fullPage:true. A full-page
+    // capture forces Chromium to rasterize the entire scrollable page
+    // height into one buffer — for a long page that can be several times
+    // the viewport size, and was the single largest Chromium memory spike
+    // in the whole pipeline. The viewport (Playwright's default 1280x720,
+    // unchanged) still captures whatever's above the fold — in practice the
+    // primary interactive element for the mapped feature (chat box, search
+    // bar, etc.), which is what Vision/Reasoning actually need — at a
+    // small, bounded, predictable memory cost regardless of page length.
+    await page.screenshot({ path: screenshotPath, fullPage: false });
     screenshotSaved = true;
-    logInfo('Navigation Runner: screenshot written', { screenshotPath, stepId: step.id });
+    logInfo('Navigation Runner: screenshot written', { screenshotPath, stepId: step.id, fullPage: false });
   } catch (err) {
     // Intentional swallow, unchanged — capture failure shouldn't crash the
     // run (reflected in metadata below). Logged, not rethrown: rethrowing

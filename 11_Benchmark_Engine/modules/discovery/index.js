@@ -45,6 +45,17 @@ try {
   logError('Startup diagnostics failed', err);
 }
 
+// Render Free (512MB) memory optimization: reduces Chromium's own process
+// footprint without changing any observable page behavior. --disable-gpu
+// removes an otherwise-spawned GPU process that headless mode never uses;
+// --disable-dev-shm-usage avoids Chromium relying on the small /dev/shm
+// tmpfs typical of containers (a common source of memory-pressure crashes
+// in exactly this kind of environment); --disable-breakpad turns off
+// Chromium's own crash-reporter subsystem, unused here. Deliberately not
+// using --single-process — Playwright/Chromium's own guidance treats it as
+// unstable, which would trade a memory problem for a reliability one.
+const MEMORY_OPTIMIZED_LAUNCH_ARGS = ['--disable-gpu', '--disable-dev-shm-usage', '--disable-breakpad'];
+
 /**
  * runDiscovery — accepts { url, companySlug?, companyName? }, returns a DiscoveryReport
  * matching contracts/discovery.schema.json.
@@ -55,7 +66,7 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
 
   try {
     logInfo('Discovery: launching Chromium', { executablePath: chromium.executablePath() });
-    browser = await chromium.launch();
+    browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS });
     logInfo('Discovery: browser created');
     browser.on('disconnected', () => logInfo('Discovery: browser disconnected'));
 
@@ -91,6 +102,19 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
 
     if (actionsTaken.length) {
       raw = await extractRawSignals(page); // re-observe — dismissing/expanding changes what's visible
+    }
+
+    // ── Everything from here on is pure computation over `raw`/`meta` — no
+    // further page/browser access. Close Chromium now instead of waiting for
+    // the function to return, so its memory is released before, not after,
+    // this stage's own interpretation work (Render Free 512MB optimization;
+    // does not change what's computed or returned). The finally block below
+    // becomes a no-op safety net (browser is already null) for this path.
+    if (browser) {
+      logInfo('Discovery: closing browser (page work complete)');
+      await browser.close();
+      logInfo('Discovery: browser closed');
+      browser = null;
     }
 
     // ── Interpret the (possibly refreshed) observation into the report ───────

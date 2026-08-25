@@ -20,6 +20,13 @@ function makeRunId() {
   return `nav_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 }
 
+// Render Free (512MB) memory optimization — same rationale as
+// discovery/index.js's identical constant: removes the unused headless GPU
+// process, avoids /dev/shm-related memory pressure in containers, and
+// disables the unused crash-reporter subsystem. No --single-process (not
+// considered safe — Chromium/Playwright's own guidance calls it unstable).
+const MEMORY_OPTIMIZED_LAUNCH_ARGS = ['--disable-gpu', '--disable-dev-shm-usage', '--disable-breakpad'];
+
 /**
  * runJourney — accepts { journeyPlan, companyName?, companySlug? }. Returns
  * { run_id, company_slug, started_at, finished_at, steps[], summary,
@@ -38,7 +45,7 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
   let browser;
   try {
     logInfo('Navigation Runner: launching Chromium', { executablePath: chromium.executablePath(), runId });
-    browser = await chromium.launch();
+    browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS });
     logInfo('Navigation Runner: browser created', { runId });
     browser.on('disconnected', () => logInfo('Navigation Runner: browser disconnected', { runId }));
 
