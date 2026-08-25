@@ -15,20 +15,35 @@
  */
 import { getNavigationProvider } from '../../12_Provider_Layer/registry/ProviderRegistry.js';
 import { Stage } from '../runtime/Stage.js';
+import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
 export const navigationRunnerStage = new Stage(
   'navigation_runner',
   'Navigation Runner',
   async ({ company, jobId, previousOutput }) => {
-    const journeyPlan = previousOutput;
-    if (!journeyPlan) {
-      throw new Error('Navigation Runner requires a JourneyPlan from the Journey Mapper stage.');
-    }
-    const companySlug = typeof jobId === 'string' ? jobId.split(':')[1] : undefined;
-    const result = await getNavigationProvider().runJourney({ journeyPlan, companyName: company || null, companySlug });
-    if (!result.steps || result.steps.length === 0) {
-      throw new Error('Navigation Runner produced no steps — the JourneyPlan may have been empty.');
-    }
-    return result; // { run_id, company_slug, steps[], summary, manifest_path, ... }
+    return withLogContext({ stage: 'navigation_runner' }, async () => {
+      const journeyPlan = previousOutput;
+      if (!journeyPlan) {
+        const err = new Error('Navigation Runner requires a JourneyPlan from the Journey Mapper stage.');
+        logError('Navigation Runner missing input', err);
+        throw err;
+      }
+      const companySlug = typeof jobId === 'string' ? jobId.split(':')[1] : undefined;
+      logInfo('Navigation Runner starting', { companySlug, plannedSteps: journeyPlan.recommended_journey?.length ?? 0 });
+      let result;
+      try {
+        result = await getNavigationProvider().runJourney({ journeyPlan, companyName: company || null, companySlug });
+      } catch (err) {
+        logError('Navigation Runner threw', err);
+        throw err; // rethrow unchanged
+      }
+      if (!result.steps || result.steps.length === 0) {
+        const err = new Error('Navigation Runner produced no steps — the JourneyPlan may have been empty.');
+        logError('Navigation Runner produced no steps', err);
+        throw err;
+      }
+      logInfo('Navigation Runner finished', { summary: result.summary, runId: result.run_id });
+      return result; // { run_id, company_slug, steps[], summary, manifest_path, ... }
+    });
   },
 );

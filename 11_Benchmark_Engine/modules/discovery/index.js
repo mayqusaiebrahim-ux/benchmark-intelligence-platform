@@ -6,9 +6,11 @@
  * what should happen next. Never benchmarks, never transacts. See README.md.
  */
 
+import { createRequire } from 'module';
 import { chromium } from 'playwright';
 import { extractRawSignals } from './signals.js';
 import { dismissConsentBanner, expandNavigationMenu } from './actions.js';
+import { logInfo, logError } from '../../../shared/logger.mjs';
 import {
   classifyWebsite,
   detectAiFeatures,
@@ -25,6 +27,24 @@ import {
   decideSafeNextAction,
 } from './interpret.js';
 
+// Logged exactly once: this module (and therefore this top-level code) is
+// evaluated a single time, the first time anything in the process imports
+// it — which happens at server startup via the static import chain
+// (server.js -> benchmarkService.js -> 13_Orchestrator -> ProviderRegistry
+// -> PlaywrightNavigationProvider -> here), before any request is served.
+try {
+  const require = createRequire(import.meta.url);
+  const { version: playwrightVersion } = require('playwright/package.json');
+  logInfo('Startup diagnostics', {
+    nodeVersion: process.version,
+    playwrightVersion,
+    chromiumExecutablePath: chromium.executablePath(),
+    pid: process.pid,
+  });
+} catch (err) {
+  logError('Startup diagnostics failed', err);
+}
+
 /**
  * runDiscovery — accepts { url, companySlug?, companyName? }, returns a DiscoveryReport
  * matching contracts/discovery.schema.json.
@@ -34,9 +54,16 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
   let browser;
 
   try {
+    logInfo('Discovery: launching Chromium', { executablePath: chromium.executablePath() });
     browser = await chromium.launch();
-    const page = await browser.newPage();
+    logInfo('Discovery: browser created');
+    browser.on('disconnected', () => logInfo('Discovery: browser disconnected'));
 
+    const page = await browser.newPage();
+    logInfo('Discovery: page created (default context)');
+    page.on('close', () => logInfo('Discovery: page closed'));
+
+    logInfo('Discovery: navigating', { url });
     const response = await page.goto(url, { waitUntil: 'load', timeout: 30000 });
     try {
       await page.waitForLoadState('networkidle', { timeout: 8000 });
@@ -106,7 +133,14 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
       discovered_at: new Date().toISOString(),
       execution_time_ms: Date.now() - startedAt,
     };
+  } catch (err) {
+    logError('Discovery: runDiscovery threw', err);
+    throw err; // rethrow unchanged — same error, same behavior
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      logInfo('Discovery: closing browser');
+      await browser.close();
+      logInfo('Discovery: browser closed');
+    }
   }
 }

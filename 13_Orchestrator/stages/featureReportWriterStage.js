@@ -16,6 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { Stage } from '../runtime/Stage.js';
+import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
 // Matches requestsStore.js's own slugify() exactly, so the folder name this
 // stage writes to is identical to the one createRequest() already computed
@@ -32,37 +33,51 @@ export const featureReportWriterStage = new Stage(
   'feature_report_writer',
   'Feature Benchmark Report',
   async ({ cwd, requestId, company, feature, previousOutput }) => {
-    const data = previousOutput?.reasoningData;
-    if (!data) {
-      throw new Error('Feature Report Writer received no Reasoning output to write.');
-    }
-    if (!requestId) {
-      throw new Error('Feature Report Writer requires a requestId to name the report file.');
-    }
+    return withLogContext({ stage: 'feature_report_writer' }, async () => {
+      const data = previousOutput?.reasoningData;
+      if (!data) {
+        const err = new Error('Feature Report Writer received no Reasoning output to write.');
+        logError('Feature Report Writer missing input', err);
+        throw err;
+      }
+      if (!requestId) {
+        const err = new Error('Feature Report Writer requires a requestId to name the report file.');
+        logError('Feature Report Writer missing requestId', err);
+        throw err;
+      }
 
-    const featureSlug = slugify(feature);
-    const dir = join(cwd, '02_Benchmark_Repository', '_Feature_Benchmarks', featureSlug);
-    mkdirSync(dir, { recursive: true });
-    const filePath = join(dir, `${requestId}.md`);
+      const featureSlug = slugify(feature);
+      const dir = join(cwd, '02_Benchmark_Repository', '_Feature_Benchmarks', featureSlug);
+      const filePath = join(dir, `${requestId}.md`);
+      logInfo('Feature Report Writer starting', { filePath });
 
-    const section = [
-      `## ${company || 'Unknown company'}`,
-      '',
-      `**Feature:** ${feature}`,
-      `**Evidence source:** ${data.evidence_source}`,
-      `**Feature found:** ${data.feature_found ? 'Yes' : 'No'}`,
-      `**Benchmarked at:** ${new Date().toISOString()}`,
-      '',
-      data.summary_markdown,
-      '',
-      '---',
-      '',
-    ].join('\n');
+      try {
+        mkdirSync(dir, { recursive: true });
 
-    const header = `# Feature Benchmark — ${feature}\n\n`;
-    const existing = existsSync(filePath) ? readFileSync(filePath, 'utf8') : header;
-    writeFileSync(filePath, existing + section, 'utf8');
+        const section = [
+          `## ${company || 'Unknown company'}`,
+          '',
+          `**Feature:** ${feature}`,
+          `**Evidence source:** ${data.evidence_source}`,
+          `**Feature found:** ${data.feature_found ? 'Yes' : 'No'}`,
+          `**Benchmarked at:** ${new Date().toISOString()}`,
+          '',
+          data.summary_markdown,
+          '',
+          '---',
+          '',
+        ].join('\n');
 
-    return { ...(previousOutput || {}), reportPath: filePath };
+        const header = `# Feature Benchmark — ${feature}\n\n`;
+        const existing = existsSync(filePath) ? readFileSync(filePath, 'utf8') : header;
+        writeFileSync(filePath, existing + section, 'utf8');
+      } catch (err) {
+        logError('Feature Report Writer threw', err);
+        throw err; // rethrow unchanged
+      }
+
+      logInfo('Feature Report Writer finished', { filePath });
+      return { ...(previousOutput || {}), reportPath: filePath };
+    });
   },
 );

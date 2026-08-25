@@ -11,6 +11,7 @@
 import { mkdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { logInfo, logError } from '../../../shared/logger.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -42,8 +43,12 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
   try {
     await page.screenshot({ path: screenshotPath, fullPage: true });
     screenshotSaved = true;
-  } catch {
-    // Capture failure shouldn't crash the run — reflected in metadata below.
+    logInfo('Navigation Runner: screenshot written', { screenshotPath, stepId: step.id });
+  } catch (err) {
+    // Intentional swallow, unchanged — capture failure shouldn't crash the
+    // run (reflected in metadata below). Logged, not rethrown: rethrowing
+    // here would change this step's existing resilience behavior.
+    logError('Navigation Runner: screenshot capture failed', err, { screenshotPath, stepId: step.id });
   }
 
   let html = '';

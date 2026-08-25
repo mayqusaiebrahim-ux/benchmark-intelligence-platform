@@ -24,20 +24,50 @@ import { navigationRunnerStage } from '../stages/navigationRunnerStage.js';
 import { featureVisionStage } from '../stages/featureVisionStage.js';
 import { featureReasoningStage } from '../stages/featureReasoningStage.js';
 import { featureReportWriterStage } from '../stages/featureReportWriterStage.js';
+import { withLogContext, logInfo, logError, logMemory } from '../../shared/logger.mjs';
 
 export const requiredFields = ['prompt', 'cwd', 'url', 'feature'];
 
 export async function run({ prompt, cwd, jobId, url, feature, requestId, company }, { onProgress = () => {} } = {}) {
-  const stages = [
-    featureDiscoveryStage,
-    journeyMapperStage,
-    navigationRunnerStage,
-    featureVisionStage,
-    featureReasoningStage,
-    featureReportWriterStage,
-  ];
-  const pipeline = new Pipeline('feature', stages);
-  const runtime = new BenchmarkRuntime();
-  const { output } = await runtime.run(pipeline, { prompt, cwd, jobId, url, feature, requestId, company }, onProgress);
-  return output; // { ...vision/reasoning fields, reasoningData, reportPath }
+  return withLogContext({ requestId }, async () => {
+    const stages = [
+      featureDiscoveryStage,
+      journeyMapperStage,
+      navigationRunnerStage,
+      featureVisionStage,
+      featureReasoningStage,
+      featureReportWriterStage,
+    ];
+    const pipeline = new Pipeline('feature', stages);
+    const runtime = new BenchmarkRuntime();
+
+    // Instrumentation only — every event is still forwarded to the
+    // caller's own onProgress exactly as before; nothing about what the
+    // Runtime/Pipeline/Stage contract does is changed.
+    const instrumentedOnProgress = (event) => {
+      if (event.status === 'running') {
+        logMemory(`Stage started: ${event.stage}`, { stage: event.stage });
+      } else if (event.status === 'completed') {
+        logMemory(`Stage finished: ${event.stage}`, { stage: event.stage });
+      } else if (event.status === 'failed') {
+        logError(`Stage failed: ${event.stage}`, { stage: event.stage, error: event.error });
+      }
+      onProgress(event);
+    };
+
+    const startedAt = Date.now();
+    logInfo('Feature Benchmark pipeline started', { feature, company, url, jobId });
+    try {
+      const { output } = await runtime.run(
+        pipeline,
+        { prompt, cwd, jobId, url, feature, requestId, company },
+        instrumentedOnProgress,
+      );
+      logInfo('Feature Benchmark pipeline finished', { durationMs: Date.now() - startedAt });
+      return output; // { ...vision/reasoning fields, reasoningData, reportPath }
+    } catch (err) {
+      logError('Feature Benchmark pipeline threw', err);
+      throw err; // rethrow unchanged — same error, same shape, propagates to BenchmarkOrchestrator exactly as before
+    }
+  });
 }

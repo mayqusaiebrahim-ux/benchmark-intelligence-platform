@@ -22,6 +22,7 @@
  */
 import { getVisionProvider } from '../../12_Provider_Layer/registry/ProviderRegistry.js';
 import { Stage } from '../runtime/Stage.js';
+import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
 const FEATURE_KEYWORD_MAP = [
   [['entry', 'landing', 'homepage'], 'step_01_entry'],
@@ -62,35 +63,53 @@ export const featureVisionStage = new Stage(
   'feature_vision',
   'Screenshot Selection + Vision Analysis',
   async ({ feature, jobId, previousOutput }) => {
-    const steps = previousOutput?.steps || [];
-    const featureStepId = mapFeatureToStepId(feature);
-    const { step: selected, featureStepFound } = selectStep(steps, featureStepId);
+    return withLogContext({ stage: 'feature_vision' }, async () => {
+      const steps = previousOutput?.steps || [];
+      const featureStepId = mapFeatureToStepId(feature);
+      const { step: selected, featureStepFound } = selectStep(steps, featureStepId);
 
-    if (!selected || !selected.screenshot_path) {
-      throw new Error(`No usable screenshot was captured for feature "${feature}" (mapped journey step: ${featureStepId || 'none'}).`);
-    }
+      if (!selected || !selected.screenshot_path) {
+        const err = new Error(`No usable screenshot was captured for feature "${feature}" (mapped journey step: ${featureStepId || 'none'}).`);
+        logError('No usable screenshot for Vision', err);
+        throw err;
+      }
 
-    const companySlug = typeof jobId === 'string' ? jobId.split(':')[1] : undefined;
-    const result = await getVisionProvider().describe({
-      screenshotPath: selected.screenshot_path,
-      companySlug,
-      url: selected.page_url,
-      title: selected.title,
+      logInfo('Screenshot selected for Vision', { screenshotPath: selected.screenshot_path, featureStepId, featureStepFound, stepStatus: selected.status });
+
+      const companySlug = typeof jobId === 'string' ? jobId.split(':')[1] : undefined;
+      const visionStartedAt = Date.now();
+      logInfo('Vision request starting', { screenshotPath: selected.screenshot_path, url: selected.page_url });
+      let result;
+      try {
+        result = await getVisionProvider().describe({
+          screenshotPath: selected.screenshot_path,
+          companySlug,
+          url: selected.page_url,
+          title: selected.title,
+        });
+      } catch (err) {
+        logError('Vision request threw', err);
+        throw err; // rethrow unchanged
+      }
+      logInfo('Vision request finished', { success: result.success, durationMs: Date.now() - visionStartedAt });
+
+      if (!result.success) {
+        const err = new Error(result.error || 'Vision analysis failed');
+        logError('Vision analysis failed', err);
+        throw err;
+      }
+
+      return {
+        url: selected.page_url || null,
+        title: selected.title || null,
+        screenshotPath: selected.screenshot_path,
+        visionFindings: result.findings,
+        visionJsonPath: result.jsonPath,
+        featureStepId,
+        featureStepFound,
+        selectedStep: { step_id: selected.step_id, title: selected.title, status: selected.status },
+        timing: result.timing,
+      };
     });
-    if (!result.success) {
-      throw new Error(result.error || 'Vision analysis failed');
-    }
-
-    return {
-      url: selected.page_url || null,
-      title: selected.title || null,
-      screenshotPath: selected.screenshot_path,
-      visionFindings: result.findings,
-      visionJsonPath: result.jsonPath,
-      featureStepId,
-      featureStepFound,
-      selectedStep: { step_id: selected.step_id, title: selected.title, status: selected.status },
-      timing: result.timing,
-    };
   },
 );

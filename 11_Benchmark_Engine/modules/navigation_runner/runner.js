@@ -9,6 +9,7 @@
 import { performStepAction, safeGoto } from './actions.js';
 import { captureStepEvidence } from './capture.js';
 import { attemptRecovery } from './recovery.js';
+import { logInfo, logError } from '../../../shared/logger.mjs';
 
 /**
  * executeStep — attempts one JourneyStep, captures evidence regardless of
@@ -17,6 +18,7 @@ import { attemptRecovery } from './recovery.js';
  */
 export async function executeStep({ page, step, index, journeyPlan, companySlug, runId, previousStepFailed }) {
   const startedAt = Date.now();
+  logInfo('Navigation Runner: step starting', { stepId: step.id, index, runId });
 
   if (step.depends_on_previous && previousStepFailed) {
     const actionResult = {
@@ -41,6 +43,11 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
     try {
       await safeGoto(page, journeyPlan.starting_url);
     } catch (err) {
+      // Intentional swallow, unchanged — a failed re-baseline is reported
+      // as this step's own failure so the run continues; logged, not
+      // rethrown, since rethrowing would abort the whole journey and
+      // change this file's existing per-step resilience behavior.
+      logError('Navigation Runner: step re-baseline navigation failed', err, { stepId: step.id, index, runId });
       const actionResult = { success: false, action_taken: null, error: `Could not reload starting_url: ${err.message}` };
       const evidence = await captureStepEvidence(page, { companySlug, runId, index, step, actionResult });
       return {
@@ -60,6 +67,9 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
   try {
     actionResult = await performStepAction(page, step);
   } catch (err) {
+    // Intentional swallow, unchanged — see the header comment: one bad
+    // step must never abort the whole journey. Logged, not rethrown.
+    logError('Navigation Runner: step action threw', err, { stepId: step.id, index, runId });
     actionResult = { success: false, error: err.message, action_taken: null };
   }
 
@@ -71,10 +81,13 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
 
   const evidence = await captureStepEvidence(page, { companySlug, runId, index, step, actionResult });
 
+  const status = actionResult.success ? 'success' : 'failed';
+  logInfo('Navigation Runner: step finished', { stepId: step.id, index, runId, status, recovered, durationMs: Date.now() - startedAt });
+
   return {
     step_id: step.id,
     title: step.title,
-    status: actionResult.success ? 'success' : 'failed',
+    status,
     action_taken: actionResult.action_taken,
     error: actionResult.error || null,
     recovered,

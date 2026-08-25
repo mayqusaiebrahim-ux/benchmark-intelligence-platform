@@ -12,15 +12,31 @@
  */
 import { runFeatureReasoning } from '../../10_Dashboard/lib/providers/FeatureReasoningProvider.js';
 import { Stage } from '../runtime/Stage.js';
+import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
 export const featureReasoningStage = new Stage(
   'feature_reasoning',
   'Reasoning (Claude)',
   async ({ prompt, company, feature, previousOutput }) => {
-    const result = await runFeatureReasoning({ prompt, company, feature, previousOutput });
-    if (result.status !== 'completed') {
-      throw new Error(result.error || 'Feature Reasoning failed');
-    }
-    return { ...(previousOutput || {}), reasoningData: result.data };
+    return withLogContext({ stage: 'feature_reasoning' }, async () => {
+      logInfo('Feature Reasoning stage starting', { company, feature });
+      let result;
+      try {
+        result = await runFeatureReasoning({ prompt, company, feature, previousOutput });
+      } catch (err) {
+        // runFeatureReasoning is designed to resolve {status:'failed'} rather
+        // than throw — this catch exists only so an unexpected throw still
+        // gets logged with its full stack before propagating, unchanged.
+        logError('Feature Reasoning threw unexpectedly', err);
+        throw err;
+      }
+      if (result.status !== 'completed') {
+        const err = new Error(result.error || 'Feature Reasoning failed');
+        logError('Feature Reasoning failed', err);
+        throw err;
+      }
+      logInfo('Feature Reasoning stage finished', { evidenceSource: result.data?.evidence_source, featureFound: result.data?.feature_found });
+      return { ...(previousOutput || {}), reasoningData: result.data };
+    });
   },
 );

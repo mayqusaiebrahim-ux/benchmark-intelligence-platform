@@ -11,6 +11,8 @@
  * a step's keyword set accidentally brushes up against one.
  */
 
+import { logInfo } from '../../../shared/logger.mjs';
+
 const TRANSACTIONAL_DENYLIST = new RegExp(
   [
     'pay(\\s|$)', 'checkout', 'purchase', 'buy now', 'place order',
@@ -146,6 +148,7 @@ export async function performStepAction(page, step) {
  * from starting_url) and wait for the page to settle.
  */
 export async function safeGoto(page, url) {
+  logInfo('Navigation Runner: re-baseline navigation', { url });
   await page.goto(url, { waitUntil: 'load', timeout: 30000 });
   await waitForSettle(page);
 }

@@ -21,10 +21,40 @@ import {
 import { startBenchmark } from './lib/benchmarkService.js';
 import { BenchmarkScheduler } from '../11_Benchmark_Engine/scheduler/BenchmarkScheduler.js';
 import { EVENTS } from '../11_Benchmark_Engine/scheduler/progressEvents.js';
+import { logInfo, logError } from '../shared/logger.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT = join(__dirname, '..');   // AI_Travel_Benchmark_2026/ folder
 const PORT = process.env.PORT || 3000;
+
+// ─── Process-level diagnostics (instrumentation only) ───────────────────────
+// Registered as early as possible, before the Express app is built, so
+// nothing that happens later in this file's setup can occur unobserved.
+// Both handlers log with the full stack, then exit — preserving Node's
+// existing default behavior (crash on an uncaught exception / unhandled
+// rejection). Registering a handler at all suppresses that default unless
+// it's restored explicitly, so simply logging here without exiting would
+// be a real behavior change, not just instrumentation.
+process.on('uncaughtException', (err) => {
+  logError('uncaughtException', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  logError('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+  process.exit(1);
+});
+process.on('SIGTERM', () => {
+  logInfo('Received SIGTERM');
+});
+process.on('SIGINT', () => {
+  logInfo('Received SIGINT');
+});
+process.on('beforeExit', (code) => {
+  logInfo('beforeExit', { code });
+});
+process.on('exit', (code) => {
+  logInfo('exit', { code });
+});
 
 // ─── Homepage Benchmark Beta: airlines the "Select airlines" step offers ────
 // Dashboard-layer data only — the engine (Discovery/Vision/Reports/Scheduler/

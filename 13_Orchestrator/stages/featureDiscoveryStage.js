@@ -11,13 +11,23 @@
  */
 import { getNavigationProvider } from '../../12_Provider_Layer/registry/ProviderRegistry.js';
 import { Stage } from '../runtime/Stage.js';
+import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
 export const featureDiscoveryStage = new Stage(
   'feature_discovery',
   'Discovery',
   async ({ url, company, jobId }) => {
-    const companySlug = typeof jobId === 'string' ? jobId.split(':')[1] : undefined;
-    const discoveryReport = await getNavigationProvider().discover({ url, companySlug, companyName: company || null });
-    return discoveryReport;
+    return withLogContext({ stage: 'feature_discovery' }, async () => {
+      const companySlug = typeof jobId === 'string' ? jobId.split(':')[1] : undefined;
+      logInfo('Discovery starting', { url, companySlug });
+      try {
+        const discoveryReport = await getNavigationProvider().discover({ url, companySlug, companyName: company || null });
+        logInfo('Discovery finished', { resolvedUrl: discoveryReport?.resolved_url, websiteType: discoveryReport?.website_type });
+        return discoveryReport;
+      } catch (err) {
+        logError('Discovery threw', err);
+        throw err; // rethrow unchanged
+      }
+    });
   },
 );

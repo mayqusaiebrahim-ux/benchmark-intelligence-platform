@@ -12,15 +12,28 @@
  */
 import { planJourney } from '../../11_Benchmark_Engine/modules/journey_mapper/index.js';
 import { Stage } from '../runtime/Stage.js';
+import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
 export const journeyMapperStage = new Stage(
   'journey_mapper',
   'Journey Mapper',
   async ({ previousOutput }) => {
-    const discoveryReport = previousOutput;
-    if (!discoveryReport) {
-      throw new Error('Journey Mapper requires a Discovery Report from the Discovery stage.');
-    }
-    return planJourney({ discoveryReport });
+    return withLogContext({ stage: 'journey_mapper' }, async () => {
+      const discoveryReport = previousOutput;
+      if (!discoveryReport) {
+        const err = new Error('Journey Mapper requires a Discovery Report from the Discovery stage.');
+        logError('Journey Mapper missing input', err);
+        throw err;
+      }
+      logInfo('Journey Mapper starting');
+      try {
+        const plan = planJourney({ discoveryReport });
+        logInfo('Journey Mapper finished', { stepCount: plan?.recommended_journey?.length ?? 0 });
+        return plan;
+      } catch (err) {
+        logError('Journey Mapper threw', err);
+        throw err; // rethrow unchanged
+      }
+    });
   },
 );

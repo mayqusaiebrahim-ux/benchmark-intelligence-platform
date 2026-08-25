@@ -10,6 +10,7 @@
 import { chromium } from 'playwright';
 import { executeStep } from './runner.js';
 import { writeRunManifest } from './capture.js';
+import { logInfo, logError } from '../../../shared/logger.mjs';
 
 function slugify(name) {
   return String(name).toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -36,9 +37,16 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
 
   let browser;
   try {
+    logInfo('Navigation Runner: launching Chromium', { executablePath: chromium.executablePath(), runId });
     browser = await chromium.launch();
-    const page = await browser.newPage();
+    logInfo('Navigation Runner: browser created', { runId });
+    browser.on('disconnected', () => logInfo('Navigation Runner: browser disconnected', { runId }));
 
+    const page = await browser.newPage();
+    logInfo('Navigation Runner: page created (default context)', { runId });
+    page.on('close', () => logInfo('Navigation Runner: page closed', { runId }));
+
+    logInfo('Navigation Runner: navigating to starting URL', { url: journeyPlan.starting_url, runId });
     await page.goto(journeyPlan.starting_url, { waitUntil: 'load', timeout: 30000 });
     try {
       await page.waitForLoadState('networkidle', { timeout: 8000 });
@@ -61,8 +69,15 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
       steps.push(result);
       previousStepFailed = result.status !== 'success';
     }
+  } catch (err) {
+    logError('Navigation Runner: runJourney threw', err, { runId });
+    throw err; // rethrow unchanged — same error, same behavior
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      logInfo('Navigation Runner: closing browser', { runId });
+      await browser.close();
+      logInfo('Navigation Runner: browser closed', { runId });
+    }
   }
 
   const finishedAt = new Date().toISOString();
