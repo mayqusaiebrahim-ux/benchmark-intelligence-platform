@@ -11,7 +11,7 @@
 | **Node.js** | 20.x LTS recommended. The code uses native ES modules (`"type": "module"` in both `package.json`s) and modern syntax throughout — no Node <18 features are used, but 20 LTS is the safest match for `openai@6.x` and `playwright@1.61.x`, both current-generation packages. |
 | **npm** | Ships with Node 20; no separate install needed. |
 | **Two independent dependency trees** | `10_Dashboard/package.json` (express only) and `11_Benchmark_Engine/package.json` (openai, playwright) are **both required at runtime**, not just the Dashboard's. See §3.1 — this is not optional. |
-| **Playwright browser binaries** | `npm install` alone only installs the Playwright *Node package* (~33MB). The actual Chromium binary (~150–300MB) and its system libraries (fonts, libnss3, libatk, etc.) must be installed separately via `npx playwright install --with-deps chromium`. This needs either a Docker-capable platform or a buildpack that allows a custom build command running `apt-get`-level installs. |
+| **Playwright browser binaries** | `npm install` alone only installs the Playwright *Node package* (~33MB). The actual Chromium binary (~150–300MB) must be installed separately via `npx playwright install chromium`. **Not `--with-deps`**: confirmed on Render's native (non-Docker) Node build environment, `--with-deps`'s internal `apt-get install` step requires root, which that build environment does not grant (`su: Authentication failure`) — the build fails outright. Plain `playwright install chromium` (binary only, no system-library install step) succeeds there; Render's base image already carries the shared libraries Chromium needs at runtime. |
 | **Persistent writable disk** | The app reads *and writes* to the project filesystem outside its own server folder (see §3.2) — `Benchmark_Requests.json`, `Master_Benchmark_Matrix.json`, and `03_Screenshots/**`. A platform with only an ephemeral/read-only filesystem will lose all new benchmark data on every restart or redeploy. |
 | **Long-running process, not serverless** | `app.listen()` runs indefinitely; Playwright launches a real browser process. This rules out classic serverless/edge function platforms (see §6). |
 
@@ -88,7 +88,7 @@ Orchestrates installing **both** `10_Dashboard/` and `11_Benchmark_Engine/`, the
   "scripts": {
     "install:dashboard": "npm install --prefix 10_Dashboard",
     "install:engine": "npm install --prefix 11_Benchmark_Engine",
-    "install:browsers": "npx --prefix 11_Benchmark_Engine playwright install --with-deps chromium",
+    "install:browsers": "npx --prefix 11_Benchmark_Engine playwright install chromium",
     "postinstall": "npm run install:dashboard && npm run install:engine && npm run install:browsers",
     "start": "node 10_Dashboard/server.js"
   }
@@ -106,7 +106,7 @@ Documents the one required secret (`OPENAI_API_KEY`) without exposing the real v
 `web: node 10_Dashboard/server.js` — works for Railway and any Heroku-style buildpack detection.
 
 ### 4.5 `render.yaml` (new, project root)
-A Render Blueprint pre-wired with the correct build command (`npm install && npx playwright install --with-deps chromium`), start command, a persistent disk mount, and the `OPENAI_API_KEY` secret slot. Includes an inline comment flagging the §3.3 port issue so it isn't missed at deploy time.
+A Render Blueprint pre-wired with the correct build command (`npm install && npx playwright install chromium` — no `--with-deps`; see §1's Playwright row for why), start command, a persistent disk mount, and the `OPENAI_API_KEY` secret slot. Includes an inline comment flagging the §3.3 port issue so it isn't missed at deploy time.
 
 ---
 
@@ -169,7 +169,7 @@ Run this once you've decided on §3.3 and §5.1–5.2.
    - Start Command: leave default (`npm start`, from `package.json`).
 5. **Add a Volume**: mount it at the project root so `03_Screenshots/`, `02_Benchmark_Repository/`, `Master_Benchmark_Matrix.json`, and `Benchmark_Requests.json` all persist across restarts and redeploys. (The existing 313MB of project data, screenshots included, ships in via the initial git push; the volume only needs to persist *new* writes from that point forward.)
 6. **Environment Variables**: add `OPENAI_API_KEY` (the real value, from your local `11_Benchmark_Engine/.env` — never commit it).
-7. **Deploy**, then confirm in the build logs that `npx playwright install --with-deps chromium` completed (this step downloads ~150–300MB and can take a few minutes on first deploy).
+7. **Deploy**, then confirm in the build logs that `npx playwright install chromium` completed (this step downloads ~150–300MB and can take a few minutes on first deploy).
 8. **Verify**: hit the deployed URL, confirm `/api/stats`, `/api/homepage-benchmarks`, and a screenshot URL (e.g. `/screenshots/saudia_2026-07-13T00-00-00-000Z.png`) all return `200` — the same three checks used to verify this app locally throughout this project's development.
 
 Render's equivalent steps are the same, using `render.yaml` (§4.5) as a Blueprint instead of manual dashboard configuration, with the caveat that the Starter (paid) plan is required for the persistent Disk to be available at all.
