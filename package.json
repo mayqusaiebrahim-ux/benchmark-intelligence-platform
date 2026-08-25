@@ -7,7 +7,7 @@
     "install:dashboard": "npm install --prefix 10_Dashboard",
     "install:engine": "npm install --prefix 11_Benchmark_Engine",
     "install:provider-layer": "npm install --prefix 12_Provider_Layer",
-    "install:browsers": "npx --prefix 11_Benchmark_Engine playwright install chromium",
+    "install:browsers": "npx --prefix 11_Benchmark_Engine playwright install chromium && npx --prefix 12_Provider_Layer playwright install chromium",
     "postinstall": "npm run install:dashboard && npm run install:engine && npm run install:provider-layer && npm run install:browsers",
     "start": "node 10_Dashboard/server.js"
   }
