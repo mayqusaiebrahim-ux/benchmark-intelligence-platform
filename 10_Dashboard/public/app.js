@@ -78,6 +78,15 @@ const STAGE_LABELS = {
   vision:                  'Vision Analysis',
   reasoning:               'Reasoning',
   output_verification:     'Output Verification',
+  // Feature Benchmark's own Runtime stage ids (13_Orchestrator/pipelines/
+  // featurePipeline.js) — same "shown while that stage is running" role as
+  // the five above, just Feature Benchmark's own sequence.
+  feature_discovery:       'Discovery',
+  journey_mapper:          'Journey Mapping',
+  navigation_runner:       'Navigating',
+  feature_vision:          'Vision Analysis',
+  feature_reasoning:       'Reasoning',
+  feature_report_writer:   'Writing Report',
 };
 
 // Sprint 27 (P0-3): plain-language explanations for the three failure
@@ -100,8 +109,27 @@ const FAILURE_STAGE_DESC = {
 // `url` field, not guessed.
 const RUNTIME_STAGES_WITH_URL = ['navigation', 'screenshot', 'vision', 'reasoning', 'output_verification'];
 const RUNTIME_STAGES_NO_URL = ['reasoning', 'output_verification'];
-const RUNTIME_STAGE_SET = new Set(RUNTIME_STAGES_WITH_URL);
+
+// Feature Benchmark's own Runtime stage sequence (13_Orchestrator/pipelines/
+// featurePipeline.js's stage list, in order) — Feature Benchmark always
+// requires a URL (featurePipeline.requiredFields), so unlike Full Pipeline
+// there is no separate "no URL" variant to mirror.
+const FEATURE_PIPELINE_STAGES = [
+  'feature_discovery', 'journey_mapper', 'navigation_runner',
+  'feature_vision', 'feature_reasoning', 'feature_report_writer',
+];
+
+// Which of the two live sequences applies is derived from the request's own
+// existing benchmark_type field — Feature Benchmark items always carry a
+// url too, so this can't be told apart via item.url the way Full Pipeline's
+// two variants are; see runtimeSequenceFor() below.
+const RUNTIME_STAGE_SET = new Set([...RUNTIME_STAGES_WITH_URL, ...FEATURE_PIPELINE_STAGES]);
 const STAGE_ORDER = Object.keys(STAGE_LABELS);
+
+function runtimeSequenceFor(request, item) {
+  if (request.benchmark_type === 'Feature Benchmark') return FEATURE_PIPELINE_STAGES;
+  return item.url ? RUNTIME_STAGES_WITH_URL : RUNTIME_STAGES_NO_URL;
+}
 
 const BENCHMARK_TYPE_INFO = [
   { id: 'AI Experience',    desc: 'Focus on AI conversations, suggestions, and prompt UX' },
@@ -1125,7 +1153,7 @@ const QUEUE_STATUS_BADGE = { complete: 'badge-green', in_progress: 'badge-accent
 // Sprint 26 — Live Runtime Progress: stages worth polling for, i.e. "this
 // item might change again soon without a user action." Reuses the exact
 // same Runtime stage ids already defined above — not a new vocabulary.
-const ACTIVE_QUEUE_STAGES = new Set(['preparing', 'running', ...RUNTIME_STAGES_WITH_URL]);
+const ACTIVE_QUEUE_STAGES = new Set(['preparing', 'running', ...RUNTIME_STAGES_WITH_URL, ...FEATURE_PIPELINE_STAGES]);
 let _queue_poll_timer = null;
 
 function formatElapsed(ms) {
@@ -1217,7 +1245,7 @@ async function renderQueue() {
           // instead of the old 9-step manual one, plus a `.current` marker
           // on the in-flight segment (new, small CSS addition) so "current
           // stage" and "completed stages" are both visible at a glance.
-          const seq = item.url ? RUNTIME_STAGES_WITH_URL : RUNTIME_STAGES_NO_URL;
+          const seq = runtimeSequenceFor(r, item);
           const stageIdx = seq.indexOf(item.stage);
           const segs = seq.map((s, i) => `<div class="seg ${i < stageIdx ? 'done' : i === stageIdx ? 'current' : ''}"></div>`).join('');
           const pct = seq.length ? Math.round(((stageIdx + 1) / seq.length) * 100) : 0;

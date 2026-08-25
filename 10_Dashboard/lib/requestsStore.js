@@ -40,6 +40,18 @@ export const STAGES = [
   'vision',
   'reasoning',
   'output_verification',
+  // Feature Benchmark's own Runtime stage ids (13_Orchestrator/pipelines/
+  // featurePipeline.js), same role as the five above — set as item.stage
+  // while that stage is running. Previously absent here, so
+  // benchmarkService.js's setStage(event.stage, ...) call for any of these
+  // threw "Unknown stage", which is why Feature Benchmark's item.stage
+  // never advanced past 'running' for the whole run.
+  'feature_discovery',
+  'journey_mapper',
+  'navigation_runner',
+  'feature_vision',
+  'feature_reasoning',
+  'feature_report_writer',
 ];
 
 export const BENCHMARK_TYPES = [

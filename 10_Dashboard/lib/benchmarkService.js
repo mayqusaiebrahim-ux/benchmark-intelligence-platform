@@ -85,20 +85,38 @@ export function startBenchmark({ company, feature, benchmarkType, requestId, slu
   // Queued -> Running, immediately, before the (possibly long) provider call
   // begins — this is the exact moment the Queue is told a run actually
   // started, via the same setStage() its manual dropdown already uses.
+  //
+  // Investigated: unlike the onProgress/terminal setStage() calls below,
+  // THIS call has no legitimate window to fail on a genuinely in-flight
+  // request. The only caller of startBenchmark() is server.js's PATCH
+  // handler, which itself calls setStage(..., 'preparing') successfully
+  // (or this function is never reached) and then calls startBenchmark()
+  // synchronously, with no `await` anywhere in between — Node's
+  // single-threaded, run-to-completion execution means no other request
+  // can touch Benchmark_Requests.json in that gap. So if this specific
+  // call still throws "not found", the request was already gone before
+  // this synchronous chain even started (e.g. a stale/reused id, or a
+  // Benchmark_Requests.json that doesn't reflect what created it) — a
+  // real anomaly, not an ordinary mid-flight cancellation race. Continuing
+  // to spend real Anthropic/Vision/browser cost on a request nobody can
+  // ever see the result of was the actual "swallowing" — this now aborts
+  // instead. The onProgress and terminal setStage() calls further below
+  // keep their original swallow-and-continue behavior unchanged: a
+  // cancellation genuinely can land during the real async gaps between
+  // pipeline stages (seconds to minutes), so a failure there does not
+  // indicate the same kind of anomaly and should not abort an
+  // already-committed run.
   try {
     setStage(projectRoot, requestId, slug, 'running', { started_at: new Date().toISOString() });
   } catch (err) {
-    // The request/item may have been cancelled or removed between the click
-    // and this call — the provider run below is still allowed to proceed
-    // (it was already committed to), but the Queue can't be told about a
-    // job it no longer has a row for. Not a reason to abort the benchmark.
-    console.log(`[benchmarkService] Could not set stage to 'running' for ${jobId}: ${err.message}`);
+    console.log(`[benchmarkService] Could not set stage to 'running' for ${jobId} — aborting, this request does not exist: ${err.message}`);
+    runStatus.set(jobId, 'completed');
+    return;
   }
 
   // Sprint 26 — Live Runtime Progress: the Runtime has emitted real,
-  // named, per-stage progress events since Sprint 20 (navigation ->
-  // screenshot -> vision -> reasoning -> output_verification) — this file
-  // just never listened. onProgress here persists each stage-entry via the
+  // named, per-stage progress events since Sprint 20 — this file just
+  // never listened. onProgress here persists each stage-entry via the
   // same setStage() every other stage transition already uses, so the
   // Queue's existing polling/rendering can show it with no new API and no
   // second progress system. Only acts on 'running' transitions (one write
@@ -109,7 +127,21 @@ export function startBenchmark({ company, feature, benchmarkType, requestId, slu
   // terminal state). lastProgressStage is kept as a fallback for
   // failed_stage below, for the rare case a thrown error has no stageId of
   // its own (see BenchmarkOrchestrator.js's Sprint 24 addition).
-  const RUNTIME_STAGE_IDS = new Set(['navigation', 'screenshot', 'vision', 'reasoning', 'output_verification']);
+  //
+  // Covers both pipelines' real Stage ids, not just fullPipeline.js's five
+  // (navigation/screenshot/vision/reasoning/output_verification) —
+  // featurePipeline.js's six (feature_discovery/journey_mapper/
+  // navigation_runner/feature_vision/feature_reasoning/
+  // feature_report_writer) were previously absent from this set entirely,
+  // so every Feature Benchmark progress event was silently ignored here:
+  // item.stage never advanced past its initial 'running' value for the
+  // whole run, regardless of whether setStage() itself would have
+  // succeeded. Full Pipeline's five ids are unchanged, preserving its
+  // existing behavior exactly.
+  const RUNTIME_STAGE_IDS = new Set([
+    'navigation', 'screenshot', 'vision', 'reasoning', 'output_verification',
+    'feature_discovery', 'journey_mapper', 'navigation_runner', 'feature_vision', 'feature_reasoning', 'feature_report_writer',
+  ]);
   let lastProgressStage = null;
 
   orchestrator.runBenchmark(
