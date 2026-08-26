@@ -497,6 +497,13 @@ async function route(hash) {
     return;
   }
 
+  if (h.startsWith('feature-report/')) {
+    const requestId = decodeURIComponent(h.slice('feature-report/'.length));
+    updateActiveNav('benchmarks');
+    await renderFeatureReport(requestId);
+    return;
+  }
+
   if (isPresentationMode() && (h === 'wizard' || h === 'queue')) {
     updateActiveNav(h);
     renderPresentationNotice(h === 'wizard' ? 'New Benchmark' : 'Benchmark Queue');
@@ -1338,8 +1345,14 @@ window.openBenchmarkDetailsModal = async function(requestId, slug) {
   const stageLabel = STAGE_LABELS[item.stage] || item.stage;
   const timeLabel = item.started_at ? 'Started' : 'Created';
   const timeValue = item.started_at ? new Date(item.started_at).toLocaleString() : new Date(request.created_at).toLocaleString();
+  // Only a Feature Benchmark request has a real generated report to open
+  // (02_Benchmark_Repository/_Feature_Benchmarks/<slug>/<requestId>.md, via
+  // renderFeatureReport()) — anything else (e.g. Complete Journey) keeps its
+  // prior behavior of linking into the filtered Library, unchanged.
   const reportLink = item.stage === 'completed'
-    ? `<div class="wizard-review-row"><label>Result</label><span class="value"><a href="#benchmarks?feature=${encodeURIComponent(request.feature)}" onclick="closeModal()">View report →</a></span></div>`
+    ? (request.benchmark_type === 'Feature Benchmark'
+        ? `<div class="wizard-review-row"><label>Result</label><span class="value"><a href="#feature-report/${encodeURIComponent(request.id)}" onclick="closeModal()">View report →</a></span></div>`
+        : `<div class="wizard-review-row"><label>Result</label><span class="value"><a href="#benchmarks?feature=${encodeURIComponent(request.feature)}" onclick="closeModal()">View report →</a></span></div>`)
     : '';
 
   openModal(`
@@ -1476,12 +1489,21 @@ async function renderBenchmarks(query) {
         <div><div class="section-title">Feature Benchmarks</div><div class="section-sub">${items.length} focused comparison${items.length === 1 ? '' : 's'}</div></div>
       </div>
       <div class="card-grid mb-4">
-        ${items.map(fb => `
-          <div class="card">
+        ${items.map(fb => {
+          // Same report view the Benchmark Details modal's "View report →"
+          // link opens (#feature-report/<requestId>) — one viewer, two
+          // entry points. Only a completed benchmark has a report to show.
+          const isComplete = fb.request?.status === 'complete';
+          const clickAttrs = isComplete
+            ? ` role="button" tabindex="0" onclick="navigate('feature-report/${encodeURIComponent(fb.request_id)}')" style="cursor:pointer"`
+            : '';
+          return `
+          <div class="card"${clickAttrs}>
             <div class="bc-name">${fb.request?.feature || fb.feature_slug}</div>
             <div class="bc-category">Feature Benchmark${fb.request ? ` · ${fb.request.status.replace('_', ' ')}` : ''}</div>
             <div class="mt-3 text-sm text-2">${(fb.request?.items || []).map(i => i.name).join(', ') || '—'}</div>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>`;
   }
 
@@ -1500,6 +1522,59 @@ async function renderBenchmarks(query) {
 
   renderResults();
   renderFeatureSection();
+}
+
+// ─── Page: Feature Benchmark Report ───────────────────────────────────────────
+// Reached via #feature-report/<requestId> — from the Benchmark Details modal's
+// "View report →" link and from a completed card in renderFeatureSection()
+// above; both funnel into this one view, per fb.request_id as the stable UI
+// identifier (fb.path is only ever used here, after locating the benchmark,
+// to fetch its markdown — never as the identifier itself). Renders the
+// actual report the Feature Benchmark pipeline already wrote to disk —
+// does not regenerate or duplicate its content.
+const BACK_TO_LIBRARY_LINK = `<a href="#benchmarks" class="btn-link">← Back to Benchmark Library</a>`;
+
+async function renderFeatureReport(requestId) {
+  setTitle('Feature Benchmark Report');
+  setTopbarActions('');
+  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
+
+  const featureData = await api.get('/api/feature-benchmarks').catch(() => ({ items: [] }));
+  const fb = (featureData.items || []).find(i => i.request_id === requestId);
+
+  if (!fb) {
+    setContent(`
+      <div class="mb-4">${BACK_TO_LIBRARY_LINK}</div>
+      <div class="empty-state"><div class="empty-icon">▤</div><h3>Report not found</h3><p>No Feature Benchmark report exists for this request.</p></div>`);
+    return;
+  }
+
+  const request = fb.request;
+  const feature = request?.feature || fb.feature_slug;
+  const companies = (request?.items || []).map(i => i.name).join(', ') || '—';
+  const scopeText = (request?.scope || []).length ? request.scope.join(', ') : 'End-to-End Journey';
+  const statusText = request ? (request.status || '').replace('_', ' ') : 'unknown';
+
+  let reportBodyHtml;
+  try {
+    const r = await api.get(`/api/markdown?path=${encodeURIComponent(fb.path)}`);
+    reportBodyHtml = `<div class="md-content">${marked.parse(r.content)}</div>`;
+  } catch (e) {
+    // Matches server.js's /api/markdown 404 ({ error: 'File not found' }) and
+    // any other fetch failure alike — either way, stay on this page and say
+    // so plainly rather than redirecting back to the Library silently.
+    reportBodyHtml = `<div class="empty-state"><h3>Report file is unavailable.</h3></div>`;
+  }
+
+  setContent(`
+    <div class="mb-4">${BACK_TO_LIBRARY_LINK}</div>
+    <div class="card mb-4">
+      <div class="wizard-review-row"><label>Feature</label><span class="value">${feature}</span></div>
+      <div class="wizard-review-row"><label>Company</label><span class="value">${companies}</span></div>
+      <div class="wizard-review-row"><label>Scope</label><span class="value">${scopeText}</span></div>
+      <div class="wizard-review-row"><label>Status</label><span class="value">${statusText}</span></div>
+    </div>
+    ${reportBodyHtml}`);
 }
 
 // ─── Page: Homepage Benchmarks ────────────────────────────────────────────────
