@@ -30,6 +30,18 @@ services:
         sync: false
       - key: NODE_VERSION
         value: 20
+      # Moves Feature Benchmark's Chromium (Discovery, Navigation Runner) off
+      # Render entirely — Render Free/Starter's RAM ceiling could not survive
+      # a local headless Chromium even after the memory-optimization pass.
+      # See 11_Benchmark_Engine/modules/browserLauncher.js.
+      - key: BROWSER_PROVIDER
+        value: browserbase
+      - key: BROWSERBASE_API_KEY
+        sync: false
+      # Only required if your Browserbase account needs a project id on
+      # session creation — see browserLauncher.js. Leave unset if not needed.
+      - key: BROWSERBASE_PROJECT_ID
+        sync: false
     disk:
       name: benchmark-data
       mountPath: /opt/render/project/src

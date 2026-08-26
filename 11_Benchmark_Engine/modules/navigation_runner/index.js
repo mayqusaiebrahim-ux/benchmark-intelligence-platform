@@ -7,10 +7,10 @@
  * score, write reports, or extract patterns — see README.md.
  */
 
-import { chromium } from 'playwright';
 import { executeStep } from './runner.js';
 import { writeRunManifest } from './capture.js';
 import { logInfo, logError } from '../../../shared/logger.mjs';
+import { launchBrowser } from '../browserLauncher.js';
 
 function slugify(name) {
   return String(name).toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -19,13 +19,6 @@ function slugify(name) {
 function makeRunId() {
   return `nav_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 }
-
-// Render Free (512MB) memory optimization — same rationale as
-// discovery/index.js's identical constant: removes the unused headless GPU
-// process, avoids /dev/shm-related memory pressure in containers, and
-// disables the unused crash-reporter subsystem. No --single-process (not
-// considered safe — Chromium/Playwright's own guidance calls it unstable).
-const MEMORY_OPTIMIZED_LAUNCH_ARGS = ['--disable-gpu', '--disable-dev-shm-usage', '--disable-breakpad'];
 
 /**
  * runJourney — accepts { journeyPlan, companyName?, companySlug? }. Returns
@@ -43,9 +36,11 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
   const steps = [];
 
   let browser;
+  let session;
   try {
-    logInfo('Navigation Runner: launching Chromium', { executablePath: chromium.executablePath(), runId });
-    browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS });
+    logInfo('Navigation Runner: launching Chromium', { runId });
+    session = await launchBrowser('Navigation Runner');
+    browser = session.browser;
     logInfo('Navigation Runner: browser created', { runId });
     browser.on('disconnected', () => logInfo('Navigation Runner: browser disconnected', { runId }));
 
@@ -82,7 +77,7 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
   } finally {
     if (browser) {
       logInfo('Navigation Runner: closing browser', { runId });
-      await browser.close();
+      await session.close();
       logInfo('Navigation Runner: browser closed', { runId });
     }
   }

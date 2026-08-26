@@ -88,13 +88,15 @@ Orchestrates installing **both** `10_Dashboard/` and `11_Benchmark_Engine/`, the
   "scripts": {
     "install:dashboard": "npm install --prefix 10_Dashboard",
     "install:engine": "npm install --prefix 11_Benchmark_Engine",
-    "install:browsers": "npx --prefix 11_Benchmark_Engine playwright install chromium && npx --prefix 12_Provider_Layer playwright install chromium",
+    "install:browsers": "node scripts/installBrowsersIfNeeded.js",
     "postinstall": "npm run install:dashboard && npm run install:engine && npm run install:browsers",
     "start": "node 10_Dashboard/server.js"
   }
 }
 ```
 This is the file that makes "one `npm install`, one `npm start`, from the project root" work at all — without it, no PaaS auto-build would know to install the Engine's dependencies or fetch Chromium.
+
+`install:browsers` now runs `scripts/installBrowsersIfNeeded.js` instead of two hardcoded `playwright install chromium` calls. When `BROWSER_PROVIDER=browserbase` is set (the production default in `render.yaml` — see §4.5), it **skips** the `11_Benchmark_Engine` Chromium download entirely, since Feature Benchmark's browser stages (Discovery, Navigation Runner) connect to a remote Browserbase session instead of launching one locally — see `11_Benchmark_Engine/modules/browserLauncher.js`. `12_Provider_Layer`'s Chromium install is never skipped: its Full Pipeline browser site (`BrowserSessionManager.js`) is untouched by this change and still launches Chromium locally regardless of `BROWSER_PROVIDER`.
 
 ### 4.2 `.gitignore` (new, project root)
 Was **completely absent** from the repo before this review (see §5.1 for why that matters). Excludes `node_modules/`, `.env*` (except `.env.example`), Playwright test artifacts, and log files.
@@ -107,6 +109,8 @@ Documents the one required secret (`OPENAI_API_KEY`) without exposing the real v
 
 ### 4.5 `render.yaml` (new, project root)
 A Render Blueprint pre-wired with the correct build and start commands (`PLAYWRIGHT_BROWSERS_PATH=0 npm install` / `PLAYWRIGHT_BROWSERS_PATH=0 npm start` — the env var is inlined on both commands rather than placed in the separate `envVars` list, since an `envVars` addition to an already-deployed service was confirmed not to reach the runtime process without a manual Blueprint re-sync; inlining removes that dependency), a persistent disk mount, and the `OPENAI_API_KEY` secret slot. Includes an inline comment flagging the §3.3 port issue so it isn't missed at deploy time.
+
+Also sets `BROWSER_PROVIDER=browserbase` plus `BROWSERBASE_API_KEY` / `BROWSERBASE_PROJECT_ID` secret slots (`sync: false` — fill in via the Render dashboard, never commit real values). This moves Feature Benchmark's Chromium off Render's own process entirely: Render Free/Starter's RAM ceiling could not survive a local headless Chromium even after the earlier memory-optimization pass (smaller launch flags, viewport-only screenshots, earlier `browser.close()`) — the process was still being silently OOM-killed as soon as real browser work began. With `BROWSER_PROVIDER=browserbase`, Discovery and Navigation Runner connect to a remote, Browserbase-hosted Chromium over CDP instead — see `11_Benchmark_Engine/modules/browserLauncher.js`. There is deliberately no silent fallback to a local Chromium if Browserbase fails to connect: that would recreate the exact OOM risk this change exists to remove, so a Browserbase failure fails the stage clearly instead.
 
 ---
 

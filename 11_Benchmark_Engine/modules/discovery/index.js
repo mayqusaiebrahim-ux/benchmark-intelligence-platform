@@ -11,6 +11,7 @@ import { chromium } from 'playwright';
 import { extractRawSignals } from './signals.js';
 import { dismissConsentBanner, expandNavigationMenu } from './actions.js';
 import { logInfo, logError } from '../../../shared/logger.mjs';
+import { launchBrowser } from '../browserLauncher.js';
 import {
   classifyWebsite,
   detectAiFeatures,
@@ -45,17 +46,6 @@ try {
   logError('Startup diagnostics failed', err);
 }
 
-// Render Free (512MB) memory optimization: reduces Chromium's own process
-// footprint without changing any observable page behavior. --disable-gpu
-// removes an otherwise-spawned GPU process that headless mode never uses;
-// --disable-dev-shm-usage avoids Chromium relying on the small /dev/shm
-// tmpfs typical of containers (a common source of memory-pressure crashes
-// in exactly this kind of environment); --disable-breakpad turns off
-// Chromium's own crash-reporter subsystem, unused here. Deliberately not
-// using --single-process — Playwright/Chromium's own guidance treats it as
-// unstable, which would trade a memory problem for a reliability one.
-const MEMORY_OPTIMIZED_LAUNCH_ARGS = ['--disable-gpu', '--disable-dev-shm-usage', '--disable-breakpad'];
-
 /**
  * runDiscovery — accepts { url, companySlug?, companyName? }, returns a DiscoveryReport
  * matching contracts/discovery.schema.json.
@@ -63,10 +53,12 @@ const MEMORY_OPTIMIZED_LAUNCH_ARGS = ['--disable-gpu', '--disable-dev-shm-usage'
 export async function runDiscovery({ url, companySlug = null, companyName = null }) {
   const startedAt = Date.now();
   let browser;
+  let session;
 
   try {
-    logInfo('Discovery: launching Chromium', { executablePath: chromium.executablePath() });
-    browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS });
+    logInfo('Discovery: launching Chromium');
+    session = await launchBrowser('Discovery');
+    browser = session.browser;
     logInfo('Discovery: browser created');
     browser.on('disconnected', () => logInfo('Discovery: browser disconnected'));
 
@@ -112,9 +104,10 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
     // becomes a no-op safety net (browser is already null) for this path.
     if (browser) {
       logInfo('Discovery: closing browser (page work complete)');
-      await browser.close();
+      await session.close();
       logInfo('Discovery: browser closed');
       browser = null;
+      session = null;
     }
 
     // ── Interpret the (possibly refreshed) observation into the report ───────
@@ -163,7 +156,7 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
   } finally {
     if (browser) {
       logInfo('Discovery: closing browser');
-      await browser.close();
+      await session.close();
       logInfo('Discovery: browser closed');
     }
   }
