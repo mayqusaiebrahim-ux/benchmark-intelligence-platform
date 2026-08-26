@@ -135,15 +135,6 @@ function runtimeSequenceFor(request, item) {
   return item.url ? RUNTIME_STAGES_WITH_URL : RUNTIME_STAGES_NO_URL;
 }
 
-const BENCHMARK_TYPE_INFO = [
-  { id: 'AI Experience',    desc: 'Focus on AI conversations, suggestions, and prompt UX' },
-  { id: 'UX/UI',             desc: 'Focus on visual and interaction design quality' },
-  { id: 'Mobile App',        desc: 'Native iOS / Android experience' },
-  { id: 'Website',           desc: 'Web experience' },
-  { id: 'Complete Journey',  desc: 'Full 12-step journey, all 11 deliverables' },
-  { id: 'Feature Benchmark', desc: 'One feature, compared across several companies' },
-];
-
 const FEATURE_PRESETS = [
   'AI Travel Planner', 'AI Chat', 'Homepage', 'Search', 'Search Results',
   'Booking Flow', 'Passenger Details', 'Payment', 'Check-in', 'Ancillaries',
@@ -893,8 +884,14 @@ function attachCardClicks() {
 }
 
 // ─── Page: New Benchmark Wizard ──────────────────────────────────────────────
+// This wizard only ever creates Feature Benchmarks — there is no
+// "Benchmark Type" step and no benchmark_type choice exposed to the user.
+// AI Experience / UX/UI / Mobile App / Website are Scope options only (see
+// SCOPE_INFO below), never a benchmark_type value: benchmarkService.js
+// routes strictly on benchmark_type, and only 'Feature Benchmark' and
+// 'Complete Journey' (backend-only, not offered here) have defined routes.
 function initWizard() {
-  _wizard = { step: 1, benchmark_type: null, feature: null, competitors: [], scope: [], notes: '', submitting: false, error: null };
+  _wizard = { step: 1, benchmark_type: 'Feature Benchmark', feature: null, competitors: [], scope: [], notes: '', submitting: false, error: null };
 }
 
 async function renderWizard() {
@@ -905,7 +902,7 @@ async function renderWizard() {
 }
 
 function wizardStepsHtml() {
-  const labels = ['Type', 'Feature', 'Competitors', 'Scope', 'Review'];
+  const labels = ['Feature', 'Competitors', 'Scope', 'Review'];
   return `<div class="wizard-steps">
     ${labels.map((l, i) => {
       const n = i + 1;
@@ -924,34 +921,16 @@ function wizardErrorHtml() {
 
 function renderWizardStep() {
   const body = {
-    1: wizardStep1, 2: wizardStep2, 3: wizardStep3, 4: wizardStep4, 5: wizardStep5,
+    1: wizardStep1, 2: wizardStep2, 3: wizardStep3, 4: wizardStep4,
   }[_wizard.step]();
   setContent(`<div class="wizard-shell">${wizardStepsHtml()}<div class="wizard-card">${body}</div></div>`);
 }
 
 function wizardStep1() {
-  return `
-    <h2>Choose Benchmark Type</h2>
-    <div class="section-sub">What kind of benchmark is this? (Looking for a quick automated homepage-only scan instead — airlines only, no setup? Use <a href="#homepage-benchmarks" class="btn-link" style="font-size:inherit">Homepage Benchmark</a> from the sidebar instead of this wizard.)</div>
-    <div class="chip-group" style="flex-direction:column;align-items:stretch">
-      ${BENCHMARK_TYPE_INFO.map(t => `
-        <div class="chip ${_wizard.benchmark_type === t.id ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${_wizard.benchmark_type === t.id}" onclick="wizardSetType('${t.id}')" style="text-align:left">
-          <div>${t.id}</div>
-          <div class="chip-desc">${t.desc}</div>
-        </div>`).join('')}
-    </div>
-    ${wizardErrorHtml()}
-    <div class="wizard-actions">
-      <span></span>
-      <button class="btn btn-primary" onclick="wizardNext()">Next →</button>
-    </div>`;
-}
-
-function wizardStep2() {
   const customVal = _wizard.feature && !FEATURE_PRESETS.includes(_wizard.feature) ? _wizard.feature : '';
   return `
     <h2>Select Feature</h2>
-    <div class="section-sub">What are we benchmarking?</div>
+    <div class="section-sub">What are we benchmarking? (Looking for a quick automated homepage-only scan instead — airlines only, no setup? Use <a href="#homepage-benchmarks" class="btn-link" style="font-size:inherit">Homepage Benchmark</a> from the sidebar instead of this wizard.)</div>
     <div class="chip-group">
       ${FEATURE_PRESETS.map(f => `<div class="chip ${_wizard.feature === f ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${_wizard.feature === f}" onclick="wizardSetFeature('${f}')">${f}</div>`).join('')}
     </div>
@@ -961,12 +940,12 @@ function wizardStep2() {
     </div>
     ${wizardErrorHtml()}
     <div class="wizard-actions">
-      <button class="btn btn-ghost" onclick="wizardBack()">← Back</button>
+      <span></span>
       <button class="btn btn-primary" onclick="wizardNext()">Next →</button>
     </div>`;
 }
 
-function wizardStep3() {
+function wizardStep2() {
   const rows = _wizard.competitors.map((c, i) => `
     <div class="competitor-row">
       <div class="competitor-name">${c.name}</div>
@@ -1001,7 +980,7 @@ function wizardStep3() {
     </div>`;
 }
 
-function wizardStep4() {
+function wizardStep3() {
   return `
     <h2>Benchmark Scope</h2>
     <div class="section-sub">Select all that apply.</div>
@@ -1019,7 +998,7 @@ function wizardStep4() {
     </div>`;
 }
 
-function wizardStep5() {
+function wizardStep4() {
   const scopeText = _wizard.scope.join(', ') || 'End-to-End Journey';
   const companyNames = _wizard.competitors.map(c => c.name).join(', ');
 
@@ -1040,7 +1019,6 @@ function wizardStep5() {
     </div>`;
 }
 
-window.wizardSetType = function(id) { _wizard.benchmark_type = id; _wizard.error = null; renderWizardStep(); };
 window.wizardSetFeature = function(id) { _wizard.feature = id; _wizard.error = null; renderWizardStep(); };
 window.wizardSetFeatureText = function(v) { _wizard.feature = v; };
 window.wizardSetNotes = function(v) { _wizard.notes = v; };
@@ -1075,10 +1053,9 @@ window.wizardToggleScope = function(id) {
 
 window.wizardNext = function() {
   const validators = {
-    1: () => !_wizard.benchmark_type ? 'Choose a benchmark type.' : null,
-    2: () => !_wizard.feature || !_wizard.feature.trim() ? 'Enter or choose a feature.' : null,
-    3: () => _wizard.competitors.length === 0 ? 'Add at least one competitor.' : null,
-    4: () => _wizard.scope.length === 0 ? 'Select at least one scope option.' : null,
+    1: () => !_wizard.feature || !_wizard.feature.trim() ? 'Enter or choose a feature.' : null,
+    2: () => _wizard.competitors.length === 0 ? 'Add at least one competitor.' : null,
+    3: () => _wizard.scope.length === 0 ? 'Select at least one scope option.' : null,
   }[_wizard.step];
   const err = validators ? validators() : null;
   if (err) { _wizard.error = err; renderWizardStep(); return; }

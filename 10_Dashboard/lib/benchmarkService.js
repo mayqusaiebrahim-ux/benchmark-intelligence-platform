@@ -36,6 +36,17 @@ const orchestrator = new BenchmarkOrchestrator();
 // that doesn't require re-reading the JSON file on every click.
 const runStatus = new Map();
 
+// Explicit routing only — no ternary, no silent default. The wizard's
+// "Benchmark Type" step is gone (Sprint: routing fix); Scope-only labels
+// like 'UX/UI', 'AI Experience', 'Mobile App', 'Website' must never reach
+// this map as a benchmark_type. If one does (e.g. a pre-existing item
+// created before that fix, or a direct API call), startBenchmark() below
+// fails the run clearly rather than defaulting it into the Full Pipeline.
+const PIPELINE_TYPE_BY_BENCHMARK_TYPE = {
+  'Feature Benchmark': 'feature',
+  'Complete Journey': 'full',
+};
+
 /**
  * startBenchmark — the function server.js's PATCH .../items/:slug handler
  * calls when a "Run Benchmark" action sets stage to 'preparing'. Fires the
@@ -50,9 +61,16 @@ const runStatus = new Map();
  *                                    Benchmark pipeline for feature-to-journey-step
  *                                    mapping and report storage, and used for logging
  *                                    by the Full Benchmark pipeline
- * @param {string} [args.benchmarkType] - request.benchmark_type ('Feature Benchmark'
- *                                    routes to the 'feature' pipeline; anything else
- *                                    keeps the existing 'full' pipeline, unchanged)
+ * @param {string} [args.benchmarkType] - request.benchmark_type. Routed via the
+ *                                    explicit PIPELINE_TYPE_BY_BENCHMARK_TYPE map
+ *                                    below ('Feature Benchmark' -> 'feature',
+ *                                    'Complete Journey' -> 'full') — any other
+ *                                    value (including the Scope-only labels like
+ *                                    'UX/UI' that the wizard used to expose as a
+ *                                    benchmark_type by mistake) fails the run
+ *                                    clearly instead of silently defaulting to the
+ *                                    Full Pipeline, which launches local Chromium
+ *                                    and can OOM Render Free/Starter.
  * @param {string} args.requestId
  * @param {string} args.slug
  * @param {string} args.prompt      - the item's existing trigger_prompt, unchanged
@@ -67,10 +85,41 @@ const runStatus = new Map();
  */
 export function startBenchmark({ company, feature, benchmarkType, requestId, slug, prompt, projectRoot, url }) {
   const jobId = `${requestId}:${slug}`;
-  const type = benchmarkType === 'Feature Benchmark' ? 'feature' : 'full';
+  const type = PIPELINE_TYPE_BY_BENCHMARK_TYPE[benchmarkType];
+  const browserProvider = (process.env.BROWSER_PROVIDER || 'local').trim().toLowerCase();
+
+  // Required runtime log, every call, before any routing decision short-
+  // circuits — this is the one line that would have shown the production
+  // bug immediately (benchmarkType=UX/UI resolvedType=UNSUPPORTED next to
+  // browserProvider=browserbase, instead of silently resolvedType=full).
+  // Non-secret: benchmarkType/resolvedType/browserProvider only, never a key.
+  console.log(`[benchmarkService] benchmarkType=${benchmarkType} resolvedType=${type || 'UNSUPPORTED'} browserProvider=${browserProvider}`);
 
   if (runStatus.get(jobId) === 'running') {
     console.log(`[benchmarkService] ${company} is already running for ${requestId} — ignoring duplicate start.`);
+    return;
+  }
+
+  if (!type) {
+    // No local-fallback path exists here on purpose: an unsupported
+    // benchmark_type must never resolve to 'full', since the Full Pipeline
+    // launches local Chromium (12_Provider_Layer) and can OOM Render
+    // Free/Starter exactly the way 'UX/UI' silently doing so did in
+    // production. Recorded as a normal failed run (not a thrown/uncaught
+    // error) since server.js's PATCH handler already sent its HTTP response
+    // by the time this fires and cannot report a second one.
+    const message = `Unsupported benchmark_type "${benchmarkType}" — no explicit pipeline routing defined for it. Refusing to silently fall back to the Full Pipeline.`;
+    console.log(`[benchmarkService] ${message} (requestId=${requestId} slug=${slug})`);
+    runStatus.set(jobId, 'completed');
+    try {
+      setStage(projectRoot, requestId, slug, 'failed', {
+        completed_at: new Date().toISOString(),
+        execution_status: 'failed',
+        execution_message: message,
+      });
+    } catch (err) {
+      console.log(`[benchmarkService] Could not set stage to 'failed' for ${jobId}: ${err.message}`);
+    }
     return;
   }
 
