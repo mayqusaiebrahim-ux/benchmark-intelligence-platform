@@ -79,14 +79,18 @@ const STAGE_LABELS = {
   reasoning:               'Reasoning',
   output_verification:     'Output Verification',
   // Feature Benchmark's own Runtime stage ids (13_Orchestrator/pipelines/
-  // featurePipeline.js) — same "shown while that stage is running" role as
-  // the five above, just Feature Benchmark's own sequence.
-  feature_discovery:       'Discovery',
-  journey_mapper:          'Journey Mapping',
-  navigation_runner:       'Navigating',
-  feature_vision:          'Vision Analysis',
-  feature_reasoning:       'Reasoning',
-  feature_report_writer:   'Writing Report',
+  // featurePipeline.js) — customer-facing labels, not internal stage/module
+  // names, since end users never see or manage the AI pipeline directly.
+  // feature_reasoning and feature_report_writer intentionally share one
+  // label: from a user's perspective both are "generating the report"
+  // (writing the content, then persisting it) — report_writer is also
+  // typically too fast to ever be visibly shown on its own.
+  feature_discovery:       'Discovering relevant pages',
+  journey_mapper:          'Navigating experience',
+  navigation_runner:       'Capturing evidence',
+  feature_vision:          'Analyzing',
+  feature_reasoning:       'Generating report',
+  feature_report_writer:   'Generating report',
 };
 
 // Sprint 27 (P0-3): plain-language explanations for the three failure
@@ -189,29 +193,6 @@ const DURATION_HOURS_BY_TYPE = {
   'Website': 1.25,
   'Complete Journey': 2.5,
 };
-
-const FULL_DELIVERABLES = [
-  'Executive Summary', 'User Journey (12 steps)', 'Screenshots', 'UX Analysis',
-  'Innovation Score', 'Emerging UX Patterns', 'Ideas Worth Adopting',
-  'Ideas Worth Evolving', 'Ideas to Avoid', 'Saudia Opportunities (4-tier)',
-  'Figma-ready Annotations',
-];
-const LIGHT_DELIVERABLES = ['Feature Comparison Note', 'Key Findings', 'Saudia Opportunity', 'Pattern Tags'];
-const MEDIUM_DELIVERABLES = ['Executive Summary', 'Focused UX Analysis', 'Screenshots', 'Saudia Opportunities'];
-
-function estimateDuration(benchmarkType) {
-  const map = {
-    'Feature Benchmark': '30–45 min', 'AI Experience': '1–1.5 hrs', 'UX/UI': '1–1.5 hrs',
-    'Mobile App': '1.5–2 hrs', 'Website': '1–1.5 hrs', 'Complete Journey': '2–3 hrs',
-  };
-  return map[benchmarkType] || '1–2 hrs';
-}
-
-function expectedDeliverables(benchmarkType) {
-  if (benchmarkType === 'Complete Journey') return FULL_DELIVERABLES;
-  if (benchmarkType === 'Feature Benchmark') return LIGHT_DELIVERABLES;
-  return MEDIUM_DELIVERABLES;
-}
 
 function estimateCompletionDate(request) {
   const hours = DURATION_HOURS_BY_TYPE[request.benchmark_type] || 1.5;
@@ -1040,32 +1021,22 @@ function wizardStep4() {
 
 function wizardStep5() {
   const scopeText = _wizard.scope.join(', ') || 'End-to-End Journey';
-  const rows = _wizard.competitors.map(c => `
-    <div class="wizard-review-row" style="flex-direction:column;align-items:flex-start;gap:6px">
-      <div style="display:flex;justify-content:space-between;width:100%">
-        <label>${c.name}</label><span class="value">${c.url || 'no URL'}</span>
-      </div>
-      <div class="trigger-prompt-box">Benchmark ${c.name} — focus: ${_wizard.feature}, scope: ${scopeText}</div>
-    </div>`).join('');
+  const companyNames = _wizard.competitors.map(c => c.name).join(', ');
 
   return `
-    <h2>Review &amp; Start</h2>
-    <div class="section-sub">This creates one queued item per competitor below. Clicking "Start Benchmark" queues the request — from there, pressing ▶ Start on an item in the Queue runs it automatically (no manual steps), and typically takes several minutes per competitor for a full benchmark.</div>
-    <div class="wizard-review-row"><label>Type</label><span class="value">${_wizard.benchmark_type}</span></div>
+    <h2>Review &amp; Run</h2>
+    <div class="section-sub">Runs automatically — no further steps needed. You'll see live progress in the Queue.</div>
+    <div class="wizard-review-row"><label>Company</label><span class="value">${companyNames}</span></div>
     <div class="wizard-review-row"><label>Feature</label><span class="value">${_wizard.feature}</span></div>
     <div class="wizard-review-row"><label>Scope</label><span class="value">${scopeText}</span></div>
-    <div class="wizard-review-row"><label>Competitors</label><span class="value">${_wizard.competitors.length}</span></div>
     <div class="form-group mt-4">
       <label class="form-label">Notes (optional)</label>
       <textarea class="form-textarea" oninput="wizardSetNotes(this.value)">${_wizard.notes || ''}</textarea>
     </div>
-    <h3 class="mt-4">What Each Competitor Will Run</h3>
-    <div class="text-3 mb-2" style="font-size:11px">For reference — this is the exact instruction each queued benchmark will run automatically.</div>
-    <div class="mt-2">${rows}</div>
     ${wizardErrorHtml()}
     <div class="wizard-actions">
       <button class="btn btn-ghost" onclick="wizardBack()" ${_wizard.submitting ? 'disabled' : ''}>← Back</button>
-      <button class="btn btn-primary" onclick="wizardSubmit()" ${_wizard.submitting ? 'disabled' : ''}>${_wizard.submitting ? 'Starting…' : 'Start Benchmark'}</button>
+      <button class="btn btn-primary" onclick="wizardSubmit()" ${_wizard.submitting ? 'disabled' : ''}>${_wizard.submitting ? 'Running…' : 'Run Benchmark'}</button>
     </div>`;
 }
 
@@ -1127,19 +1098,25 @@ window.wizardSubmit = async function() {
   _wizard.error = null;
   renderWizardStep();
   try {
-    await api.post('/api/requests', {
+    const request = await api.post('/api/requests', {
       benchmark_type: _wizard.benchmark_type,
       feature: _wizard.feature,
       scope: _wizard.scope,
       notes: _wizard.notes,
       competitors: _wizard.competitors,
     });
+    // The product is automated end to end — running is not a separate
+    // manual step a user takes later. Start every item immediately (the
+    // same PATCH the old manual "Start" button used to require).
+    await Promise.all((request.items || []).map(item =>
+      api.patch(`/api/requests/${request.id}/items/${item.slug}`, { stage: 'preparing' }).catch(() => {})
+    ));
     _requests_cache = null;
     _benchmarks = null;
     _matrix = null;
     _wizard = null;
     navigate('queue');
-    showToast('Benchmark request created — track its progress in the Queue below.');
+    showToast('Benchmark running — track live progress in the Queue below.');
   } catch (e) {
     _wizard.submitting = false;
     _wizard.error = e.message || 'Could not create the request.';
@@ -1230,11 +1207,6 @@ async function renderQueue() {
       const FAILURE_STAGES = new Set(['failed', 'runtime_failed', 'reasoning_failed', 'verification_failed']);
 
       const itemRows = r.items.map(item => {
-        const options = stages.map(s => `<option value="${s}" ${s === item.stage ? 'selected' : ''}>${STAGE_LABELS[s] || s}</option>`).join('');
-        const startBtn = item.stage === 'queued' && r.status !== 'cancelled'
-          ? `<button class="btn btn-primary workspace-only" style="font-size:11px;padding:5px 10px" onclick="openStartBenchmarkModal('${r.id}','${item.slug}')">▶ Start</button>`
-          : '';
-
         let stageCell;
         if (RUNTIME_STAGE_SET.has(item.stage)) {
           // Sprint 26 — Live Runtime Progress: item.stage is now one of the
@@ -1300,8 +1272,7 @@ async function renderQueue() {
             ${stageCell}
             <div class="queue-item-stage-label">${STAGE_LABELS[item.stage] || item.stage}</div>
             <div class="queue-item-actions workspace-only" style="display:flex;gap:6px;align-items:center">
-              ${startBtn}
-              <select onchange="queueAdvance('${r.id}','${item.slug}',this.value)" ${r.status === 'cancelled' ? 'disabled' : ''}>${options}</select>
+              <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="openBenchmarkDetailsModal('${r.id}','${item.slug}')">Details</button>
             </div>
           </div>`;
       }).join('');
@@ -1364,16 +1335,6 @@ async function renderQueue() {
   }
 }
 
-window.queueAdvance = async function(requestId, slug, stage) {
-  try {
-    await api.patch(`/api/requests/${requestId}/items/${slug}`, { stage });
-    await renderQueue();
-    await initSidebar();
-  } catch (e) {
-    showAlertModal(e.message || 'Could not update stage.');
-  }
-};
-
 window.cancelBatch = async function(requestId) {
   if (!(await showConfirmModal('Cancel this benchmark request? This cannot be undone.', { title: 'Cancel benchmark request', confirmLabel: 'Cancel Request' }))) return;
   try {
@@ -1385,63 +1346,40 @@ window.cancelBatch = async function(requestId) {
   }
 };
 
-// ─── Start Benchmark Modal ────────────────────────────────────────────────────
-window.openStartBenchmarkModal = async function(requestId, slug) {
+// ─── Benchmark Details Modal ──────────────────────────────────────────────────
+// Read-only: the product runs benchmarks automatically now (see
+// wizardSubmit()), so there is no separate manual "start" action left to
+// surface here — this is purely a status/result view.
+window.openBenchmarkDetailsModal = async function(requestId, slug) {
   const { requests } = await getRequests();
   const request = requests.find(r => r.id === requestId);
   const item = request?.items.find(i => i.slug === slug);
   if (!request || !item) return;
 
   const scopeText = (request.scope || []).join(', ') || 'End-to-End Journey';
-  const deliverables = expectedDeliverables(request.benchmark_type);
+  const statusText = (request.status || '').replace('_', ' ');
+  const stageLabel = STAGE_LABELS[item.stage] || item.stage;
+  const timeLabel = item.started_at ? 'Started' : 'Created';
+  const timeValue = item.started_at ? new Date(item.started_at).toLocaleString() : new Date(request.created_at).toLocaleString();
+  const reportLink = item.stage === 'completed'
+    ? `<div class="wizard-review-row"><label>Result</label><span class="value"><a href="#benchmarks?feature=${encodeURIComponent(request.feature)}" onclick="closeModal()">View report →</a></span></div>`
+    : '';
 
   openModal(`
     <div class="modal-header">
-      <div class="modal-title">Start Benchmark</div>
+      <div class="modal-title">Benchmark Details</div>
       <div class="modal-close" role="button" tabindex="0" aria-label="Close dialog" onclick="closeModal()">✕</div>
     </div>
     <div class="modal-body">
       <div class="wizard-review-row"><label>Company</label><span class="value">${item.name}</span></div>
       <div class="wizard-review-row"><label>Feature</label><span class="value">${request.feature}</span></div>
       <div class="wizard-review-row"><label>Scope</label><span class="value">${scopeText}</span></div>
-      <div class="wizard-review-row"><label>Estimated Duration</label><span class="value">${estimateDuration(request.benchmark_type)}</span></div>
-      <div class="form-group mt-3">
-        <label class="form-label">Expected Deliverables</label>
-        <ul class="modal-deliverables">${deliverables.map(d => `<li>${d}</li>`).join('')}</ul>
-      </div>
-      <div class="form-group mt-3">
-        <label class="form-label">Trigger Prompt</label>
-        <div class="trigger-prompt-box" id="modal-prompt-text">${item.trigger_prompt}</div>
-      </div>
-      <div id="modal-copy-feedback" class="text-sm" style="color:var(--green);height:16px"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="copyModalPrompt()">Copy Prompt</button>
-      <button class="btn btn-primary" onclick="launchBenchmark('${requestId}','${slug}')">▶ Run Benchmark</button>
+      <div class="wizard-review-row"><label>Status</label><span class="value">${statusText}</span></div>
+      <div class="wizard-review-row"><label>${timeLabel}</label><span class="value">${timeValue}</span></div>
+      <div class="wizard-review-row"><label>Current stage</label><span class="value">${stageLabel}</span></div>
+      ${reportLink}
     </div>
   `);
-};
-
-window.copyModalPrompt = function() {
-  const el = document.getElementById('modal-prompt-text');
-  if (!el) return;
-  navigator.clipboard.writeText(el.textContent).then(() => {
-    const fb = document.getElementById('modal-copy-feedback');
-    if (fb) { fb.textContent = 'Copied to clipboard'; setTimeout(() => { if (fb) fb.textContent = ''; }, 2000); }
-  }).catch(() => {});
-};
-
-window.launchBenchmark = async function(requestId, slug) {
-  const promptEl = document.getElementById('modal-prompt-text');
-  if (promptEl) { try { await navigator.clipboard.writeText(promptEl.textContent); } catch { /* clipboard unavailable — still proceed */ } }
-  try {
-    await api.patch(`/api/requests/${requestId}/items/${slug}`, { stage: 'preparing' });
-    closeModal();
-    await renderQueue();
-    await initSidebar();
-  } catch (e) {
-    showAlertModal(e.message || 'Could not launch benchmark.');
-  }
 };
 
 // ─── Page: All Benchmarks ─────────────────────────────────────────────────────
