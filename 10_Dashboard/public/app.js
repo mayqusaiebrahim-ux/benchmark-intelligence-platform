@@ -54,30 +54,30 @@ const CATEGORY_CLASS = {
 };
 
 const STAGE_LABELS = {
-  queued:                 'Queued',
-  preparing:              'Preparing',
-  running:                'Running',
-  opening_website:        'Opening Website',
-  capturing_screenshots:  'Capturing Screenshots',
-  analyzing_ux:           'Analyzing UX',
-  extracting_patterns:    'Extracting Patterns',
-  updating_matrix:        'Updating Matrix',
-  generating_dashboard:   'Generating Dashboard',
+  queued:                 'Waiting to start',
+  preparing:              'Starting benchmark',
+  running:                'Starting benchmark',
+  opening_website:        'Opening the site',
+  capturing_screenshots:  'Capturing the experience',
+  analyzing_ux:           'Analyzing the experience',
+  extracting_patterns:    'Analyzing the experience',
+  updating_matrix:        'Finishing up',
+  generating_dashboard:   'Finishing up',
   completed:              'Completed',
-  failed:                 'Failed',
+  failed:                 'Could not capture this experience',
   // Sprint 24 — Output Verification Layer
-  runtime_failed:         'Runtime Failed',
-  reasoning_failed:       'Reasoning Failed',
-  verification_failed:    'Verification Failed',
+  runtime_failed:         'Could not capture this experience',
+  reasoning_failed:       'Could not finish the report',
+  verification_failed:    'Report came back incomplete',
   // Sprint 26 — Live Runtime Progress: real Runtime stage ids, shown WHILE
   // that stage is running (see benchmarkService.js). Same ids Output
   // Verification's own error.stageId already used in Sprint 24 — reused
   // here as display labels rather than invented fresh.
-  navigation:              'Navigation',
-  screenshot:              'Screenshot',
-  vision:                  'Vision Analysis',
-  reasoning:               'Reasoning',
-  output_verification:     'Output Verification',
+  navigation:              'Opening the site',
+  screenshot:              'Capturing the experience',
+  vision:                  'Analyzing the experience',
+  reasoning:               'Generating report',
+  output_verification:     'Finishing up',
   // Feature Benchmark's own Runtime stage ids (13_Orchestrator/pipelines/
   // featurePipeline.js) — customer-facing labels, not internal stage/module
   // names, since end users never see or manage the AI pipeline directly.
@@ -173,7 +173,7 @@ let _benchmarks = null;
 let _comparison_selected = new Set();
 let _requests_cache = null;
 let _wizard = null; // current wizard draft state, created on entering #wizard
-let _library_filters = { q: '', feature: 'All', scope: 'All', dateSort: 'newest' };
+let _library_filters = { q: '', sort: 'newest' };
 let _queue_filter = 'All';
 
 const DURATION_HOURS_BY_TYPE = {
@@ -398,12 +398,14 @@ function setContent(html) {
 }
 
 function setTitle(t) {
-  document.getElementById('page-title').textContent = t;
+  // The product shell has no page-title bar — each page renders its own
+  // heading. Keep the browser tab label useful.
+  document.title = t && t !== 'Home' ? `${t} · Benchmark Intelligence` : 'Benchmark Intelligence';
 }
 
-function setTopbarActions(html) {
-  document.getElementById('topbar-actions').innerHTML = html || '';
-}
+// The persistent top-nav CTA ("New Benchmark") replaced every per-page action
+// button, so this is now a no-op kept only so existing call sites don't break.
+function setTopbarActions() {}
 
 // ─── Radar Chart (SVG) ───────────────────────────────────────────────────────
 function radarChart(datasets, labels, size = 220, maxVal = 5) {
@@ -480,8 +482,10 @@ function navigate(hash) {
 window.addEventListener('hashchange', () => route(location.hash));
 
 function updateActiveNav(activeRoute) {
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.getAttribute('href') === `#${activeRoute}` || el.dataset.slug === activeRoute);
+  // Archive is a tab inside Benchmarks — highlight Benchmarks for it.
+  const nav = activeRoute === 'archive' ? 'benchmarks' : activeRoute;
+  document.querySelectorAll('#topnav [data-route]').forEach(el => {
+    el.classList.toggle('active', el.dataset.route === nav);
   });
 }
 
@@ -504,18 +508,19 @@ async function route(hash) {
     return;
   }
 
-  // Primary product routes are Home / New Benchmark / Benchmarks / Queue,
-  // plus Archive (secondary). The Analysis routes below (matrix, comparison,
-  // trends, saudia, homepage-benchmarks) are legacy: still reachable by URL
-  // and from Archive, but removed from the primary navigation.
+  // Product routes: Home / New Benchmark / Benchmarks (Current | Archive) /
+  // Activity. The legacy routes below (matrix, comparison, trends, saudia,
+  // homepage-benchmarks) stay reachable by URL and from Archive, but are not
+  // in the product navigation.
   updateActiveNav(h);
   switch (h) {
     case 'home':        await renderHome(); break;
     case 'benchmarks':  await renderBenchmarks(query); break;
+    case 'archive':     await renderBenchmarks(new URLSearchParams({ tab: 'archive' })); break;
     case 'wizard':      await renderWizard(); break;
-    case 'queue':       await renderQueue(); break;
-    case 'archive':     await renderArchive(query); break;
-    // ── Legacy / hidden — not in primary nav ──
+    case 'activity':
+    case 'queue':       await renderActivity(); break;
+    // ── Legacy / hidden — not in product navigation ──
     case 'homepage-benchmarks': await renderHomepageBenchmarks(); break;
     case 'comparison':  await renderComparison(); break;
     case 'matrix':      await renderMatrix(); break;
@@ -554,121 +559,114 @@ function fmtDate(d) {
   return isNaN(dt) ? '—' : dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-// ─── Sidebar ─────────────────────────────────────────────────────────────────
+// ─── Top nav ─────────────────────────────────────────────────────────────────
+// One small count next to Activity when something is in flight — otherwise
+// the nav stays calm and label-only.
 async function initSidebar() {
   try {
     const benchmarks = await getCurrentBenchmarks(true);
-    const done = benchmarks.filter(b => b.status === 'complete').length;
     const active = benchmarks.filter(b => b.status !== 'complete').length;
-
-    const countBadge = document.getElementById('badge-count');
-    if (countBadge) {
-      countBadge.textContent = benchmarks.length;
-      countBadge.style.display = benchmarks.length > 0 ? '' : 'none';
+    const el = document.getElementById('nav-activity-count');
+    if (el) {
+      el.textContent = active;
+      el.hidden = active === 0;
     }
-    const queueBadge = document.getElementById('badge-queue');
-    if (queueBadge) {
-      queueBadge.textContent = active;
-      queueBadge.style.display = active > 0 ? '' : 'none';
-    }
-  } catch { /* server not reachable — badges stay hidden */ }
+  } catch { /* server not reachable — count stays hidden */ }
 }
 
-// ─── Shared: current-benchmark result card (Home + Benchmarks + Archive) ─────
-// One card design, used everywhere a current Feature Benchmark is listed.
-function scopeChipsHtml(scope) {
-  return (scope || []).map(s => `<span class="scope-chip">${s}</span>`).join('');
-}
-
+// ─── Shared: benchmark result row (Home + Benchmarks + Archive) ──────────────
+// A benchmark is a research document, not a dashboard widget — render it as a
+// list row: company, feature, a quiet meta line, and one clear action.
 function cbActionHtml(b) {
   if (b.has_report) {
-    return `<a class="btn btn-primary btn-sm" href="#feature-report/${encodeURIComponent(b.request_id)}">View Report</a>`;
+    return `<a class="cb-row-action" href="#feature-report/${encodeURIComponent(b.request_id)}">View report →</a>`;
   }
   if (b.status === 'complete') {
-    return `<span class="text-3 text-sm">Report generating…</span>`;
+    return `<span class="cb-row-action muted">Report generating…</span>`;
   }
-  return `<a class="btn btn-ghost btn-sm" href="#queue">Track progress</a>`;
+  return `<a class="cb-row-action" href="#activity">View progress →</a>`;
 }
 
-function cbCardHtml(b) {
+function cbRowHtml(b) {
   const st = cbStatus(b.status);
   const running = b.status === 'in_progress';
+  const metaBits = [
+    (b.scope || []).join(', '),
+    fmtDate(b.date),
+    running ? cbStageLabel(b.stage) : null,
+  ].filter(Boolean);
   return `
-    <article class="cb-card">
-      <div class="cb-card-head">
-        <div class="cb-card-titles">
-          <div class="cb-card-company">${b.company}</div>
-          <div class="cb-card-feature">${b.feature}</div>
-        </div>
-        <span class="badge ${st.cls}">${st.label}</span>
+    <div class="cb-row">
+      <div class="cb-row-main">
+        <div class="cb-row-company">${b.company}</div>
+        <div class="cb-row-feature">${b.feature}</div>
+        <div class="cb-row-meta">${metaBits.join(' · ')}</div>
       </div>
-      <div class="cb-card-scope">${scopeChipsHtml(b.scope)}</div>
-      <div class="cb-card-foot">
-        <span class="cb-card-date" title="${new Date(b.date).toLocaleString()}">${fmtDate(b.date)}</span>
-        ${running ? `<span class="cb-card-stage">${cbStageLabel(b.stage)}</span>` : ''}
+      <div class="cb-row-side">
+        <span class="status-pill status-${b.status}">${st.label}</span>
         ${cbActionHtml(b)}
       </div>
-    </article>`;
+    </div>`;
+}
+
+function cbListHtml(items) {
+  return `<div class="cb-list">${items.map(cbRowHtml).join('')}</div>`;
 }
 
 function cbEmptyStateHtml(context) {
   return `
     <div class="empty-state">
-      <div class="empty-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>
-      </div>
       <h3>No benchmarks yet</h3>
-      <p>${context || 'Run your first automated Feature Benchmark to see results here.'}</p>
-      <a href="#wizard" class="btn btn-primary" style="margin-top:14px">New Benchmark</a>
+      <p>${context || 'Start a benchmark and the report will appear here.'}</p>
+      <a href="#wizard" class="btn btn-primary" style="margin-top:16px">Start a new benchmark</a>
     </div>`;
 }
 
 // ─── Page: Home ──────────────────────────────────────────────────────────────
 async function renderHome() {
   setTitle('Home');
-  setTopbarActions('');
   setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   const benchmarks = await getCurrentBenchmarks(true);
-  const running = benchmarks.filter(b => b.status === 'in_progress');
-  const queued = benchmarks.filter(b => b.status === 'queued');
-  const recent = benchmarks.slice(0, 8);
-
-  const runningPanel = running.length ? `
-    <section class="home-running">
-      <div class="home-running-head">
-        <span class="live-dot" aria-hidden="true"></span>
-        <span>${running.length} benchmark${running.length === 1 ? '' : 's'} running</span>
-        <a href="#queue" class="btn-link" style="margin-left:auto">Open Queue →</a>
-      </div>
-      ${running.map(b => `
-        <div class="home-running-row">
-          <div><strong>${b.company}</strong> · ${b.feature}</div>
-          <div class="text-2 text-sm">${cbStageLabel(b.stage)}</div>
-        </div>`).join('')}
-    </section>` : '';
+  const recent = benchmarks.slice(0, 6);
 
   setContent(`
-    <section class="home-hero">
-      <h1 class="home-hero-title">Benchmark travel experiences automatically.</h1>
-      <p class="home-hero-sub">Pick a feature, name the companies, set the scope. The platform runs the research end to end and hands back a scored, evidence-backed report.</p>
-      <a href="#wizard" class="btn btn-primary btn-lg">New Benchmark</a>
-    </section>
+    <div class="home">
+      <section class="home-intro">
+        <h1 class="home-title">Benchmark Intelligence</h1>
+        <p class="home-lede">Understand how leading travel products design any digital experience.</p>
 
-    ${runningPanel}
+        <div class="home-start">
+          <a href="#wizard" class="btn btn-primary btn-lg">Start a new benchmark</a>
+        </div>
 
-    <div class="section-header mt-4">
-      <div>
-        <div class="section-title">Recent Benchmarks</div>
-        <div class="section-sub">${benchmarks.length ? `${benchmarks.length} total · ${queued.length} queued` : 'Automated Feature Benchmark runs'}</div>
-      </div>
-      ${benchmarks.length > 8 ? `<a href="#benchmarks" class="btn btn-ghost btn-sm">View all</a>` : ''}
+        <form class="home-quick" onsubmit="homeQuickStart(event)">
+          <label class="home-quick-label" for="home-quick-input">What do you want to benchmark?</label>
+          <div class="home-quick-row">
+            <input type="text" id="home-quick-input" class="form-input" placeholder="Homepage, Search experience, Booking widget…" autocomplete="off" />
+            <button type="submit" class="btn btn-primary">Start benchmark →</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="home-recent">
+        <div class="home-recent-head">
+          <h2>Recent benchmarks</h2>
+          ${benchmarks.length > recent.length ? `<a href="#benchmarks" class="btn-link">View all</a>` : ''}
+        </div>
+        ${recent.length ? cbListHtml(recent) : `<p class="home-recent-empty">Nothing yet — start your first benchmark above.</p>`}
+      </section>
     </div>
-    ${recent.length
-      ? `<div class="cb-grid">${recent.map(cbCardHtml).join('')}</div>`
-      : cbEmptyStateHtml()}
   `);
 }
+
+window.homeQuickStart = function(e) {
+  e.preventDefault();
+  const v = document.getElementById('home-quick-input').value.trim();
+  initWizard();
+  if (v) { _wizard.feature = v; _wizard.step = 2; }
+  navigate('wizard');
+};
 
 // ─── Benchmark card HTML ──────────────────────────────────────────────────────
 function benchmarkCardHtml(b) {
@@ -732,130 +730,114 @@ function initWizard() {
 
 async function renderWizard() {
   setTitle('New Benchmark');
-  setTopbarActions('');
   if (!_wizard) initWizard();
   renderWizardStep();
 }
 
-function wizardStepsHtml() {
-  const labels = ['Feature', 'Company', 'Scope', 'Review'];
-  return `<div class="wizard-progress">
-    <div class="wizard-steps">
-    ${labels.map((l, i) => {
-      const n = i + 1;
-      const cls = n < _wizard.step ? 'done' : n === _wizard.step ? 'active' : '';
-      return `<div class="wizard-step-node ${cls}"${n === _wizard.step ? ' aria-current="step"' : ''}>
-        <div class="wizard-step-dot">${n < _wizard.step ? '✓' : n}</div>
-        <div class="wizard-step-label">${l}</div>
-      </div>`;
-    }).join('')}
-    </div>
-    <div class="wizard-step-count">Step ${_wizard.step} of 4 — ${labels[_wizard.step - 1]}</div>
-  </div>`;
+const WIZARD_STEP_LABELS = ['Feature', 'Companies', 'Focus', 'Review'];
+
+function wizardProgressHtml() {
+  const pct = (_wizard.step / 4) * 100;
+  return `
+    <div class="wiz-progress">
+      <div class="wiz-progress-text">Step ${_wizard.step} of 4 · ${WIZARD_STEP_LABELS[_wizard.step - 1]}</div>
+      <div class="wiz-progress-bar"><span style="width:${pct}%"></span></div>
+    </div>`;
 }
 
 function wizardErrorHtml() {
-  return _wizard.error ? `<div class="text-sm" style="color:var(--red);margin-top:10px">${_wizard.error}</div>` : '';
+  return _wizard.error ? `<div class="wiz-error" role="alert">${_wizard.error}</div>` : '';
+}
+
+function wizardActionsHtml(primaryLabel, primaryFn) {
+  const back = _wizard.step > 1
+    ? `<button class="btn btn-ghost" onclick="wizardBack()" ${_wizard.submitting ? 'disabled' : ''}>Back</button>`
+    : '<span></span>';
+  return `
+    <div class="wiz-actions">
+      ${back}
+      <button class="btn btn-primary btn-lg" onclick="${primaryFn}()" ${_wizard.submitting ? 'disabled' : ''}>${primaryLabel}</button>
+    </div>`;
 }
 
 function renderWizardStep() {
-  const body = {
-    1: wizardStep1, 2: wizardStep2, 3: wizardStep3, 4: wizardStep4,
-  }[_wizard.step]();
-  setContent(`<div class="wizard-shell">${wizardStepsHtml()}<div class="wizard-card">${body}</div></div>`);
+  const body = { 1: wizardStep1, 2: wizardStep2, 3: wizardStep3, 4: wizardStep4 }[_wizard.step]();
+  setContent(`<div class="wiz">${wizardProgressHtml()}<div class="wiz-step">${body}</div></div>`);
 }
 
 function wizardStep1() {
   const customVal = _wizard.feature && !FEATURE_PRESETS.includes(_wizard.feature) ? _wizard.feature : '';
   return `
-    <h2>Which feature are we benchmarking?</h2>
-    <div class="section-sub">Pick a common feature or type your own. This is the single experience the benchmark will focus on across every company.</div>
-    <div class="chip-group">
-      ${FEATURE_PRESETS.map(f => `<div class="chip ${_wizard.feature === f ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${_wizard.feature === f}" onclick="wizardSetFeature('${f}')">${f}</div>`).join('')}
+    <h1 class="wiz-q">What would you like to benchmark?</h1>
+    <p class="wiz-hint">One digital experience, compared across every company you choose.</p>
+    <div class="wiz-options">
+      ${FEATURE_PRESETS.map(f => `<button type="button" class="wiz-option ${_wizard.feature === f ? 'selected' : ''}" aria-pressed="${_wizard.feature === f}" onclick="wizardSetFeature('${f}')">${f}</button>`).join('')}
     </div>
-    <div class="form-group mt-4">
-      <label class="form-label">Or enter a custom feature</label>
-      <input type="text" class="form-input" placeholder="e.g. Refund Flow" value="${customVal}" oninput="wizardSetFeatureText(this.value)" />
+    <div class="wiz-field">
+      <label class="form-label" for="wiz-feature-custom">Or type your own</label>
+      <input type="text" id="wiz-feature-custom" class="form-input" placeholder="e.g. Refund flow" value="${customVal}" oninput="wizardSetFeatureText(this.value)" />
     </div>
     ${wizardErrorHtml()}
-    <div class="wizard-actions">
-      <span></span>
-      <button class="btn btn-primary" onclick="wizardNext()">Next →</button>
-    </div>`;
+    ${wizardActionsHtml('Continue', 'wizardNext')}`;
 }
 
 function wizardStep2() {
   const rows = _wizard.competitors.map((c, i) => `
-    <div class="competitor-row">
-      <div class="competitor-name">${c.name}</div>
-      <div class="competitor-url">${c.url || '—'}</div>
-      <div class="competitor-remove" role="button" tabindex="0" aria-label="Remove ${c.name}" onclick="wizardRemoveCompetitor(${i})">✕</div>
+    <div class="wiz-company">
+      <span class="wiz-company-name">${c.name}</span>
+      <span class="wiz-company-url">${c.url || 'no URL'}</span>
+      <button type="button" class="wiz-company-remove" aria-label="Remove ${c.name}" onclick="wizardRemoveCompetitor(${i})">✕</button>
     </div>`).join('');
-
-  const suggestions = COMPETITOR_SUGGESTIONS.filter(s => !_wizard.competitors.some(c => c.name === s));
+  const suggestions = COMPETITOR_SUGGESTIONS.filter(s => !_wizard.competitors.some(c => c.name === s)).slice(0, 10);
 
   return `
-    <h2>Which companies should we benchmark?</h2>
-    <div class="section-sub">Add one or more. A URL is optional but makes the run faster and more accurate.</div>
-    <div class="form-row">
-      <div class="form-group" style="margin-bottom:0">
-        <label class="form-label">Company name</label>
-        <input type="text" class="form-input" id="wizard-competitor-name" placeholder="e.g. Mindtrip" />
-      </div>
-      <div class="form-group" style="margin-bottom:0">
-        <label class="form-label">URL (optional)</label>
-        <input type="text" class="form-input" id="wizard-competitor-url" placeholder="https://…" />
-      </div>
-      <button class="btn btn-primary" onclick="wizardAddCompetitor()" style="flex:0 0 auto">+ Add</button>
+    <h1 class="wiz-q">Which companies should we compare?</h1>
+    <p class="wiz-hint">Add one or more. A URL is optional but speeds up the run.</p>
+    <div class="wiz-add-row">
+      <input type="text" class="form-input" id="wizard-competitor-name" placeholder="Company name" />
+      <input type="text" class="form-input" id="wizard-competitor-url" placeholder="https:// (optional)" />
+      <button type="button" class="btn btn-ghost" onclick="wizardAddCompetitor()">Add</button>
     </div>
-    ${suggestions.length ? `<div class="competitor-suggestions">
-      ${suggestions.map(s => `<div class="competitor-suggestion" role="button" tabindex="0" onclick="wizardQuickAddCompetitor('${s}')">+ ${s}</div>`).join('')}
+    ${suggestions.length ? `<div class="wiz-suggestions">
+      ${suggestions.map(s => `<button type="button" class="wiz-suggestion" onclick="wizardQuickAddCompetitor('${s}')">+ ${s}</button>`).join('')}
     </div>` : ''}
-    <div class="competitor-list">${rows || '<div class="text-2 text-sm mt-2">No competitors added yet.</div>'}</div>
+    <div class="wiz-company-list">${rows || '<p class="wiz-empty">No companies added yet.</p>'}</div>
     ${wizardErrorHtml()}
-    <div class="wizard-actions">
-      <button class="btn btn-ghost" onclick="wizardBack()">← Back</button>
-      <button class="btn btn-primary" onclick="wizardNext()">Next →</button>
-    </div>`;
+    ${wizardActionsHtml('Continue', 'wizardNext')}`;
 }
 
 function wizardStep3() {
   return `
-    <h2>What should the benchmark cover?</h2>
-    <div class="section-sub">Select every area in scope. This shapes what the report analyses and scores.</div>
-    <div class="chip-group" style="flex-direction:column;align-items:stretch">
+    <h1 class="wiz-q">What should we focus on?</h1>
+    <p class="wiz-hint">Pick the areas the report should analyse and score.</p>
+    <div class="wiz-scope-list">
       ${SCOPE_INFO.map(s => `
-        <div class="chip ${_wizard.scope.includes(s.id) ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${_wizard.scope.includes(s.id)}" onclick="wizardToggleScope('${s.id}')" style="text-align:left">
-          <div>${s.id}</div>
-          <div class="chip-desc">${s.desc}</div>
-        </div>`).join('')}
+        <button type="button" class="wiz-scope ${_wizard.scope.includes(s.id) ? 'selected' : ''}" aria-pressed="${_wizard.scope.includes(s.id)}" onclick="wizardToggleScope('${s.id}')">
+          <span class="wiz-scope-name">${s.id}</span>
+          <span class="wiz-scope-desc">${s.desc}</span>
+        </button>`).join('')}
     </div>
     ${wizardErrorHtml()}
-    <div class="wizard-actions">
-      <button class="btn btn-ghost" onclick="wizardBack()">← Back</button>
-      <button class="btn btn-primary" onclick="wizardNext()">Next →</button>
-    </div>`;
+    ${wizardActionsHtml('Continue', 'wizardNext')}`;
 }
 
 function wizardStep4() {
   const scopeText = _wizard.scope.join(', ') || 'End-to-End Journey';
   const companyNames = _wizard.competitors.map(c => c.name).join(', ');
-
   return `
-    <h2>Review &amp; Run</h2>
-    <div class="section-sub">Runs automatically — no further steps needed. You'll see live progress in the Queue.</div>
-    <div class="wizard-review-row"><label>Company</label><span class="value">${companyNames}</span></div>
-    <div class="wizard-review-row"><label>Feature</label><span class="value">${_wizard.feature}</span></div>
-    <div class="wizard-review-row"><label>Scope</label><span class="value">${scopeText}</span></div>
-    <div class="form-group mt-4">
-      <label class="form-label">Notes (optional)</label>
-      <textarea class="form-textarea" oninput="wizardSetNotes(this.value)">${_wizard.notes || ''}</textarea>
+    <h1 class="wiz-q">Ready to benchmark</h1>
+    <p class="wiz-hint">The benchmark runs on its own. Follow it in Activity.</p>
+    <dl class="wiz-review">
+      <div><dt>Companies</dt><dd>${companyNames}</dd></div>
+      <div><dt>Feature</dt><dd>${_wizard.feature}</dd></div>
+      <div><dt>Focus</dt><dd>${scopeText}</dd></div>
+    </dl>
+    <div class="wiz-field">
+      <label class="form-label" for="wiz-notes">Notes (optional)</label>
+      <textarea class="form-textarea" id="wiz-notes" oninput="wizardSetNotes(this.value)">${_wizard.notes || ''}</textarea>
     </div>
     ${wizardErrorHtml()}
-    <div class="wizard-actions">
-      <button class="btn btn-ghost" onclick="wizardBack()" ${_wizard.submitting ? 'disabled' : ''}>← Back</button>
-      <button class="btn btn-primary" onclick="wizardSubmit()" ${_wizard.submitting ? 'disabled' : ''}>${_wizard.submitting ? 'Running…' : 'Run Benchmark'}</button>
-    </div>`;
+    ${wizardActionsHtml(_wizard.submitting ? 'Starting…' : 'Start benchmark', 'wizardSubmit')}`;
 }
 
 window.wizardSetFeature = function(id) { _wizard.feature = id; _wizard.error = null; renderWizardStep(); };
@@ -933,8 +915,8 @@ window.wizardSubmit = async function() {
     _current_benchmarks = null;
     _wizard = null;
     await initSidebar();
-    navigate('queue');
-    showToast('Benchmark running — track live progress in the Queue.');
+    navigate('activity');
+    showToast('Benchmark started — follow it in Activity.');
   } catch (e) {
     _wizard.submitting = false;
     _wizard.error = e.message || 'Could not create the request.';
@@ -942,126 +924,115 @@ window.wizardSubmit = async function() {
   }
 };
 
-// ─── Page: Benchmark Queue ────────────────────────────────────────────────────
-const QUEUE_STATUS_BADGE = { complete: 'badge-green', in_progress: 'badge-accent', queued: 'badge-gray', cancelled: 'badge-red' };
-
-// Sprint 26 — Live Runtime Progress: stages worth polling for, i.e. "this
-// item might change again soon without a user action." Reuses the exact
-// same Runtime stage ids already defined above — not a new vocabulary.
+// ─── Page: Activity ──────────────────────────────────────────────────────────
+// "Activity", not "Queue" — the user cares about what's happening to their
+// benchmarks, not an engineering work queue. Everything here is plain
+// language: no request ids, no stage ids, no pipeline internals.
 const ACTIVE_QUEUE_STAGES = new Set(['preparing', 'running', ...RUNTIME_STAGES_WITH_URL, ...FEATURE_PIPELINE_STAGES]);
 let _queue_poll_timer = null;
 
 function formatElapsed(ms) {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  return m > 0 ? `${m} min` : `${totalSec}s`;
 }
 
 const FAILURE_STAGES = new Set(['failed', 'runtime_failed', 'reasoning_failed', 'verification_failed']);
 function isItemActive(stage) { return ACTIVE_QUEUE_STAGES.has(stage); }
 
-// One item row inside a Queue group. Human-readable throughout — no request
-// IDs, stage ids, prompts or debug controls.
-function queueItemRowHtml(b, item) {
+// A running benchmark's one-line status + thin progress bar.
+function activityRunningHtml(b) {
+  const item = b.items[0] || {};
   const seq = FEATURE_PIPELINE_STAGES;
-  let progress = '';
-  if (isItemActive(item.stage) && item.stage !== 'preparing' && item.stage !== 'running') {
-    const idx = seq.indexOf(item.stage);
-    const segs = seq.map((s, i) => `<span class="seg ${i < idx ? 'done' : i === idx ? 'current' : ''}"></span>`).join('');
-    const elapsed = item.started_at ? formatElapsed(Date.now() - new Date(item.started_at).getTime()) : null;
-    progress = `
-      <div class="q-item-progress">
-        <div class="q-segbar">${segs}</div>
-        <div class="q-item-note">${cbStageLabel(item.stage)}${elapsed ? ` · ${elapsed}` : ''}</div>
-      </div>`;
-  } else if (item.stage === 'preparing' || item.stage === 'running') {
-    progress = `<div class="q-item-progress"><div class="q-item-note">${cbStageLabel(item.stage)}…</div></div>`;
-  } else if (FAILURE_STAGES.has(item.stage)) {
-    progress = `
-      <div class="q-item-progress">
-        <div class="q-item-note q-item-note-error">${STAGE_LABELS[item.stage] || 'Failed'}</div>
-        <div class="q-item-sub">${FAILURE_STAGE_DESC[item.stage] || ''}</div>
-      </div>`;
-  } else if (item.stage === 'completed') {
-    const when = item.completed_at ? fmtDate(item.completed_at) : '';
-    progress = `<div class="q-item-progress"><div class="q-item-note q-item-note-ok">Completed${when ? ` · ${when}` : ''}</div></div>`;
-  }
+  const idx = seq.indexOf(item.stage);
+  const pct = idx >= 0 ? Math.round(((idx + 1) / seq.length) * 100) : 6;
+  const elapsed = item.started_at ? formatElapsed(Date.now() - new Date(item.started_at).getTime()) : null;
   return `
-    <div class="q-item">
-      <div class="q-item-name">${item.name}</div>
-      ${progress}
+    <div class="act-row">
+      <div class="act-row-main">
+        <div class="act-row-title">${b.company} · ${b.feature}</div>
+        <div class="act-row-note">${cbStageLabel(item.stage)}…${elapsed ? `  ·  ${elapsed}` : ''}</div>
+        <div class="act-progress"><span style="width:${pct}%"></span></div>
+      </div>
+      <button class="btn-link act-row-action" onclick="cancelBatch('${b.request_id}')">Cancel</button>
     </div>`;
 }
 
-function queueGroupHtml(title, records, opts = {}) {
-  if (records.length === 0) return '';
+function activityDoneHtml(b) {
   return `
-    <section class="q-group">
-      <div class="q-group-head">
-        <span class="q-group-title">${title}</span>
-        <span class="q-group-count">${records.length}</span>
+    <div class="act-row">
+      <div class="act-row-main">
+        <div class="act-row-title">${b.company} · ${b.feature}</div>
+        <div class="act-row-note">Completed ${fmtDate(b.date)}</div>
       </div>
-      ${records.map(b => {
-        const done = b.items.filter(i => i.stage === 'completed').length;
-        const pct = b.items.length ? Math.round((done / b.items.length) * 100) : 0;
-        return `
-          <article class="q-card">
-            <div class="q-card-head">
-              <div>
-                <div class="q-card-feature">${b.feature}</div>
-                <div class="q-card-sub">${b.company} · ${(b.scope || []).join(', ')}</div>
-              </div>
-              <div class="q-card-right">
-                ${opts.showProgress ? `<span class="q-card-pct">${pct}%</span>` : `<span class="text-3 text-sm">${fmtDate(b.date)}</span>`}
-                ${opts.showReport && b.has_report ? `<a class="btn btn-primary btn-sm" href="#feature-report/${encodeURIComponent(b.request_id)}">View Report</a>` : ''}
-                ${opts.cancellable ? `<button class="btn btn-ghost btn-sm" onclick="cancelBatch('${b.request_id}')">Cancel</button>` : ''}
-              </div>
-            </div>
-            ${b.items.map(i => queueItemRowHtml(b, i)).join('')}
-          </article>`;
-      }).join('')}
+      ${b.has_report
+        ? `<a class="act-row-action" href="#feature-report/${encodeURIComponent(b.request_id)}">View report →</a>`
+        : `<span class="act-row-action muted">Report generating…</span>`}
+    </div>`;
+}
+
+function activityFailedHtml(b) {
+  const item = b.items.find(i => FAILURE_STAGES.has(i.stage)) || b.items[0] || {};
+  return `
+    <div class="act-row">
+      <div class="act-row-main">
+        <div class="act-row-title">${b.company} · ${b.feature}</div>
+        <div class="act-row-note act-row-note-error">${STAGE_LABELS[item.stage] || 'Could not complete this benchmark'}</div>
+      </div>
+      <button class="btn-link act-row-action" onclick="retryBenchmark('${b.request_id}','${item.slug || ''}')">Retry</button>
+    </div>`;
+}
+
+function activityGroupHtml(title, rows) {
+  if (!rows.length) return '';
+  return `
+    <section class="act-group">
+      <h2 class="act-group-title">${title}</h2>
+      ${rows.join('')}
     </section>`;
 }
 
-async function renderQueue() {
-  setTitle('Queue');
-  setTopbarActions(`<a href="#wizard" class="btn btn-primary btn-sm">New Benchmark</a>`);
+async function renderActivity() {
+  setTitle('Activity');
   setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
   clearInterval(_queue_poll_timer);
 
   let benchmarks = await getCurrentBenchmarks(true);
 
-  function renderList() {
-    const running = benchmarks.filter(b => b.status === 'in_progress');
-    const queued = benchmarks.filter(b => b.status === 'queued');
-    const completed = benchmarks
+  function draw() {
+    const running = benchmarks.filter(b => b.status === 'in_progress' && !b.items.some(i => FAILURE_STAGES.has(i.stage)));
+    const failed = benchmarks.filter(b => b.items.some(i => FAILURE_STAGES.has(i.stage)));
+    const done = benchmarks
       .filter(b => b.status === 'complete')
       .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 10);
+      .slice(0, 12);
 
-    const el = document.getElementById('queue-list');
+    const el = document.getElementById('activity-body');
     if (!el) return;
-    if (running.length + queued.length + completed.length === 0) {
-      el.innerHTML = cbEmptyStateHtml('Benchmarks you start will show live progress here.');
+    if (running.length + failed.length + done.length === 0) {
+      el.innerHTML = cbEmptyStateHtml('Start a benchmark and its progress will show up here.');
       return;
     }
-    el.innerHTML = [
-      queueGroupHtml('Running', running, { showProgress: true, cancellable: true }),
-      queueGroupHtml('Queued', queued, { cancellable: true }),
-      queueGroupHtml('Recently Completed', completed, { showReport: true }),
-    ].join('');
+    el.innerHTML =
+      activityGroupHtml('Running', running.map(activityRunningHtml)) +
+      activityGroupHtml('Recently completed', done.map(activityDoneHtml)) +
+      activityGroupHtml('Needs attention', failed.map(activityFailedHtml));
   }
 
-  setContent(`<div id="queue-list"></div>`);
-  renderList();
+  setContent(`
+    <div class="page-narrow">
+      <h1 class="page-title">Activity</h1>
+      <div id="activity-body"></div>
+    </div>`);
+  draw();
 
   const hasActive = () => benchmarks.some(b => b.items.some(i => isItemActive(i.stage)));
   if (hasActive()) {
     _queue_poll_timer = setInterval(async () => {
       try {
         benchmarks = await getCurrentBenchmarks(true);
-        renderList();
+        draw();
+        await initSidebar();
         if (!hasActive()) clearInterval(_queue_poll_timer);
       } catch { clearInterval(_queue_poll_timer); }
     }, 2000);
@@ -1069,13 +1040,28 @@ async function renderQueue() {
 }
 
 window.cancelBatch = async function(requestId) {
-  if (!(await showConfirmModal('Cancel this benchmark request? This cannot be undone.', { title: 'Cancel benchmark request', confirmLabel: 'Cancel Request' }))) return;
+  if (!(await showConfirmModal('Cancel this benchmark? This cannot be undone.', { title: 'Cancel benchmark', confirmLabel: 'Cancel benchmark' }))) return;
   try {
     await api.post(`/api/requests/${requestId}/cancel`, {});
-    await renderQueue();
+    await renderActivity();
     await initSidebar();
   } catch (e) {
-    showAlertModal(e.message || 'Could not cancel request.');
+    showAlertModal(e.message || 'Could not cancel this benchmark.');
+  }
+};
+
+// Re-runs a failed benchmark item through the same PATCH the wizard uses to
+// kick off a run — no new backend behaviour.
+window.retryBenchmark = async function(requestId, slug) {
+  if (!slug) return;
+  try {
+    await api.patch(`/api/requests/${requestId}/items/${slug}`, { stage: 'preparing' });
+    _current_benchmarks = null;
+    await renderActivity();
+    await initSidebar();
+    showToast('Benchmark restarted.');
+  } catch (e) {
+    showAlertModal(e.message || 'Could not restart this benchmark.');
   }
 };
 
@@ -1121,10 +1107,9 @@ window.openBenchmarkDetailsModal = async function(requestId, slug) {
   `);
 };
 
-// ─── Page: Archive ───────────────────────────────────────────────────────────
-// Legacy research and experiments — kept accessible, kept clearly separate
-// from the current automated Feature Benchmark product. Nothing here is
-// deleted; this view just stops it from competing with current work.
+// ─── Archive (a tab inside Benchmarks) ───────────────────────────────────────
+// Legacy research and experiments — reachable, but not competing with the
+// current product. Nothing here is deleted.
 const ARCHIVE_DEV_ARTIFACT_RE =
   /\b(sprint\s*\d+|verification|throwaway|debug|evidence test|smoke test|safe to (interrupt|cancel|ignore))\b/i;
 
@@ -1134,11 +1119,7 @@ function isLegacyRequest(r) {
   return ARCHIVE_DEV_ARTIFACT_RE.test(`${r.feature || ''} ${r.notes || ''}`);
 }
 
-async function renderArchive() {
-  setTitle('Archive');
-  setTopbarActions('');
-  setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
-
+async function archiveContentHtml() {
   const [benchmarks, hpData, requestsData] = await Promise.all([
     getBenchmarks().catch(() => []),
     api.get('/api/homepage-benchmarks').catch(() => ({ items: [] })),
@@ -1149,150 +1130,131 @@ async function renderArchive() {
   const homepageExp = hpData.items || [];
   const legacyRequests = (requestsData.requests || []).filter(isLegacyRequest);
 
-  const researchCards = legacyResearch.map(b => `
-    <a class="cb-card cb-card-link" href="#company/${b.slug}">
-      <div class="cb-card-head">
-        <div class="cb-card-titles">
-          <div class="cb-card-company">${b.name}</div>
-          <div class="cb-card-feature">${b.category} · Complete Journey research</div>
-        </div>
-        ${b.overall_score != null ? `<span class="badge badge-gray">${fmt(b.overall_score)} / 5</span>` : ''}
+  const total = legacyResearch.length + homepageExp.length + legacyRequests.length + pending.length;
+  if (total === 0) {
+    return `<div class="empty-state"><h3>Nothing archived</h3><p>Legacy research and experiments would appear here.</p></div>`;
+  }
+
+  const rowLink = (href, title, sub, meta) => `
+    <a class="cb-row cb-row-link" href="${href}">
+      <div class="cb-row-main">
+        <div class="cb-row-company">${title}</div>
+        <div class="cb-row-meta">${sub}${meta ? ` · ${meta}` : ''}</div>
       </div>
-      <div class="cb-card-foot"><span class="text-3 text-sm">${fmtDate(b.date)}</span><span class="btn-link">Open →</span></div>
-    </a>`).join('');
+      <span class="cb-row-action">Open →</span>
+    </a>`;
 
-  const homepageCards = homepageExp.map(h => `
-    <a class="cb-card cb-card-link" href="#homepage-benchmarks">
-      <div class="cb-card-head">
-        <div class="cb-card-titles">
-          <div class="cb-card-company">${h.website_name || h.slug}</div>
-          <div class="cb-card-feature">Homepage Benchmark experiment</div>
-        </div>
-        ${h.confidence ? `<span class="badge badge-gray">${h.confidence}</span>` : ''}
-      </div>
-      <div class="cb-card-foot"><span class="text-3 text-sm">${fmtDate(h.benchmark_timestamp)}</span><span class="btn-link">Open →</span></div>
-    </a>`).join('');
+  const group = (title, sub, body, n) => !n ? '' : `
+    <section class="arc-group">
+      <h2 class="arc-group-title">${title}</h2>
+      <p class="arc-group-sub">${sub}</p>
+      ${body}
+    </section>`;
 
-  const requestRows = legacyRequests
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .map(r => `
-      <div class="archive-row">
-        <div>
-          <div class="archive-row-title">${r.feature || '—'}</div>
-          <div class="archive-row-sub">${r.benchmark_type} · ${(r.items || []).map(i => i.name).join(', ') || '—'}</div>
-        </div>
-        <div class="archive-row-meta">
-          <span class="badge badge-gray">${(r.status || '').replace('_', ' ') || 'unknown'}</span>
-          <span class="text-3 text-sm">${fmtDate(r.created_at)}</span>
-        </div>
-      </div>`).join('');
-
-  const section = (title, sub, body, count) => !count ? '' : `
-    <div class="section-header mt-4">
-      <div><div class="section-title">${title}</div><div class="section-sub">${sub}</div></div>
-    </div>
-    ${body}`;
-
-  setContent(`
+  return `
     <div class="archive-banner">
       <strong>Legacy Research &amp; Historical work.</strong>
-      Not part of the current automated Feature Benchmark workflow. Kept here for reference.
+      Not part of the current automated benchmark workflow — kept for reference.
     </div>
-    ${section('Legacy Research', `${legacyResearch.length} full Complete-Journey benchmark${legacyResearch.length === 1 ? '' : 's'} (Mindtrip, Trip.com, Booking.com, ixigo …)`,
-      `<div class="cb-grid">${researchCards}</div>`, legacyResearch.length)}
-    ${section('Homepage Benchmark Experiments', `${homepageExp.length} historical homepage-only scan${homepageExp.length === 1 ? '' : 's'}`,
-      `<div class="cb-grid">${homepageCards}</div>`, homepageExp.length)}
-    ${section('Historical &amp; Development Requests', `${legacyRequests.length} old, cancelled, or pipeline-verification request${legacyRequests.length === 1 ? '' : 's'}`,
-      `<div class="archive-list">${requestRows}</div>`, legacyRequests.length)}
-    ${section('Planned (not benchmarked)', `${pending.length} compan${pending.length === 1 ? 'y' : 'ies'} in the legacy plan, never run`,
-      `<div class="archive-list">${pending.map(b => `<div class="archive-row"><div><div class="archive-row-title">${b.name}</div><div class="archive-row-sub">${b.category}</div></div><span class="badge badge-gray">pending</span></div>`).join('')}</div>`, pending.length)}
-    ${(legacyResearch.length + homepageExp.length + legacyRequests.length + pending.length) === 0
-      ? `<div class="empty-state"><h3>Nothing archived</h3><p>Legacy research and experiments would appear here.</p></div>` : ''}
-  `);
+    ${group('Legacy research',
+      'Full journey studies of Mindtrip, Trip.com, Booking.com and ixigo.',
+      `<div class="cb-list">${legacyResearch.map(b => rowLink(`#company/${b.slug}`, b.name, `${b.category} research`, fmtDate(b.date))).join('')}</div>`,
+      legacyResearch.length)}
+    ${group('Homepage experiments',
+      'Early homepage-only scans of airline sites.',
+      `<div class="cb-list">${homepageExp.map(h => rowLink('#homepage-benchmarks', h.website_name || h.slug, 'Homepage experiment', fmtDate(h.benchmark_timestamp))).join('')}</div>`,
+      homepageExp.length)}
+    ${group('Historical requests',
+      'Old, cancelled, or internal test runs.',
+      `<div class="cb-list">${legacyRequests.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map(r => `
+        <div class="cb-row">
+          <div class="cb-row-main">
+            <div class="cb-row-company">${r.feature || '—'}</div>
+            <div class="cb-row-meta">${r.benchmark_type} · ${(r.items || []).map(i => i.name).join(', ') || '—'} · ${fmtDate(r.created_at)}</div>
+          </div>
+          <span class="status-pill">${(r.status || '').replace('_', ' ') || 'unknown'}</span>
+        </div>`).join('')}</div>`,
+      legacyRequests.length)}
+    ${group('Planned, never run',
+      'Companies in the old research plan that were never benchmarked.',
+      `<div class="cb-list">${pending.map(b => `
+        <div class="cb-row">
+          <div class="cb-row-main"><div class="cb-row-company">${b.name}</div><div class="cb-row-meta">${b.category}</div></div>
+          <span class="status-pill">planned</span>
+        </div>`).join('')}</div>`,
+      pending.length)}
+  `;
 }
 
-// ─── Page: Benchmarks ────────────────────────────────────────────────────────
-// The single library for CURRENT automated Feature Benchmark results. Reads
-// only /api/current-benchmarks — no legacy research, no Homepage experiments,
-// no Complete Journey runs, no pipeline verification artifacts. Those live in
-// Archive.
+// ─── Page: Benchmarks ───────────────────────────────────────────────────────
+// A content library: Current (only /api/current-benchmarks) and Archive
+// (legacy). No KPI tiles, no analytics — each benchmark reads as a document.
 async function renderBenchmarks(query) {
   setTitle('Benchmarks');
-  setTopbarActions(`<a href="#wizard" class="btn btn-primary btn-sm">New Benchmark</a>`);
+  const tab = query?.get('tab') === 'archive' ? 'archive' : 'current';
   setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
-
-  const queryFeature = query?.get('feature');
-  if (queryFeature) _library_filters.feature = queryFeature;
 
   const benchmarks = await getCurrentBenchmarks(true);
 
-  if (benchmarks.length === 0) {
-    setContent(cbEmptyStateHtml('Every completed benchmark and its report will appear here.'));
-    return;
-  }
-
-  const companyNames = Array.from(new Set(benchmarks.flatMap(b => b.companies))).sort();
-  const featureNames = Array.from(new Set(benchmarks.map(b => b.feature))).sort();
-  const scopeNames = Array.from(new Set(benchmarks.flatMap(b => b.scope))).sort();
-
-  function filterBarHtml() {
-    const f = _library_filters;
-    const sel = (id, opts, cur, label) => `
-      <label class="filter-select">
-        <span class="filter-select-label">${label}</span>
-        <select class="form-select" onchange="libraryFilterSet('${id}', this.value)">
-          <option value="All"${cur === 'All' ? ' selected' : ''}>All</option>
-          ${opts.map(o => `<option value="${o.replace(/"/g, '&quot;')}"${cur === o ? ' selected' : ''}>${o}</option>`).join('')}
-        </select>
-      </label>`;
+  function tabsHtml() {
     return `
-      <div class="filter-bar">
-        <input type="text" class="form-input filter-search-input" placeholder="Search company or feature…" value="${f.q}" oninput="libraryFilterSet('q', this.value)" aria-label="Search benchmarks" />
-        ${sel('company', companyNames, f.company || 'All', 'Company')}
-        ${sel('feature', featureNames, f.feature, 'Feature')}
-        ${sel('scope', scopeNames, f.scope, 'Scope')}
-        <label class="filter-select">
-          <span class="filter-select-label">Date</span>
-          <select class="form-select" onchange="libraryFilterSet('dateSort', this.value)">
-            <option value="newest"${f.dateSort === 'newest' ? ' selected' : ''}>Newest first</option>
-            <option value="oldest"${f.dateSort === 'oldest' ? ' selected' : ''}>Oldest first</option>
-          </select>
-        </label>
+      <div class="lib-tabs" role="tablist">
+        <a href="#benchmarks" class="lib-tab ${tab === 'current' ? 'active' : ''}" role="tab" aria-selected="${tab === 'current'}">Current</a>
+        <a href="#benchmarks?tab=archive" class="lib-tab ${tab === 'archive' ? 'active' : ''}" role="tab" aria-selected="${tab === 'archive'}">Archive</a>
       </div>`;
   }
 
-  function renderResults() {
-    const f = _library_filters;
-    const q = f.q.trim().toLowerCase();
-    let filtered = benchmarks.filter(b => {
-      if (f.company && f.company !== 'All' && !b.companies.includes(f.company)) return false;
-      if (f.feature !== 'All' && b.feature !== f.feature) return false;
-      if (f.scope !== 'All' && !b.scope.includes(f.scope)) return false;
-      if (q && !(`${b.company} ${b.feature}`.toLowerCase().includes(q))) return false;
-      return true;
-    });
-    filtered.sort((a, b) => {
-      const d = new Date(b.date) - new Date(a.date);
-      return f.dateSort === 'oldest' ? -d : d;
-    });
-
-    const el = document.getElementById('library-results');
-    if (!el) return;
-    el.innerHTML = filtered.length
-      ? `<div class="cb-grid">${filtered.map(cbCardHtml).join('')}</div>`
-      : `<div class="empty-state"><h3>No benchmarks match these filters</h3><p>Try clearing a filter.</p></div>`;
+  if (tab === 'archive') {
+    setContent(`
+      <div class="page-narrow">
+        <h1 class="page-title">Benchmarks</h1>
+        ${tabsHtml()}
+        <div id="lib-body"><div class="loading-state"><div class="spinner"></div></div></div>
+      </div>`);
+    document.getElementById('lib-body').innerHTML = await archiveContentHtml();
+    return;
   }
 
-  window.libraryFilterSet = function(key, value) {
-    _library_filters[key] = value;
-    if (key === 'q' || key === 'dateSort') { renderResults(); return; }
-    renderResults();
-  };
+  if (benchmarks.length === 0) {
+    setContent(`
+      <div class="page-narrow">
+        <h1 class="page-title">Benchmarks</h1>
+        ${tabsHtml()}
+        ${cbEmptyStateHtml('Every benchmark you run and its report will appear here.')}
+      </div>`);
+    return;
+  }
+
+  function draw() {
+    const q = _library_filters.q.trim().toLowerCase();
+    let list = benchmarks.filter(b => !q || `${b.company} ${b.feature}`.toLowerCase().includes(q));
+    list.sort((a, b) => {
+      const d = new Date(b.date) - new Date(a.date);
+      return _library_filters.sort === 'oldest' ? -d : d;
+    });
+    const el = document.getElementById('lib-body');
+    if (!el) return;
+    el.innerHTML = list.length
+      ? cbListHtml(list)
+      : `<div class="empty-state"><h3>No matches</h3><p>Nothing matches “${_library_filters.q}”.</p></div>`;
+  }
+
+  window.libraryFilterSet = function(key, value) { _library_filters[key] = value; draw(); };
 
   setContent(`
-    <div id="library-filter-bar">${filterBarHtml()}</div>
-    <div id="library-results"></div>`);
-  renderResults();
+    <div class="page-narrow">
+      <h1 class="page-title">Benchmarks</h1>
+      ${tabsHtml()}
+      <div class="lib-controls">
+        <input type="text" class="form-input lib-search" placeholder="Search company or feature…" value="${_library_filters.q}" oninput="libraryFilterSet('q', this.value)" aria-label="Search benchmarks" />
+        <select class="form-select lib-sort" onchange="libraryFilterSet('sort', this.value)" aria-label="Sort by date">
+          <option value="newest"${_library_filters.sort !== 'oldest' ? ' selected' : ''}>Newest first</option>
+          <option value="oldest"${_library_filters.sort === 'oldest' ? ' selected' : ''}>Oldest first</option>
+        </select>
+      </div>
+      <div id="lib-body"></div>
+    </div>`);
+  draw();
 }
 
 // ─── Page: Feature Benchmark Report ───────────────────────────────────────────
@@ -1303,11 +1265,10 @@ async function renderBenchmarks(query) {
 // to fetch its markdown — never as the identifier itself). Renders the
 // actual report the Feature Benchmark pipeline already wrote to disk —
 // does not regenerate or duplicate its content.
-const BACK_TO_LIBRARY_LINK = `<a href="#benchmarks" class="btn-link">← Back to Benchmarks</a>`;
+const BACK_TO_LIBRARY_LINK = `<a href="#benchmarks" class="report-back">← Benchmarks</a>`;
 
 async function renderFeatureReport(requestId) {
-  setTitle('Benchmark Report');
-  setTopbarActions('');
+  setTitle('Report');
   setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   // Prefer the current-benchmark record (carries company/feature/scope/date
@@ -1323,39 +1284,44 @@ async function renderFeatureReport(requestId) {
 
   if (!cb && !fb) {
     setContent(`
-      <div class="mb-4">${BACK_TO_LIBRARY_LINK}</div>
-      <div class="empty-state"><h3>Report not found</h3><p>No benchmark report exists for this request.</p></div>`);
+      <div class="report">
+        ${BACK_TO_LIBRARY_LINK}
+        <div class="empty-state"><h3>Report not found</h3><p>No benchmark report exists for this request.</p></div>
+      </div>`);
     return;
   }
 
-  const feature = cb?.feature || fb?.request?.feature || fb?.feature_slug || '—';
-  const company = cb?.company || (fb?.request?.items || []).map(i => i.name).join(', ') || '—';
+  const properFeature = cb?.feature || fb?.request?.feature;
+  const feature = properFeature
+    || (fb?.feature_slug || '—').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const company = cb?.company || (fb?.request?.items || []).map(i => i.name).join(', ') || '';
   const scope = cb?.scope || (fb?.request?.scope?.length ? fb.request.scope : ['End-to-End Journey']);
   const date = cb?.date || fb?.request?.created_at || null;
 
   let reportBodyHtml;
   if (!reportPath) {
-    reportBodyHtml = `<div class="empty-state"><h3>Report is still being generated</h3><p>Check back once the run finishes — track it in the Queue.</p></div>`;
+    reportBodyHtml = `<div class="empty-state"><h3>Report is still being generated</h3><p>Check back once the run finishes — follow it in Activity.</p></div>`;
   } else {
     try {
       const r = await api.get(`/api/markdown?path=${encodeURIComponent(reportPath)}`);
-      reportBodyHtml = `<div class="md-content report-body">${marked.parse(r.content)}</div>`;
+      reportBodyHtml = `<div class="report-body">${marked.parse(r.content)}</div>`;
     } catch (e) {
       reportBodyHtml = `<div class="empty-state"><h3>Report file is unavailable.</h3></div>`;
     }
   }
 
-  const metaParts = [`<span><span class="rh-label">Scope</span> ${(scope || []).join(', ')}</span>`];
-  if (date) metaParts.push(`<span><span class="rh-label">Date</span> ${fmtDate(date)}</span>`);
+  const metaBits = [(scope || []).join(', '), date ? fmtDate(date) : null].filter(Boolean);
 
   setContent(`
-    <div class="mb-4">${BACK_TO_LIBRARY_LINK}</div>
-    <header class="report-header">
-      ${company && company !== '—' ? `<div class="report-header-company">${company}</div>` : ''}
-      <h1 class="report-header-feature">${feature}</h1>
-      <div class="report-header-meta">${metaParts.join('<span class="rh-sep">·</span>')}</div>
-    </header>
-    ${reportBodyHtml}`);
+    <article class="report">
+      ${BACK_TO_LIBRARY_LINK}
+      <header class="report-head">
+        ${company && company !== '—' ? `<div class="report-company">${company}</div>` : ''}
+        <h1 class="report-feature">${feature} Benchmark</h1>
+        <div class="report-meta">${metaBits.join('  ·  ')}</div>
+      </header>
+      ${reportBodyHtml}
+    </article>`);
 }
 
 // ─── Page: Homepage Benchmarks ────────────────────────────────────────────────
@@ -2617,18 +2583,14 @@ function setupMobileSearch() {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   try {
-    setupGlobalSearch();
-    setupMobileSidebar();
-    setupMobileSearch();
+    setupLightbox();
     await initSidebar();
     await route(location.hash);
   } catch (e) {
     document.getElementById('content').innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">⚠</div>
-        <h3>Could not connect to dashboard server</h3>
-        <p>Make sure the server is running:<br><code>cd 10_Dashboard && npm install && node server.js</code></p>
-        <p style="margin-top:8px">Then open <a href="http://localhost:3000" style="color:var(--accent)">http://localhost:3000</a></p>
+        <h3>Could not connect to the server</h3>
+        <p>Start it with <code>node 10_Dashboard/server.js</code>, then reload.</p>
       </div>`;
   }
 }
