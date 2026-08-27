@@ -276,6 +276,66 @@ export function cancelRequest(projectRoot, requestId) {
   return request;
 }
 
+// ─── Current vs. legacy classification ─────────────────────────────────────
+// The customer-facing product (Home, Benchmarks) shows ONLY current automated
+// Feature Benchmark runs. "Current" is decided by the data model, never by
+// company name:
+//   1. benchmark_type === 'Feature Benchmark'  (the only automated model)
+//   2. not cancelled
+//   3. not a pipeline dev/verification artifact (see DEV_ARTIFACT_RE)
+// Everything else — Complete Journey / UX-UI / AI Experience requests, the
+// legacy Master Matrix research, Homepage Benchmark experiments, cancelled or
+// throwaway runs — is legacy and belongs in Archive only.
+export const DEV_ARTIFACT_RE =
+  /\b(sprint\s*\d+|verification|throwaway|debug|evidence test|smoke test|safe to (interrupt|cancel|ignore))\b/i;
+
+export function isCurrentFeatureBenchmark(request) {
+  if (!request || request.benchmark_type !== 'Feature Benchmark') return false;
+  if (request.cancelled) return false;
+  if (DEV_ARTIFACT_RE.test(`${request.feature || ''} ${request.notes || ''}`)) return false;
+  return true;
+}
+
+/**
+ * The single data source for the customer-facing Home and Benchmarks views.
+ * Returns one normalized record per current Feature Benchmark request:
+ *   { request_id, company, companies[], feature, scope[], date,
+ *     created_at, status, stage, has_report, report_path }
+ */
+export function listCurrentFeatureBenchmarks(projectRoot) {
+  return listRequests(projectRoot)
+    .filter(isCurrentFeatureBenchmark)
+    .map(r => {
+      const items = r.items || [];
+      const reportRel = `02_Benchmark_Repository/_Feature_Benchmarks/${slugify(r.feature)}/${r.id}.md`;
+      const hasReport = existsSync(join(projectRoot, reportRel));
+      const completedAt = items.map(i => i.completed_at).filter(Boolean).sort().pop() || null;
+      return {
+        request_id: r.id,
+        company: items.map(i => i.name).join(', ') || '—',
+        companies: items.map(i => i.name),
+        feature: r.feature,
+        scope: (r.scope && r.scope.length) ? r.scope : ['End-to-End Journey'],
+        date: completedAt || r.created_at,
+        created_at: r.created_at,
+        status: r.status,                 // queued | in_progress | complete
+        stage: items[0]?.stage || 'queued',
+        items: items.map(i => ({
+          name: i.name, slug: i.slug, stage: i.stage, url: i.url || null,
+          is_new_company: !!i.is_new_company,
+          started_at: i.started_at || null, completed_at: i.completed_at || null,
+          updated_at: i.updated_at || null,
+          execution_status: i.execution_status || null,
+          execution_message: i.execution_message || null,
+          failed_stage: i.failed_stage || null,
+        })),
+        has_report: hasReport,
+        report_path: hasReport ? reportRel : null,
+      };
+    })
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
 export function listFeatureBenchmarks(projectRoot) {
   const root = join(projectRoot, '02_Benchmark_Repository', '_Feature_Benchmarks');
   if (!existsSync(root)) return [];

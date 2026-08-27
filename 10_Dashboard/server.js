@@ -11,6 +11,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
   listRequests, createRequest, setStage, cancelRequest, listFeatureBenchmarks,
+  listCurrentFeatureBenchmarks,
   STAGES, BENCHMARK_TYPES, SCOPE_OPTIONS,
 } from './lib/requestsStore.js';
 // Sprint V1.5: startBenchmark now comes from the Dashboard's own Benchmark
@@ -504,6 +505,15 @@ app.patch('/api/requests/:id/items/:slug', (req, res) => {
 
 app.get('/api/feature-benchmarks', (req, res) => {
   res.json({ items: listFeatureBenchmarks(PROJECT) });
+});
+
+// ─── API: Current Feature Benchmarks — the customer-facing product's ONLY ───
+// data source for Home and Benchmarks. Legacy research, Homepage Benchmark
+// experiments, Complete Journey runs and pipeline verification artifacts are
+// filtered out at the model level by listCurrentFeatureBenchmarks(); they
+// remain available through the legacy endpoints above for the Archive view.
+app.get('/api/current-benchmarks', (req, res) => {
+  res.json({ items: listCurrentFeatureBenchmarks(PROJECT) });
 });
 
 app.post('/api/requests/:id/cancel', (req, res) => {
