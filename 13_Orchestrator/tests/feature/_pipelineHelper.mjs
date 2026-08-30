@@ -44,7 +44,8 @@ export function installMocks({
   discoverResolvedUrl,
   stepPageUrl,
   analyzedCompany = 'Qatar Airways',
-  summary = '# Qatar Airways — Homepage\nThe Qatar Airways homepage shows a flight search widget and a Privilege Club promo.',
+  summary = '# Qatar Airways — Homepage\nThe Qatar Airways homepage shows a flight search widget and a Privilege Club promo.\n\n## Evidence limitations\nBased on a single captured viewport, one page state, with no interactions performed.',
+  evidenceLimitations = 'Single captured viewport, one page state, no interactions performed.',
   reasoningStatus = 'completed',
 } = {}) {
   const rec = { discover: [], runJourney: [], describe: [], reasoning: [] };
@@ -123,7 +124,7 @@ export function installMocks({
         if (reasoningStatus !== 'completed') return { status: 'failed', error: 'mock reasoning failure' };
         return {
           status: 'completed',
-          data: { analyzed_company: analyzedCompany, feature_found: true, evidence_source: 'OBSERVED', summary_markdown: summary },
+          data: { analyzed_company: analyzedCompany, feature_found: true, evidence_source: 'OBSERVED', summary_markdown: summary, evidence_limitations: evidenceLimitations },
         };
       },
     },

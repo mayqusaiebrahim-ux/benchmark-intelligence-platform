@@ -1554,6 +1554,26 @@ button { font-family: var(--font); }
 .report-body .report-callout.report-callout-muted { font-size: var(--fs-meta); }
 .report-body .report-callout.report-callout-muted strong { color: var(--text-2); }
 
+/* ─── Report — evidence block ──────────────────────────────────────────── */
+.report-evidence { margin: 0 0 44px; padding-bottom: 36px; border-bottom: 1px solid var(--border); }
+.report-evidence-h {
+  font-size: var(--fs-eyebrow); font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-3); margin: 0 0 16px;
+}
+.report-ev-fig { margin: 0; }
+.report-ev-btn {
+  display: block; width: 100%; padding: 0; border: 1px solid var(--border-2);
+  border-radius: 12px; overflow: hidden; background: var(--surface-2);
+  cursor: zoom-in; transition: border-color 0.15s;
+}
+.report-ev-btn:hover { border-color: var(--accent); }
+.report-ev-img { display: block; width: 100%; height: auto; max-height: 640px; object-fit: cover; object-position: top; }
+.report-ev-cap { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; align-items: baseline; }
+.report-ev-label { font-size: var(--fs-sm); font-weight: 650; color: var(--text-2); }
+.report-ev-meta { font-size: var(--fs-meta); color: var(--text-3); }
+.report-ev-meta a { color: var(--text-3); border-bottom: 1px solid var(--border-2); word-break: break-all; }
+.report-ev-meta a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
 /* ─── Forms ────────────────────────────────────────────────────────────── */
 .form-input, .form-select, .form-textarea {
   width: 100%; background: var(--surface-2); border: 1px solid var(--border-2);

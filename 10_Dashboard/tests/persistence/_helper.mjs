@@ -46,7 +46,12 @@ export function makeWorkspace() {
   return { cwd, shot, manifest };
 }
 
-export function installProviderMocks({ shot, manifest, analyzedCompany = 'Qatar Airways', summary = '# Qatar Airways — Homepage\nQatar Airways homepage with a booking widget.' } = {}) {
+export function installProviderMocks({
+  shot, manifest,
+  analyzedCompany = 'Qatar Airways',
+  summary = '# Qatar Airways — Homepage\nQatar Airways homepage with a booking widget.\n\n## Evidence limitations\nBased on a single captured viewport, one page state, no interactions performed.',
+  evidenceLimitations = 'Single captured viewport, one page state, no interactions performed.',
+} = {}) {
   const rec = { describe: [], reasoning: [] };
   const nav = {
     async discover(input) {
@@ -79,7 +84,7 @@ export function installProviderMocks({ shot, manifest, analyzedCompany = 'Qatar 
     exports: {
       async runFeatureReasoning(args) {
         rec.reasoning.push(args);
-        return { status: 'completed', data: { analyzed_company: analyzedCompany, feature_found: true, evidence_source: 'OBSERVED', summary_markdown: summary } };
+        return { status: 'completed', data: { analyzed_company: analyzedCompany, feature_found: true, evidence_source: 'OBSERVED', summary_markdown: summary, evidence_limitations: evidenceLimitations } };
       },
     },
   });

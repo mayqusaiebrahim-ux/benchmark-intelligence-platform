@@ -13,7 +13,7 @@
 export const FEATURE_REPORT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['analyzed_company', 'feature_found', 'evidence_source', 'summary_markdown'],
+  required: ['analyzed_company', 'feature_found', 'evidence_source', 'summary_markdown', 'evidence_limitations'],
   properties: {
     analyzed_company: {
       type: 'string',
@@ -32,7 +32,11 @@ export const FEATURE_REPORT_SCHEMA = {
     },
     summary_markdown: {
       type: 'string',
-      description: 'The full, concise benchmark report for this one feature — the only content written to the Feature Benchmark Library.',
+      description: 'The full, concise benchmark report for this one feature — the only content written to the Feature Benchmark Library. Every factual claim must be directly supported by the captured screenshot / Vision findings; interpretations must be explicitly worded as inference; absence must be scoped to the captured viewport, never asserted site-wide; never state how the user reached the page.',
+    },
+    evidence_limitations: {
+      type: 'string',
+      description: 'One or two sentences stating what the analysis could NOT cover: single captured viewport, single page state, no interactions performed, and any on-screen overlay (e.g. cookie-consent dialog) that obscured part of the view.',
     },
   },
 };

@@ -229,6 +229,55 @@ app.get('/api/markdown', async (req, res) => {
   return res.status(404).json({ error: 'File not found' });
 });
 
+// ─── API: Feature Benchmark evidence — discovery ───────────────────────────
+// Returns ONLY the evidence that belongs to this requestId. Scoped to the
+// `screenshots/<requestId>/` object prefix (or the local evidence cache) —
+// never an arbitrary bucket listing. requestId is validated.
+app.get('/api/evidence/:requestId', async (req, res) => {
+  const { requestId } = req.params;
+  if (!/^[A-Za-z0-9._-]+$/.test(requestId)) {
+    return res.status(400).json({ error: 'invalid request id' });
+  }
+
+  const prefix = `screenshots/${requestId}/`;
+  const names = new Set();
+
+  // 1 — persistent store (R2): the source of truth for a completed run, and
+  //     what keeps evidence visible after a Render restart.
+  const storage = getStorage();
+  if (storage.isRemote) {
+    try {
+      for (const key of await storage.list(prefix)) {
+        const name = key.slice(prefix.length);
+        if (name && !name.includes('/')) names.add(name);
+      }
+    } catch (err) {
+      logError('evidence listing failed', { requestId, error: err.message });
+    }
+  }
+
+  // 2 — anything already pulled into the local evidence cache (covers
+  //     local-only dev, and avoids a round-trip once restored).
+  const cacheDir = join(PROJECT, '03_Screenshots', '_evidence_cache', requestId);
+  if (existsSync(cacheDir)) {
+    for (const name of readdirSync(cacheDir)) {
+      if (/^[A-Za-z0-9._-]+$/.test(name)) names.add(name);
+    }
+  }
+
+  const isImage = (n) => /\.(png|jpe?g|webp)$/i.test(n);
+  const screenshots = [...names].filter(isImage).sort().map((filename) => ({
+    filename,
+    url: `/api/evidence/${encodeURIComponent(requestId)}/${encodeURIComponent(filename)}`,
+    type: 'screenshot',
+  }));
+  const vision = names.has('vision.json')
+    ? { filename: 'vision.json', url: `/api/evidence/${encodeURIComponent(requestId)}/vision.json`, type: 'vision' }
+    : null;
+
+  res.json({ requestId, screenshots, vision });
+});
+
 // ─── API: Feature Benchmark evidence (screenshot / vision json) ─────────────
 // Lazy, on-demand: try the local cache, else restore the one object from R2.
 // Never lists the bucket, never accepts a path — only (requestId, filename).

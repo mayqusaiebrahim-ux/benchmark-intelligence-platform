@@ -1391,6 +1391,60 @@ function enhanceReportHtml(rawHtml, { company, feature }) {
   return `<div class="report-body">${root.innerHTML}</div>`;
 }
 
+// Pulls the machine-readable target marker + "Benchmarked at" line the
+// report writer embeds, so the Evidence block can show the exact captured
+// URL and capture time without a second API call.
+function parseReportMeta(rawMarkdown) {
+  const md = rawMarkdown || '';
+  const marker = md.match(/<!--\s*benchmark-target:(.*?)-->/s);
+  const fields = {};
+  if (marker) {
+    for (const part of marker[1].split('|')) {
+      const m = part.split('=');
+      if (m.length >= 2) fields[m[0].trim()] = m.slice(1).join('=').trim();
+    }
+  }
+  const capturedAt = (md.match(/\*\*Benchmarked at:\*\*\s*([0-9T:.\-Z]+)/) || [])[1] || null;
+  const featureFound = /\*\*Feature found:\*\*\s*Yes/i.test(md);
+  return { capturedUrl: fields.url || null, capturedAt, featureFound };
+}
+
+// The Evidence section — the actual captured screenshot, served from the
+// private app endpoint (never public R2), clickable to enlarge, with a
+// meaningful alt label. Rendered only when real evidence exists.
+function evidenceBlockHtml({ evidence, company, feature, meta }) {
+  const shot = (evidence?.screenshots || [])[0];
+  if (!shot) return '';
+  const label = `${feature}${meta.featureFound ? ' · Direct observation' : ' · Base-page observation'}`;
+  const alt = `Captured screenshot of ${company || 'the site'} — ${feature}${meta.featureFound ? '' : ' (homepage / base page)'}`;
+  const captionBits = [];
+  captionBits.push(`<span class="report-ev-label">${escapeHtml(label)}</span>`);
+  if (meta.capturedUrl) {
+    captionBits.push(`<span class="report-ev-meta">Captured URL <a href="${escapeAttr(meta.capturedUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(meta.capturedUrl)}</a></span>`);
+  }
+  if (meta.capturedAt) {
+    captionBits.push(`<span class="report-ev-meta">Captured ${escapeHtml(fmtDate(meta.capturedAt))}</span>`);
+  }
+  const imgUrl = shot.url;
+  const enlargeName = `${company || ''} — ${feature}`.trim();
+  return `
+    <section class="report-evidence" aria-labelledby="report-evidence-h">
+      <h2 id="report-evidence-h" class="report-evidence-h">Evidence</h2>
+      <figure class="report-ev-fig">
+        <button type="button" class="report-ev-btn" aria-label="Enlarge captured screenshot"
+          onclick="openLightbox('${escapeAttr(imgUrl)}', ${JSON.stringify(enlargeName)})">
+          <img class="report-ev-img" src="${escapeAttr(imgUrl)}" alt="${escapeAttr(alt)}" loading="lazy">
+        </button>
+        <figcaption class="report-ev-cap">${captionBits.join('')}</figcaption>
+      </figure>
+    </section>`;
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
 async function renderFeatureReport(requestId) {
   setTitle('Report');
   setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
@@ -1423,16 +1477,26 @@ async function renderFeatureReport(requestId) {
   const date = cb?.date || fb?.request?.created_at || null;
 
   let reportBodyHtml;
+  let reportMeta = { capturedUrl: null, capturedAt: null, featureFound: false };
   if (!reportPath) {
     reportBodyHtml = `<div class="empty-state"><h3>Report is still being generated</h3><p>Check back once the run finishes — follow it in Activity.</p></div>`;
   } else {
     try {
       const r = await api.get(`/api/markdown?path=${encodeURIComponent(reportPath)}`);
+      reportMeta = parseReportMeta(r.content);
       reportBodyHtml = enhanceReportHtml(marked.parse(r.content), { company, feature });
     } catch (e) {
       reportBodyHtml = `<div class="empty-state"><h3>Report file is unavailable.</h3></div>`;
     }
   }
+
+  // Evidence lives in the private app endpoint, backed by R2 — so it stays
+  // visible after a Render restart. Failure here must not break the report.
+  let evidence = null;
+  try {
+    evidence = await api.get(`/api/evidence/${encodeURIComponent(requestId)}`);
+  } catch (e) { evidence = null; }
+  const evidenceHtml = evidenceBlockHtml({ evidence, company, feature, meta: reportMeta });
 
   const metaBits = [(scope || []).join(', '), date ? fmtDate(date) : null].filter(Boolean);
 
@@ -1445,6 +1509,7 @@ async function renderFeatureReport(requestId) {
         ${company && company !== '—' ? `<div class="report-subject">${feature}</div>` : ''}
         <div class="report-meta">${metaBits.join('  ·  ')}</div>
       </header>
+      ${evidenceHtml}
       ${reportBodyHtml}
     </article>`);
 }

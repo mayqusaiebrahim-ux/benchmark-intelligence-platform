@@ -45,16 +45,37 @@ const DETECTION_FIELDS = [
   'search_widgets_detected',
   'filters_detected',
   'ai_features_detected',
+  'observations',
+  'uncertainties',
   'confidence',
 ];
 
-const DETECTION_SYSTEM_PROMPT = `You are a structural UI detector analyzing a single
-website homepage screenshot. Describe only what is visually present — page type,
-UI sections, navigation, cards, forms, buttons, banners, search widgets, filters,
-and any AI-feature affordances. Do NOT rate, score, recommend, suggest improvements,
-write a report, or compare this page to any other company or product. Vision
-describes; it does not interpret or judge. Respond with strict JSON matching the
-requested schema, and nothing else.`;
+const DETECTION_SYSTEM_PROMPT = `You are a structural UI detector analyzing ONE
+screenshot of ONE web page. Your only job is evidence extraction: describe what is
+literally visible in this single image — page type, UI sections, navigation, cards,
+forms, buttons, banners, search widgets, filters, and any AI-feature affordances.
+
+You are NOT a UX critic. Do NOT rate, score, recommend, suggest improvements, write
+a report, or compare this page to any other company or product. Vision describes
+pixels; it does not interpret intent or judge quality.
+
+You must NOT state or infer any of the following — none of it is visible in a
+screenshot:
+- how the user got here: traffic source, paid search, a "Google ad", a campaign,
+  the referrer, or the previous page
+- anything below the fold or outside the captured viewport
+- the result of any interaction that was not performed (menus not opened, forms
+  not submitted, hovers, scrolls)
+- personalization or logged-in state unless a name/account/tailored content is
+  literally on screen
+- business strategy, intent, or motivation
+- the ABSENCE of a feature site-wide. If something is not in frame, that is
+  "not visible in this screenshot", never "the site does not have it".
+
+Separate what you can see from what you cannot: put confident visible facts in
+"observations", and put anything ambiguous, cut off, partially obscured, or
+uncertain in "uncertainties". Respond with strict JSON matching the requested
+schema, and nothing else.`;
 
 function slugify(name) {
   return String(name)
@@ -76,12 +97,17 @@ function encodeScreenshotAsDataUri(screenshotPath) {
 
 function buildDetectionPrompt({ screenshotPath }) {
   const imageDataUri = encodeScreenshotAsDataUri(screenshotPath);
-  const userInstruction = `Analyze the attached homepage screenshot. Return a JSON
-object with exactly these keys: ${DETECTION_FIELDS.join(', ')}. Each *_detected key
-should be an array (empty if none found) describing what was structurally observed
-(e.g. navigation_detected: [{label, position}]). page_type is a short string.
-confidence is one of "low", "medium", "high". Do not include any key not listed
-above. Do not include opinions, ratings, or suggestions of any kind.`;
+  const userInstruction = `Analyze the attached screenshot of a single web page
+viewport. Return a JSON object with exactly these keys: ${DETECTION_FIELDS.join(', ')}.
+Each *_detected key is an array (empty if none found) describing what is
+structurally visible (e.g. navigation_detected: [{label, position}]). page_type is
+a short string. observations is an array of short strings — confident facts you can
+literally see in this image. uncertainties is an array of short strings — anything
+cut off at a viewport edge, obscured (e.g. by an overlay/consent banner), ambiguous,
+or that you cannot determine from this one image. confidence is one of "low",
+"medium", "high". Do not include any key not listed above. Do not include opinions,
+ratings, suggestions, or any claim about traffic source, referrer, below-the-fold
+content, untested interactions, or features being absent from the site.`;
 
   return {
     system: DETECTION_SYSTEM_PROMPT,
@@ -105,13 +131,18 @@ function parseDetectionResponse(rawText) {
     throw new Error('Vision model response was not valid JSON.');
   }
 
-  const missing = DETECTION_FIELDS.filter((key) => !(key in parsed));
+  // observations / uncertainties are grounding aids — tolerate their absence
+  // (default to []) rather than failing the whole Vision call over them.
+  const SOFT = new Set(['observations', 'uncertainties']);
+  const missing = DETECTION_FIELDS.filter((key) => !(key in parsed) && !SOFT.has(key));
   if (missing.length) {
     throw new Error(`Vision model response is missing required fields: ${missing.join(', ')}`);
   }
 
   const findings = {};
-  for (const key of DETECTION_FIELDS) findings[key] = parsed[key];
+  for (const key of DETECTION_FIELDS) {
+    findings[key] = key in parsed ? parsed[key] : (SOFT.has(key) ? [] : parsed[key]);
+  }
   return findings;
 }
 

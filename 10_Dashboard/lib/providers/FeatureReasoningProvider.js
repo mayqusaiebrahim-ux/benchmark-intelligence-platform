@@ -44,10 +44,32 @@ function buildPrompt({ prompt, company, feature, target, previousOutput }) {
   if (selectedStep) lines.push(`Navigation status of the captured step: ${selectedStep.status}`);
   if (url) lines.push(`URL captured: ${url}`);
   if (title) lines.push(`Page title: ${title}`);
+  lines.push('');
+  lines.push('CAPTURE CONDITIONS (this is the ENTIRE evidence base for the report):');
+  lines.push('- Exactly ONE screenshot of ONE viewport was captured (typically the initial above-the-fold view). Nothing below the fold was seen.');
+  lines.push('- ONE page state only. No scrolling, clicking, hovering, typing, menu-opening or any other interaction was performed.');
+  lines.push('- NO navigation/referrer/traffic-source metadata exists. You do NOT know how a user reached this page. Never state or imply an acquisition channel (e.g. "arrived from a Google ad", "paid-search landing", "came from search"). It is not in evidence.');
   if (visionFindings) {
-    lines.push('', 'Structural findings from Vision (detection only, not judgment or opinion):', '```json', JSON.stringify(visionFindings, null, 2), '```');
+    lines.push('', 'Structural findings from Vision (pixel-level detection only — NOT judgment, NOT opinion, NOT proof of anything off-screen):', '```json', JSON.stringify(visionFindings, null, 2), '```');
   }
-  lines.push('', 'Write ONE concise benchmark report for this feature of THIS company only. If the feature was not directly observed, say so honestly and set feature_found to false and evidence_source to an appropriate value (e.g. NOT FOUND) — do not invent content for a feature that was not actually observed.');
+  lines.push('');
+  lines.push('EVIDENCE DISCIPLINE — every sentence in the report must fall into one of:');
+  lines.push('- OBSERVED: directly visible in the captured screenshot / present in Vision findings. Factual claims may ONLY come from here.');
+  lines.push('- INFERRED: a reasonable interpretation that is NOT proven. Allowed only when genuinely useful, and must be explicitly worded as inference ("this likely…", "this suggests…"). An inference must never be restated later as a fact.');
+  lines.push('- NOT OBSERVED: you could not tell from this evidence. Do not claim a global absence. Scope every absence to the capture, e.g. "No booking widget is visible in the captured viewport" — NOT "the homepage has no booking widget"; "X was not visible in the captured evidence" — NOT "the airline does not offer X".');
+  lines.push('');
+  lines.push('You MAY make UX judgments, but each must be grounded in an OBSERVED fact (state the observation, then the interpretation). Example: Observed — "a cookie-consent dialog covers much of the viewport"; Interpretation — "this adds friction at entry". That is valid. "The user arrived via paid search" is NOT valid — no metadata proves it.');
+  lines.push('');
+  lines.push('STRUCTURE the report (markdown, concise — do NOT pad it) with these sections in order:');
+  lines.push('1. **What was observed** — plain description of what is visible.');
+  lines.push('2. **Evidence** — one line noting this is a single captured viewport of `' + (url || 'the page') + '` (the screenshot itself is shown in the UI, do not describe it as missing).');
+  lines.push('3. **UX/UI strengths** — grounded positives.');
+  lines.push('4. **UX/UI friction points** — grounded frictions.');
+  lines.push('5. **Benchmark assessment** — how this entry experience compares to a strong industry standard, grounded in what was seen.');
+  lines.push('6. **Recommendations** — actionable, tied to observed frictions.');
+  lines.push('7. **Evidence limitations** — explicitly state the analysis is based on one viewport, one state, no interactions, and note any overlay (e.g. cookie banner) that blocked part of the view. Do not hide limitations.');
+  lines.push('');
+  lines.push('Write ONE concise benchmark report for THIS company only. If the feature was not directly observed, say so honestly, set feature_found to false and evidence_source appropriately (e.g. NOT FOUND) — do not invent content. Also fill evidence_limitations with a one-sentence summary of the capture constraints.');
   lines.push('', '---', '');
   return `${lines.join('\n')}${prompt}`;
 }
@@ -96,6 +118,7 @@ export async function runFeatureReasoning({ prompt, company, feature, target, pr
     if (typeof data.feature_found !== 'boolean') errors.push('feature_found must be a boolean');
     if (!FEATURE_REPORT_EVIDENCE_SOURCES.includes(data.evidence_source)) errors.push(`evidence_source invalid: ${data.evidence_source}`);
     if (typeof data.summary_markdown !== 'string' || !data.summary_markdown.trim()) errors.push('summary_markdown must be a non-empty string');
+    if (typeof data.evidence_limitations !== 'string' || !data.evidence_limitations.trim()) errors.push('evidence_limitations must be a non-empty string');
     if (errors.length) {
       const errMsg = `Feature Reasoning output failed schema validation: ${errors.join('; ')}`;
       logError('Feature Reasoning: schema validation failed', { error: errMsg });

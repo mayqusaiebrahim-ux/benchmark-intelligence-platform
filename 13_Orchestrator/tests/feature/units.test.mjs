@@ -13,7 +13,7 @@ const THIS_FILE = fileURLToPath(import.meta.url); // a path that definitely exis
 import { createBenchmarkTarget, TargetIntegrityError, assertObservedUrl, sameRegistrableDomain, nameRefersToTarget } from '../../runtime/benchmarkTarget.js';
 import { resolveFeatureIntent, buildFeatureJourneyPlan, mapFeatureToStepId } from '../../featureNavigation/featureIntent.js';
 import { selectEvidence } from '../../stages/featureVisionStage.js';
-import { verifyFeatureCompletion } from '../../runtime/featureCompletion.js';
+import { verifyFeatureCompletion, checkReportGrounding } from '../../runtime/featureCompletion.js';
 import { resolveOfficialUrl } from '../../../10_Dashboard/lib/companyUrls.js';
 
 const T = { company: 'Qatar Airways', slug: 'qatar_airways', url: 'https://www.qatarairways.com/', feature: 'Homepage', requestId: 'r1' };
@@ -129,6 +129,69 @@ test('completion gate: fails (does not throw) on missing report / wrong evidence
   const r3 = verifyFeatureCompletion({ output: { ...base, reasoningData: { feature_found: true, analyzed_company: 'Mindtrip', summary_markdown: 'Mindtrip homepage AI chat' } }, target: t });
   assert.equal(r3.verification_status, 'failed');
   assert.ok(r3.verification_errors.some((e) => /does not correspond to the target/i.test(e)));
+});
+
+test('report grounding: unsupported acquisition / interaction / absence claims are caught', () => {
+  // acquisition channel stated as fact — no referrer metadata exists
+  assert.ok(checkReportGrounding('The user arrived from a branded Google ad and sees a hero image.').length > 0);
+  assert.ok(checkReportGrounding('This is a paid-search landing page for the campaign.').length > 0);
+  assert.ok(checkReportGrounding('The visitor came from an ad campaign before reaching this screen.').length > 0);
+
+  // outcome of an interaction that was never performed
+  assert.ok(checkReportGrounding('After you click the menu, it reveals six destinations.').length > 0);
+  assert.ok(checkReportGrounding('Hovering over the nav reveals a mega-menu.').length > 0);
+
+  // site-wide absence from one viewport, not scoped to the capture
+  assert.ok(checkReportGrounding('The homepage has no booking widget anywhere.').length > 0);
+  assert.ok(checkReportGrounding('Qatar Airways does not offer fare alerts.').length > 0);
+
+  // GOOD phrasings — must pass clean
+  assert.equal(checkReportGrounding('No booking widget is visible in the captured viewport.').length, 0);
+  assert.equal(checkReportGrounding('A fare-alert entry point was not visible in the captured evidence.').length, 0);
+  assert.equal(checkReportGrounding('A cookie-consent dialog covers much of the above-the-fold view, which adds friction at entry.').length, 0);
+  assert.equal(checkReportGrounding('The captured viewport shows a flight search widget and a Privilege Club promo.').length, 0);
+
+  // acquisition claim is allowed only when navigation metadata proves it
+  assert.equal(checkReportGrounding('The user arrived from a Google ad.', { hasReferrerMetadata: true }).length, 0);
+});
+
+test('completion gate: an ungrounded report or one with no stated limitations fails verification', () => {
+  const t = createBenchmarkTarget(T);
+  const dir = mkdtempSync(join(tmpdir(), 'grounding-'));
+  try {
+    const base = {
+      targetCompany: 'Qatar Airways', targetFeature: 'Homepage', url: 'https://www.qatarairways.com/',
+      evidence: { company: 'qatar_airways', feature: 'Homepage', url: 'https://www.qatarairways.com/', screenshotPath: THIS_FILE, relevance: 'direct' },
+      visionFindings: {},
+      reasoningData: { feature_found: true, analyzed_company: 'Qatar Airways', summary_markdown: 'x', evidence_limitations: 'Single viewport, one state.' },
+    };
+    const marker = `<!-- benchmark-target: company=${t.company} | slug=${t.slug} | url=${t.url} | feature=${t.feature} | request=${t.requestId} -->`;
+
+    // ungrounded: acquisition claim, but limitations stated
+    const bad = join(dir, 'bad.md');
+    writeFileSync(bad, `## Qatar Airways\n${marker}\nThe user arrived from a branded Google ad. Based on a single captured viewport with no interactions performed.\n`);
+    const r1 = verifyFeatureCompletion({ output: { ...base, reportPath: bad }, target: t });
+    assert.equal(r1.verification_status, 'failed');
+    assert.ok(r1.verification_errors.some((e) => /acquisition channel|referrer/i.test(e)));
+
+    // grounded + limitations stated → passes
+    const good = join(dir, 'good.md');
+    writeFileSync(good, `## Qatar Airways\n${marker}\nThe captured viewport shows a flight search widget. No AI assistant is visible in the captured evidence.\n\n## Evidence limitations\nBased on one captured viewport, one page state, with no interactions performed.\n`);
+    const r2 = verifyFeatureCompletion({ output: { ...base, reportPath: good }, target: t });
+    assert.equal(r2.verification_status, 'passed', r2.verification_summary);
+
+    // grounded but limitations NOT stated anywhere → fails
+    const noLimits = join(dir, 'nolimits.md');
+    writeFileSync(noLimits, `## Qatar Airways\n${marker}\nThe captured viewport shows a flight search widget.\n`);
+    const r3 = verifyFeatureCompletion({
+      output: { ...base, reportPath: noLimits, reasoningData: { ...base.reasoningData, evidence_limitations: '' } },
+      target: t,
+    });
+    assert.equal(r3.verification_status, 'failed');
+    assert.ok(r3.verification_errors.some((e) => /evidence limitations/i.test(e)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('contamination heuristic: names another brand but not the target → rejected', () => {
