@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 
 import { join, dirname } from 'path';
 import { randomBytes } from 'crypto';
 import { resolveOfficialUrl } from './companyUrls.js';
+import { persistStateBytes } from './storage/index.js';
 
 export const STAGES = [
   'queued',
@@ -105,7 +106,9 @@ function readRequests(projectRoot) {
 function writeRequests(projectRoot, data) {
   data._meta = data._meta || {};
   data._meta.last_updated = new Date().toISOString();
-  writeFileSync(requestsPath(projectRoot), JSON.stringify(data, null, 2) + '\n', 'utf8');
+  const json = JSON.stringify(data, null, 2) + '\n';
+  writeFileSync(requestsPath(projectRoot), json, 'utf8');   // local working copy — always
+  persistStateBytes(Buffer.from(json, 'utf8'));             // -> R2 (tracked; no-op when STORAGE_PROVIDER=local)
 }
 
 function computeBatchStatus(request) {

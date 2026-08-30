@@ -23,6 +23,10 @@ import { startBenchmark } from './lib/benchmarkService.js';
 import { BenchmarkScheduler } from '../11_Benchmark_Engine/scheduler/BenchmarkScheduler.js';
 import { EVENTS } from '../11_Benchmark_Engine/scheduler/progressEvents.js';
 import { logInfo, logError } from '../shared/logger.mjs';
+import {
+  getStorage, restoreRuntimeStateOnStartup,
+  keyForMarkdownRequestPath, resolveEvidenceLocalPath,
+} from './lib/storage/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT = join(__dirname, '..');   // AI_Travel_Benchmark_2026/ folder
@@ -193,7 +197,7 @@ app.get('/api/company/:slug', (req, res) => {
 });
 
 // ─── API: Markdown content ──────────────────────────────────────────────────
-app.get('/api/markdown', (req, res) => {
+app.get('/api/markdown', async (req, res) => {
   const filePath = req.query.path;
   if (!filePath) return res.status(400).json({ error: 'path required' });
 
@@ -201,9 +205,49 @@ app.get('/api/markdown', (req, res) => {
   const full = join(PROJECT, filePath);
   if (!full.startsWith(PROJECT)) return res.status(403).json({ error: 'Access denied' });
 
-  const content = readMD(filePath);
-  if (content === null) return res.status(404).json({ error: 'File not found' });
-  res.json({ content, path: filePath });
+  const local = readMD(filePath);
+  if (local !== null) return res.json({ content: local, path: filePath });
+
+  // Not on the (ephemeral) local disk. If this is a Feature Benchmark report
+  // and persistent storage is enabled, restore it from R2 and serve it
+  // through THIS endpoint — the bucket stays private. keyForMarkdownRequestPath
+  // returns null for anything that isn't a _Feature_Benchmarks/*.md path, so
+  // this never becomes a generic object reader.
+  const key = keyForMarkdownRequestPath(String(filePath));
+  const storage = getStorage();
+  if (key && storage.isRemote) {
+    try {
+      const restored = await storage.restoreFile(key, full);
+      if (restored) {
+        logInfo('served report from R2 after local miss', { key });
+        return res.json({ content: readMD(filePath), path: filePath, source: 'r2' });
+      }
+    } catch (err) {
+      logError('report R2 restore failed', { key, error: err.message });
+    }
+  }
+  return res.status(404).json({ error: 'File not found' });
+});
+
+// ─── API: Feature Benchmark evidence (screenshot / vision json) ─────────────
+// Lazy, on-demand: try the local cache, else restore the one object from R2.
+// Never lists the bucket, never accepts a path — only (requestId, filename).
+app.get('/api/evidence/:requestId/:filename', async (req, res) => {
+  const { requestId, filename } = req.params;
+  if (!/^[A-Za-z0-9._-]+$/.test(requestId) || !/^[A-Za-z0-9._-]+$/.test(filename)) {
+    return res.status(400).json({ error: 'invalid evidence reference' });
+  }
+  try {
+    const found = await resolveEvidenceLocalPath({
+      requestId, filename,
+      cacheDir: join(PROJECT, '03_Screenshots', '_evidence_cache'),
+    });
+    if (!found) return res.status(404).json({ error: 'evidence not found' });
+    return res.sendFile(found.path);
+  } catch (err) {
+    logError('evidence fetch failed', { requestId, filename, error: err.message });
+    return res.status(500).json({ error: 'could not load evidence' });
+  }
 });
 
 // ─── API: Screenshots inventory ─────────────────────────────────────────────
@@ -636,9 +680,32 @@ app.get('*', (req, res) => {
   res.sendFile(join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`\n✅ AI Travel Benchmark Dashboard`);
-  console.log(`   http://localhost:${PORT}\n`);
-  console.log(`   Reads live from: ${PROJECT}`);
-  console.log(`   Auto-updates after every benchmark — just refresh.\n`);
-});
+// ─── Startup: restore persistent runtime state BEFORE accepting requests ────
+async function start() {
+  let providerLabel = 'local';
+  try {
+    providerLabel = getStorage().provider;
+  } catch (err) {
+    // STORAGE_PROVIDER=r2 with missing/invalid config. Loud, but the server
+    // still boots so the UI and read paths keep working on the local disk;
+    // every write that would have persisted logs a clear error.
+    logError('storage provider is misconfigured — running without persistence', { error: err.message });
+  }
+
+  try {
+    const summary = await restoreRuntimeStateOnStartup(PROJECT);
+    logInfo('storage startup restore complete', summary);
+  } catch (err) {
+    logError('storage startup restore failed', { error: err.message });
+  }
+
+  app.listen(PORT, () => {
+    console.log(`\n✅ AI Travel Benchmark Dashboard`);
+    console.log(`   http://localhost:${PORT}\n`);
+    console.log(`   Reads live from: ${PROJECT}`);
+    console.log(`   Storage provider: ${providerLabel}`);
+    console.log(`   Auto-updates after every benchmark — just refresh.\n`);
+  });
+}
+
+start();

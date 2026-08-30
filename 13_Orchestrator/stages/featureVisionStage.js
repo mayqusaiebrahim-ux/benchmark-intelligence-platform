@@ -21,10 +21,12 @@
  *    (company slug, feature, domain) before Vision is called.
  */
 import { existsSync } from 'fs';
+import { basename } from 'path';
 import { getVisionProvider } from '../../12_Provider_Layer/registry/ProviderRegistry.js';
 import { Stage } from '../runtime/Stage.js';
 import { resolveFeatureIntent } from '../featureNavigation/featureIntent.js';
 import { assertObservedUrl, sameRegistrableDomain, targetLogFields } from '../runtime/benchmarkTarget.js';
+import { getStorage, keyForScreenshot, keyForNavArtifact, persistFile } from '../../10_Dashboard/lib/storage/index.js';
 import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
 // Re-exported for existing callers/tests that imported it from here.
@@ -147,6 +149,40 @@ export const featureVisionStage = new Stage(
         throw new Error(result.error || 'Vision analysis failed');
       }
 
+      // ── Persist the evidence to R2, keyed by requestId (never by the
+      //    mutable company label). Screenshot + Vision findings + the
+      //    navigation manifest are the artifacts needed to re-open / audit
+      //    this run later. When STORAGE_PROVIDER=r2, a failed upload FAILS
+      //    the run — evidence that only exists on Render's ephemeral disk is
+      //    not "safely persisted". Local-provider mode is a no-op.
+      const storage = getStorage();
+      const evidenceKeys = {};
+      if (storage.isRemote) {
+        const rid = target.requestId;
+        const uploads = [
+          ['screenshot', keyForScreenshot(rid, basename(evidence.screenshotPath)), evidence.screenshotPath],
+        ];
+        if (result.jsonPath && existsSync(result.jsonPath)) {
+          uploads.push(['vision', keyForScreenshot(rid, 'vision.json'), result.jsonPath]);
+        }
+        const manifestPath = previousOutput?.manifest_path;
+        if (manifestPath && existsSync(manifestPath)) {
+          uploads.push(['manifest', keyForNavArtifact(rid, 'run_manifest.json'), manifestPath]);
+        }
+        for (const [name, key, path] of uploads) {
+          const r = await persistFile(key, path);
+          if (!r.ok) {
+            logError('Feature Vision: evidence upload to persistent storage FAILED', { name, key, error: r.error, ...targetLogFields(target) });
+            throw new Error(
+              `Evidence (${name}) captured but could NOT be saved to persistent storage (${r.error}). ` +
+              `Refusing to treat this benchmark as persisted.`,
+            );
+          }
+          evidenceKeys[name] = key;
+        }
+        logInfo('Feature Vision: evidence persisted to R2', { ...evidenceKeys, ...targetLogFields(target) });
+      }
+
       return {
         // accumulator fields threaded to Reasoning / Report Writer / gate
         targetCompany: target.company,
@@ -159,7 +195,8 @@ export const featureVisionStage = new Stage(
         featureStepId: intent.stepId,
         featureStepFound: evidence.relevance === 'direct',
         selectedStep: { step_id: evidence.stepId, status: evidence.stepStatus },
-        evidence,
+        evidence: { ...evidence, r2Key: evidenceKeys.screenshot || null },
+        evidenceKeys,
         timing: result.timing,
       };
     });

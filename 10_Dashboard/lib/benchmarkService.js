@@ -25,6 +25,7 @@
 import { BenchmarkOrchestrator } from '../../13_Orchestrator/index.js';
 import { setStage } from './requestsStore.js';
 import { resolveOfficialUrl } from './companyUrls.js';
+import { flushStatePersistence } from './storage/index.js';
 
 const orchestrator = new BenchmarkOrchestrator();
 
@@ -236,7 +237,7 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
       },
     },
   )
-    .then((outcome) => {
+    .then(async (outcome) => {
       runStatus.set(jobId, 'completed');
       const finishedAt = new Date().toISOString();
 
@@ -277,6 +278,27 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
             });
           } catch (err) {
             console.log(`[benchmarkService] Could not set stage to 'completed' for ${jobId}: ${err.message}`);
+          }
+
+          // Completion-persistence gate: the report + evidence were already
+          // uploaded (or the pipeline would have failed at those stages). The
+          // last thing that must be safe is the request state itself — if the
+          // R2 write for Benchmark_Requests.json did not land, this run is
+          // NOT safely persisted and must not stand as Completed. Only
+          // meaningful when STORAGE_PROVIDER=r2 (flush.attempted).
+          try {
+            const flush = await flushStatePersistence();
+            if (flush.attempted && !flush.ok) {
+              const msg = `The report and evidence were saved, but the run state could not be written to persistent storage (${flush.error}). Not safe to mark Completed — retry once storage is reachable.`;
+              console.log(`[benchmarkService] Completion-persistence gate FAILED — requestId=${requestId} — ${flush.error}`);
+              setStage(projectRoot, requestId, slug, 'verification_failed', {
+                completed_at: finishedAt,
+                execution_status: 'verification_failed',
+                execution_message: msg,
+              });
+            }
+          } catch (err) {
+            console.log(`[benchmarkService] Completion-persistence gate check errored for ${jobId}: ${err.message}`);
           }
         }
       } else {

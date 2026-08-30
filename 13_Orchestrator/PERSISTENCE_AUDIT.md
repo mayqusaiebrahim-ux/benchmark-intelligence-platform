@@ -1,8 +1,52 @@
 # Persistence audit — Feature Benchmark runtime state
 
-**Scope:** documentation only. No storage service is implemented in the
-CRITICAL CORRECTNESS FIX commit. This file records what is lost today and the
-smallest fix to do next, kept separate from the correctness work.
+**Status: RESOLVED.** The persistence layer below was implemented in the
+"PERSISTENCE FIX — KEEP RENDER, ADD CLOUDFLARE R2" commit. This file is kept
+as the audit + design record.
+
+**What was built:** `STORAGE_PROVIDER=local` (default, unchanged behaviour) or
+`STORAGE_PROVIDER=r2`. In `r2` mode the local filesystem stays the active
+working/cache directory (no `fs` call site became async) and Cloudflare R2 —
+via its S3 API, signed with the zero-dependency `aws4fetch` — is the
+persistent source of truth for *generated runtime artifacts only*:
+
+| Local file | R2 object key | When written | When restored |
+|---|---|---|---|
+| `Benchmark_Requests.json` | `state/Benchmark_Requests.json` | every `writeRequests()` (write-through, tracked) | eagerly on boot, before the server accepts requests — R2 wins over the stale repo copy |
+| `_Feature_Benchmarks/<feature>/<requestId>.md` | `feature-benchmarks/<feature>/<requestId>.md` | in `featureReportWriterStage` — run fails if the upload fails | eagerly on boot (small text); also on-demand via `GET /api/markdown` |
+| evidence screenshot | `screenshots/<requestId>/<file>.png` | in `featureVisionStage` — run fails if the upload fails | lazily, on-demand, via `GET /api/evidence/:requestId/:filename` |
+| Vision findings | `screenshots/<requestId>/vision.json` | in `featureVisionStage` | lazily |
+| navigation run manifest | `navigation/<requestId>/run_manifest.json` | in `featureVisionStage` | lazily |
+
+`requestId` (the collision-resistant `req_<epoch-ms>_<hex>` id) is the primary
+key for every run's objects — never a mutable company label. Old
+`req_YYYYMMDD_NNN.md` report paths still map correctly (the key is derived
+from the `_Feature_Benchmarks/<feature>/<file>.md` tail).
+
+**Completion is gated on persistence.** A Feature Benchmark cannot stand as
+`completed` unless, in `r2` mode: the report uploaded (else the run fails at
+`feature_report_writer`), the evidence uploaded (else it fails at
+`feature_vision`), and the final `Benchmark_Requests.json` write landed in R2
+(else `benchmarkService` downgrades `completed` → `verification_failed` with a
+clear "retry once storage is reachable" message). A failed state write is
+logged as a clear, non-secret error and surfaced by `flushStatePersistence()`.
+
+**Security:** the bucket is private; no R2 secret appears in the frontend, API
+responses, logs or generated reports. `GET /api/markdown` only falls back to
+R2 for validated `_Feature_Benchmarks/*.md` paths (`keyForMarkdownRequestPath`
+rejects traversal / absolute paths / anything else) — it is not a generic
+object reader. `GET /api/evidence` takes only `(requestId, filename)`, both
+`^[A-Za-z0-9._-]+$`, and never lists the bucket.
+
+**Not persisted** (intentionally): the static research repo
+(`Master_Benchmark_Matrix.json`, the committed Mindtrip/Trip/Booking/ixigo
+screenshots and reports — already in git), per-step raw `page.html` snapshots
+(large, not consumed by any read path), and in-memory-only guards
+(`benchmarkService.runStatus`, `activeHomepageRun`).
+
+---
+
+## Original audit (pre-fix)
 
 ---
 

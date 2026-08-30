@@ -42,6 +42,29 @@ services:
       # session creation — see browserLauncher.js. Leave unset if not needed.
       - key: BROWSERBASE_PROJECT_ID
         sync: false
+      # ─── Persistent object storage (Cloudflare R2) ──────────────────────
+      # Render's filesystem is ephemeral on the free tier and rebuilt on
+      # deploy — Benchmark_Requests.json, generated Feature Benchmark reports
+      # and screenshot evidence do not survive a restart. With
+      # STORAGE_PROVIDER=r2 the app mirrors those generated runtime artifacts
+      # to a private R2 bucket and restores them on boot. See
+      # 10_Dashboard/lib/storage/ and 13_Orchestrator/PERSISTENCE_AUDIT.md.
+      # Leave STORAGE_PROVIDER unset (or =local) to keep the old
+      # local-filesystem-only behaviour.
+      - key: STORAGE_PROVIDER
+        value: r2
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+    # A persistent Disk is still declared, but is no longer load-bearing:
+    # with R2 configured the generated state is safe regardless of whether
+    # this instance type actually provisions the Disk. On a plan without
+    # Disk support the mount is simply ignored and R2 covers persistence.
     disk:
       name: benchmark-data
       mountPath: /opt/render/project/src

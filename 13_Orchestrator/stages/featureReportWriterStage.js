@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { Stage } from '../runtime/Stage.js';
 import { nameRefersToTarget, targetLogFields } from '../runtime/benchmarkTarget.js';
+import { getStorage, keyForReportPath, persistFile } from '../../10_Dashboard/lib/storage/index.js';
 import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
 function slugify(name) {
@@ -88,8 +89,27 @@ export const featureReportWriterStage = new Stage(
         throw err;
       }
 
-      logInfo('Feature Report Writer finished', { ...targetLogFields(target), filePath });
-      return { ...(previousOutput || {}), reportPath: filePath };
+      // ── Persist the exact report to R2. The run is not "safely persisted"
+      //    until this succeeds (when STORAGE_PROVIDER=r2). Local-provider
+      //    mode is a no-op and reportKey stays null.
+      let reportKey = null;
+      const storage = getStorage();
+      if (storage.isRemote) {
+        const key = keyForReportPath(filePath);
+        const result = await persistFile(key, filePath);
+        if (!result.ok) {
+          logError('Feature Report Writer: report upload to persistent storage FAILED', { key, error: result.error, ...targetLogFields(target) });
+          throw new Error(
+            `Report written locally but could NOT be saved to persistent storage (${result.error}). ` +
+            `Refusing to treat this benchmark as persisted.`,
+          );
+        }
+        reportKey = key;
+        logInfo('Feature Report Writer: report persisted to R2', { key, ...targetLogFields(target) });
+      }
+
+      logInfo('Feature Report Writer finished', { ...targetLogFields(target), filePath, reportKey });
+      return { ...(previousOutput || {}), reportPath: filePath, reportKey };
     });
   },
 );
