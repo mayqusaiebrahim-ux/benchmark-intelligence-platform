@@ -733,23 +733,49 @@ function cbActionHtml(b) {
   return `<a class="cb-row-action cb-row-stretch" href="#activity">View progress<span aria-hidden="true"> →</span></a>`;
 }
 
+// A benchmark reads as a saved intelligence object: leading initial, company +
+// feature, scope + date, live status, and the captured screenshot when there
+// is one. The whole card is one link — a finished benchmark opens its report,
+// an in-flight one goes to Activity.
+const _thumbCache = new Map();
+function lazyThumb(requestId) {
+  const id = `thb_${String(requestId).replace(/[^a-z0-9_]/gi, '')}_${(lazyThumb._n = (lazyThumb._n || 0) + 1)}`;
+  Promise.resolve().then(async () => {
+    let url = _thumbCache.get(requestId);
+    if (url === undefined) {
+      try {
+        const ev = await api.get(`/api/evidence/${encodeURIComponent(requestId)}`);
+        url = (ev.screenshots && ev.screenshots[0] && ev.screenshots[0].url) || null;
+      } catch { url = null; }
+      _thumbCache.set(requestId, url);
+    }
+    const el = document.getElementById(id);
+    if (el && url) { el.style.backgroundImage = `url("${url}")`; el.classList.add('has-thumb'); }
+  });
+  return id;
+}
+
 function cbRowHtml(b) {
   const st = cbStatus(b.status);
   const running = b.status === 'in_progress';
-  const meta = [(b.scope || []).join(', '), fmtDate(b.date)].filter(Boolean).join('  ·  ');
+  const href = (b.has_report && b.status === 'complete')
+    ? `#feature-report/${encodeURIComponent(b.request_id)}`
+    : '#activity';
+  const metaBits = [(b.scope || []).join(', '), fmtDate(b.date)].filter(Boolean).join('  ·  ');
+  const thumbId = lazyThumb(b.request_id);
   return `
-    <div class="cb-row">
-      <span class="cb-row-mark" aria-hidden="true">${cbInitial(b.companies?.[0] || b.company)}</span>
-      <div class="cb-row-main">
-        <div class="cb-row-company">${b.company}</div>
-        <div class="cb-row-feature">${b.feature}</div>
-        <div class="cb-row-meta">${meta}${running ? `  ·  ${cbStageLabel(b.stage)}` : ''}</div>
+    <a class="cb-card" href="${href}">
+      <span class="cb-card-mark" aria-hidden="true">${cbInitial(b.companies?.[0] || b.company)}</span>
+      <div class="cb-card-main">
+        <div class="cb-card-company">${escapeHtml(b.company)}</div>
+        <div class="cb-card-feature">${escapeHtml(b.feature)}</div>
+        <div class="cb-card-meta">
+          <span class="status-pill status-${b.status}">${st.label}</span>
+          <span class="cb-card-when">${escapeHtml(metaBits)}${running ? `  ·  ${escapeHtml(cbStageLabel(b.stage))}` : ''}</span>
+        </div>
       </div>
-      <div class="cb-row-side">
-        <span class="status-pill status-${b.status}">${st.label}</span>
-        ${cbActionHtml(b)}
-      </div>
-    </div>`;
+      <span class="cb-card-thumb" id="${thumbId}" aria-hidden="true"></span>
+    </a>`;
 }
 
 function cbListHtml(items) {
@@ -768,38 +794,62 @@ function cbEmptyStateHtml(context) {
 // ─── Page: Home ──────────────────────────────────────────────────────────────
 const HOME_EXAMPLES = ['Homepage', 'Booking Flow', 'Search', 'Payment', 'AI Chat'];
 
+function firstName(u) {
+  const n = (u && u.name) || '';
+  return n.trim().split(/\s+/)[0] || null;
+}
+
 async function renderHome() {
-  setTitle('Home');
+  setTitle('My Workspace');
   setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   const benchmarks = await getCurrentBenchmarks(true);
   const recent = benchmarks.slice(0, 6);
+  const total = benchmarks.length;
+  const running = benchmarks.filter(b => b.status !== 'complete').length;
+  const completed = benchmarks.filter(b => b.status === 'complete').length;
+  const fn = firstName(SESSION_USER);
+
+  const emptyWorkspace = total === 0;
 
   setContent(`
-    <div class="home">
-      <section class="home-hero">
-        <div class="home-hero-brand">Benchmark Intelligence</div>
-        <h1 class="home-hero-title">Benchmark any digital travel experience<br class="home-hero-br" /> and understand how leading products solve it.</h1>
+    <div class="ws">
+      <header class="ws-head">
+        <div>
+          <div class="ws-eyebrow">My Workspace</div>
+          <h1 class="ws-title">${fn ? `Welcome back, ${escapeHtml(fn)}` : 'Welcome back'}</h1>
+        </div>
+        <a href="#wizard" class="btn btn-primary ws-new">New Benchmark</a>
+      </header>
 
+      ${emptyWorkspace ? '' : `
+      <section class="ws-metrics" aria-label="Workspace summary">
+        <div class="ws-metric"><span class="ws-metric-n">${total}</span><span class="ws-metric-l">Benchmark${total === 1 ? '' : 's'}</span></div>
+        <div class="ws-metric"><span class="ws-metric-n">${running}</span><span class="ws-metric-l">Running</span></div>
+        <div class="ws-metric"><span class="ws-metric-n">${completed}</span><span class="ws-metric-l">Completed</span></div>
+      </section>`}
+
+      <section class="ws-quick">
         <form class="home-quick" onsubmit="homeQuickStart(event)">
-          <input type="text" id="home-quick-input" class="home-quick-input" placeholder="What do you want to benchmark?" autocomplete="off" aria-label="What do you want to benchmark?" />
-          <button type="submit" class="btn btn-primary btn-lg">Start benchmark<span aria-hidden="true"> →</span></button>
+          <input type="text" id="home-quick-input" class="home-quick-input" placeholder="Benchmark a feature — e.g. “Emirates payment flow”" autocomplete="off" aria-label="What do you want to benchmark?" />
+          <button type="submit" class="btn btn-primary btn-lg">Start<span aria-hidden="true"> →</span></button>
         </form>
-
         <div class="home-examples">
           <span class="home-examples-label">Try</span>
           ${HOME_EXAMPLES.map(f => `<button type="button" class="home-example" onclick="homeQuickPick('${f}')">${f}</button>`).join('')}
         </div>
-
-        <a href="#wizard" class="home-manual">Or create a benchmark manually<span aria-hidden="true"> →</span></a>
       </section>
 
-      <section class="home-recent">
-        <div class="home-recent-head">
+      <section class="ws-recent">
+        <div class="ws-recent-head">
           <h2>Recent benchmarks</h2>
           ${benchmarks.length > recent.length ? `<a href="#benchmarks" class="btn-link">View all</a>` : ''}
         </div>
-        ${recent.length ? cbListHtml(recent) : `<p class="home-recent-empty">Nothing yet — start your first benchmark above.</p>`}
+        ${recent.length
+          ? cbListHtml(recent)
+          : `<div class="ws-recent-empty">
+               <p>No benchmarks yet. Name a feature above and run your first one — the report lands right here.</p>
+             </div>`}
       </section>
     </div>
   `);
@@ -1378,7 +1428,7 @@ async function archiveContentHtml() {
 // A content library: Current (only /api/current-benchmarks) and Archive
 // (legacy). No KPI tiles, no analytics — each benchmark reads as a document.
 async function renderBenchmarks(query) {
-  setTitle('Benchmarks');
+  setTitle('My Benchmarks');
   const tab = query?.get('tab') === 'archive' ? 'archive' : 'current';
   setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
@@ -1387,7 +1437,7 @@ async function renderBenchmarks(query) {
   function tabsHtml() {
     return `
       <div class="lib-tabs" role="tablist">
-        <a href="#benchmarks" class="lib-tab ${tab === 'current' ? 'active' : ''}" role="tab" aria-selected="${tab === 'current'}">Current</a>
+        <a href="#benchmarks" class="lib-tab ${tab === 'current' ? 'active' : ''}" role="tab" aria-selected="${tab === 'current'}">My benchmarks</a>
         <a href="#benchmarks?tab=archive" class="lib-tab ${tab === 'archive' ? 'active' : ''}" role="tab" aria-selected="${tab === 'archive'}">Archive</a>
       </div>`;
   }
@@ -1395,7 +1445,7 @@ async function renderBenchmarks(query) {
   if (tab === 'archive') {
     setContent(`
       <div class="lib">
-        <h1 class="page-title">Benchmarks</h1>
+        <h1 class="page-title">My Benchmarks</h1>
         ${tabsHtml()}
         <div id="lib-body"><div class="loading-state"><div class="spinner"></div></div></div>
       </div>`);
@@ -1406,16 +1456,26 @@ async function renderBenchmarks(query) {
   if (benchmarks.length === 0) {
     setContent(`
       <div class="lib">
-        <h1 class="page-title">Benchmarks</h1>
+        <h1 class="page-title">My Benchmarks</h1>
         ${tabsHtml()}
-        ${cbEmptyStateHtml('Every benchmark you run and its report will appear here.')}
+        ${cbEmptyStateHtml('Every benchmark you run and its report lands here — your own research library.')}
       </div>`);
     return;
   }
 
+  const features = [...new Set(benchmarks.map(b => b.feature).filter(Boolean))].sort();
+  if (_library_filters.feature === undefined) _library_filters.feature = 'all';
+  if (_library_filters.status === undefined) _library_filters.status = 'all';
+
   function draw() {
     const q = _library_filters.q.trim().toLowerCase();
-    let list = benchmarks.filter(b => !q || `${b.company} ${b.feature}`.toLowerCase().includes(q));
+    let list = benchmarks.filter(b => {
+      if (q && !`${b.company} ${b.feature}`.toLowerCase().includes(q)) return false;
+      if (_library_filters.feature !== 'all' && b.feature !== _library_filters.feature) return false;
+      if (_library_filters.status === 'complete' && b.status !== 'complete') return false;
+      if (_library_filters.status === 'running' && b.status === 'complete') return false;
+      return true;
+    });
     list.sort((a, b) => {
       const d = new Date(b.date) - new Date(a.date);
       return _library_filters.sort === 'oldest' ? -d : d;
@@ -1424,17 +1484,26 @@ async function renderBenchmarks(query) {
     if (!el) return;
     el.innerHTML = list.length
       ? `<div class="lib-count">${list.length} benchmark${list.length === 1 ? '' : 's'}</div>${cbListHtml(list)}`
-      : `<div class="empty-state"><h3>No matches</h3><p>Nothing matches “${_library_filters.q}”.</p></div>`;
+      : `<div class="empty-state"><h3>No matches</h3><p>Nothing matches the current filters.</p></div>`;
   }
 
   window.libraryFilterSet = function(key, value) { _library_filters[key] = value; draw(); };
 
   setContent(`
     <div class="lib">
-      <h1 class="page-title">Benchmarks</h1>
+      <h1 class="page-title">My Benchmarks</h1>
       ${tabsHtml()}
       <div class="lib-controls">
         <input type="text" class="form-input lib-search" placeholder="Search company or feature…" value="${_library_filters.q}" oninput="libraryFilterSet('q', this.value)" aria-label="Search benchmarks" />
+        <select class="form-select" onchange="libraryFilterSet('feature', this.value)" aria-label="Filter by feature">
+          <option value="all"${_library_filters.feature === 'all' ? ' selected' : ''}>All features</option>
+          ${features.map(f => `<option value="${escapeAttr(f)}"${_library_filters.feature === f ? ' selected' : ''}>${escapeHtml(f)}</option>`).join('')}
+        </select>
+        <select class="form-select" onchange="libraryFilterSet('status', this.value)" aria-label="Filter by status">
+          <option value="all"${_library_filters.status === 'all' ? ' selected' : ''}>Any status</option>
+          <option value="complete"${_library_filters.status === 'complete' ? ' selected' : ''}>Completed</option>
+          <option value="running"${_library_filters.status === 'running' ? ' selected' : ''}>Running</option>
+        </select>
         <select class="form-select lib-sort" onchange="libraryFilterSet('sort', this.value)" aria-label="Sort by date">
           <option value="newest"${_library_filters.sort !== 'oldest' ? ' selected' : ''}>Newest first</option>
           <option value="oldest"${_library_filters.sort === 'oldest' ? ' selected' : ''}>Oldest first</option>
@@ -1538,34 +1607,282 @@ function parseReportMeta(rawMarkdown) {
   return { capturedUrl: fields.url || null, capturedAt, featureFound };
 }
 
-// The Evidence section — the actual captured screenshot, served from the
-// private app endpoint (never public R2), clickable to enlarge, with a
-// meaningful alt label. Rendered only when real evidence exists.
+// ─── Deterministic report parsing ────────────────────────────────────────────
+// Turns the generated markdown into a scannable structure WITHOUT a second
+// model call and WITHOUT inventing content. Anything it can't find with
+// confidence is left null and simply isn't shown — the full markdown is always
+// preserved under "View full analysis".
+
+function shortenUrl(u) {
+  if (!u) return '';
+  try {
+    const p = new URL(u);
+    let s = p.host.replace(/^www\./, '') + p.pathname.replace(/\/$/, '');
+    return s.length > 48 ? s.slice(0, 47) + '…' : s;
+  } catch {
+    return String(u).replace(/^https?:\/\/(www\.)?/, '').split(/[?#]/)[0].replace(/\/$/, '');
+  }
+}
+
+// markdown -> [{ title, level, body }] sections split on ## / ###
+function splitSections(md) {
+  const lines = String(md).split('\n');
+  const out = [];
+  let cur = { title: '', level: 0, body: [] };
+  for (const ln of lines) {
+    const m = ln.match(/^(#{2,4})\s+(.*)$/);
+    if (m) { out.push(cur); cur = { title: m[2].trim(), level: m[1].length, body: [] }; }
+    else cur.body.push(ln);
+  }
+  out.push(cur);
+  return out.map(s => ({ ...s, body: s.body.join('\n').trim() }));
+}
+
+function findSection(sections, re) {
+  return sections.find(s => re.test(s.title)) || null;
+}
+
+// A prose/list body -> [{ heading, detail }]. Handles "- **H** — d", "- **H:** d",
+// "1. **H**\n why…", and plain "- sentence." (heading = clause before first — / . ).
+function parsePoints(body) {
+  if (!body) return [];
+  const pts = [];
+  const items = body.split(/\n(?=\s*(?:[-*]|\d+\.)\s)/).map(x => x.trim()).filter(Boolean);
+  const list = items.length > 1 || /^\s*(?:[-*]|\d+\.)\s/.test(body) ? items : body.split(/\n\n+/).map(x => x.trim()).filter(Boolean);
+  for (let raw of list) {
+    raw = raw.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').trim();
+    if (!raw) continue;
+    const bold = raw.match(/^\*\*(.+?)\*\*[\s:—–-]*([\s\S]*)$/);
+    if (bold) {
+      let d = bold[2].trim().replace(/^[\s,;:.—–-]+/, '').replace(/^\n+/, '').trim();
+      if (d) d = d.charAt(0).toUpperCase() + d.slice(1);
+      pts.push({ heading: bold[1].trim().replace(/[:.]$/, ''), detail: d });
+    } else {
+      const seg = raw.split(/(?:\s—\s|\.\s+)/);
+      const heading = seg[0].replace(/\*\*/g, '').trim().replace(/[:.]$/, '');
+      const detail = raw.slice(seg[0].length).replace(/^(?:\s—\s|[.\s]+)/, '').trim();
+      pts.push({ heading: heading.length > 90 ? heading.slice(0, 88) + '…' : heading, detail });
+    }
+  }
+  return pts.filter(p => p.heading);
+}
+
+// A markdown table OR "Label — Rating" lines -> [{ label, rating }].
+function parseAssessment(body) {
+  if (!body) return null;
+  const rows = [];
+  const tableRows = body.split('\n').filter(l => /^\s*\|.*\|\s*$/.test(l));
+  if (tableRows.length >= 3) {
+    for (const l of tableRows.slice(1)) {
+      if (/^\s*\|[\s:|-]+\|\s*$/.test(l)) continue;
+      const cells = l.split('|').map(c => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
+      if (cells.length >= 2 && cells[0] && cells[1]) rows.push({ label: cells[0].replace(/\*\*/g, ''), rating: cells[1].replace(/\*\*/g, '') });
+    }
+  }
+  if (!rows.length) {
+    for (const l of body.split('\n')) {
+      const m = l.match(/^\s*[-*]?\s*([A-Za-z][A-Za-z /&-]{2,40}?)\s*(?:[—–:]|\s{2,})\s*(Strong|Good|Moderate|Weak|Poor|Excellent|Fair|Basic|Absent|High|Medium|Low)\b/i);
+      if (m) rows.push({ label: m[1].trim(), rating: m[2] });
+    }
+  }
+  return rows.length >= 2 ? rows : null;
+}
+
+const RATING_TONE = {
+  excellent: 'good', strong: 'good', high: 'good', good: 'good',
+  moderate: 'mid', fair: 'mid', medium: 'mid', basic: 'mid',
+  weak: 'low', poor: 'low', low: 'low', absent: 'low',
+};
+
+function parseReport(md, { company, feature }) {
+  const meta = parseReportMeta(md);
+  const sections = splitSections(md);
+
+  const strengthsSec = findSection(sections, /strength/i);
+  const frictionsSec = findSection(sections, /friction|weakness|gap/i);
+  const recsSec = findSection(sections, /recommendation/i);
+  const assessSec = findSection(sections, /assessment/i);
+  const limitsSec = findSection(sections, /limitation|caveat/i);
+  const obsSec = findSection(sections, /what.*observed|what the .* (is|actually)/i);
+  const oppSec = findSection(sections, /opportunit/i);
+
+  // Bold-block fallbacks used by older reports ("**Strengths**" inside a
+  // "Benchmark takeaways" section).
+  const boldBlock = (label) => {
+    const re = new RegExp(`\\*\\*${label}[^*]*\\*\\*\\s*([\\s\\S]*?)(?=\\n\\s*\\*\\*[A-Z]|\\n#{2,}|$)`, 'i');
+    const m = md.match(re);
+    return m ? m[1].trim() : '';
+  };
+
+  const strengths = parsePoints(strengthsSec?.body || boldBlock('Strength'));
+  const frictions = parsePoints(frictionsSec?.body || boldBlock('Weakness') || boldBlock('Friction') || boldBlock('gap'));
+
+  let recommendations = parsePoints(recsSec?.body || '');
+  recommendations = recommendations.map(p => {
+    const whyM = p.detail.match(/(?:why|because)[:\s-]+([\s\S]*?)(?=(?:evidence|observed)[:\s-]|$)/i);
+    const evM = p.detail.match(/(?:evidence|observed)[:\s-]+([\s\S]*)$/i);
+    return {
+      title: p.heading,
+      why: whyM ? whyM[1].trim() : (whyM || evM ? '' : p.detail),
+      evidence: evM ? evM[1].trim() : '',
+    };
+  });
+
+  const assessment = parseAssessment(assessSec?.body || '');
+
+  // Limitations: prefer a dedicated section, else a "Confidence:" line.
+  let limitations = limitsSec?.body?.trim() || '';
+  if (!limitations) {
+    const conf = md.match(/\*\*Confidence:\*\*\s*([^\n]+)/i);
+    if (conf) limitations = conf[1].trim();
+  }
+  limitations = limitations
+    .replace(/^#+\s.*$/gm, '')       // stray headings
+    .replace(/\n?-{3,}\s*$/g, '')    // trailing markdown rule
+    .replace(/\s*[—–-]{2,}\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (limitations.length > 300) {
+    const cut = limitations.slice(0, 300);
+    limitations = cut.slice(0, Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('; '), 220) + 1).trim() + ' …';
+  }
+
+  // Takeaways: one Strength / Friction / Opportunity, only if found.
+  const oppText = oppSec?.body?.trim()
+    || (md.match(/\*\*Opportunity:?\*\*[:\s]*([^\n]+(?:\n(?!\s*\n|\s*\*\*|#).*)*)/i) || [])[1]
+    || '';
+  const oppPoint = oppText ? parsePoints(oppText)[0] || { heading: firstSentence(oppText), detail: oppText } : (recommendations[0] ? { heading: recommendations[0].title, detail: recommendations[0].why } : null);
+
+  const cap = (s) => { s = String(s || '').replace(/^[\s,;:.—–-]+/, '').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; };
+  const takeaways = [
+    strengths[0] && { kind: 'strength', label: 'Strength', heading: strengths[0].heading, detail: cap(strengths[0].detail) },
+    frictions[0] && { kind: 'friction', label: 'Friction', heading: frictions[0].heading, detail: cap(frictions[0].detail) },
+    oppPoint && { kind: 'opportunity', label: 'Opportunity', heading: oppPoint.heading, detail: cap(oppPoint.detail) },
+  ].filter(Boolean);
+
+  return {
+    meta, sections,
+    observed: obsSec?.body?.trim() || '',
+    takeaways, strengths, frictions, recommendations, assessment, limitations,
+  };
+}
+
+function firstSentence(t) {
+  const s = String(t).replace(/\s+/g, ' ').trim();
+  const m = s.match(/^(.{10,120}?[.!?])(\s|$)/);
+  return (m ? m[1] : s.slice(0, 96)).replace(/\*\*/g, '');
+}
+function clampText(t, n) {
+  const s = String(t || '').replace(/\s+/g, ' ').trim();
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s;
+}
+
+// The Evidence section — the captured screenshot(s) in a browser-chrome frame,
+// served from the private app endpoint (never public R2), clickable to
+// enlarge. Built as a list so a future multi-screenshot capture needs no
+// structural change.
 function evidenceBlockHtml({ evidence, company, feature, meta }) {
-  const shot = (evidence?.screenshots || [])[0];
-  if (!shot) return '';
-  const label = `${feature}${meta.featureFound ? ' · Direct observation' : ' · Base-page observation'}`;
-  const alt = `Captured screenshot of ${company || 'the site'} — ${feature}${meta.featureFound ? '' : ' (homepage / base page)'}`;
-  const captionBits = [];
-  captionBits.push(`<span class="report-ev-label">${escapeHtml(label)}</span>`);
-  if (meta.capturedUrl) {
-    captionBits.push(`<span class="report-ev-meta">Captured URL <a href="${escapeAttr(meta.capturedUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(meta.capturedUrl)}</a></span>`);
-  }
-  if (meta.capturedAt) {
-    captionBits.push(`<span class="report-ev-meta">Captured ${escapeHtml(fmtDate(meta.capturedAt))}</span>`);
-  }
-  const imgUrl = shot.url;
+  const shots = (evidence && evidence.screenshots) || [];
+  if (!shots.length) return '';
+  const fullUrl = meta.capturedUrl || '';
+  const shortUrl = shortenUrl(fullUrl);
+  const label = `${feature} · ${meta.featureFound ? 'Direct observation' : 'Base-page observation'}`;
   const enlargeName = `${company || ''} — ${feature}`.trim();
+
+  const frame = (shot, i) => {
+    const alt = `Captured screenshot of ${company || 'the site'} — ${feature}${meta.featureFound ? '' : ' (homepage / base page)'}${shots.length > 1 ? ` (${i + 1} of ${shots.length})` : ''}`;
+    return `
+      <figure class="ev-frame">
+        <div class="ev-chrome" aria-hidden="true">
+          <span class="ev-dot"></span><span class="ev-dot"></span><span class="ev-dot"></span>
+          ${fullUrl ? `<a class="ev-omnibox" href="${escapeAttr(fullUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeAttr(fullUrl)}">${escapeHtml(shortUrl)}</a>` : '<span class="ev-omnibox"></span>'}
+        </div>
+        <button type="button" class="ev-shot" aria-label="Enlarge captured screenshot"
+          onclick="openLightbox('${escapeAttr(shot.url)}', ${JSON.stringify(enlargeName)})">
+          <img src="${escapeAttr(shot.url)}" alt="${escapeAttr(alt)}" loading="lazy">
+        </button>
+      </figure>`;
+  };
+
   return `
     <section class="report-evidence" aria-labelledby="report-evidence-h">
-      <h2 id="report-evidence-h" class="report-evidence-h">Evidence</h2>
-      <figure class="report-ev-fig">
-        <button type="button" class="report-ev-btn" aria-label="Enlarge captured screenshot"
-          onclick="openLightbox('${escapeAttr(imgUrl)}', ${JSON.stringify(enlargeName)})">
-          <img class="report-ev-img" src="${escapeAttr(imgUrl)}" alt="${escapeAttr(alt)}" loading="lazy">
-        </button>
-        <figcaption class="report-ev-cap">${captionBits.join('')}</figcaption>
-      </figure>
+      <div class="report-sec-head">
+        <h2 id="report-evidence-h">Evidence</h2>
+        <span class="report-sec-note">${escapeHtml(label)}${meta.capturedAt ? ' · ' + escapeHtml(fmtDate(meta.capturedAt)) : ''}</span>
+      </div>
+      <div class="ev-track${shots.length > 1 ? ' ev-track-multi' : ''}">
+        ${shots.map(frame).join('')}
+      </div>
+    </section>`;
+}
+
+function takeawaysHtml(takeaways) {
+  if (!takeaways.length) return '';
+  const ICON = {
+    strength: '<path d="M20 6 9 17l-5-5"/>',
+    friction: '<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>',
+    opportunity: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>',
+  };
+  return `
+    <section class="report-takeaways" aria-label="Key takeaways">
+      ${takeaways.map(t => `
+        <article class="tk tk-${t.kind}">
+          <div class="tk-top">
+            <svg class="tk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[t.kind] || ''}</svg>
+            <span class="tk-label">${t.label}</span>
+          </div>
+          <h3 class="tk-head">${escapeHtml(clampText(t.heading, 96))}</h3>
+          ${t.detail ? `<p class="tk-detail">${escapeHtml(clampText(t.detail, 160))}</p>` : ''}
+        </article>`).join('')}
+    </section>`;
+}
+
+function assessmentHtml(rows) {
+  if (!rows || !rows.length) return '';
+  return `
+    <section class="report-assess" aria-label="Benchmark assessment">
+      <div class="report-sec-head"><h2>Assessment</h2></div>
+      <div class="assess-grid">
+        ${rows.map(r => {
+          const tone = RATING_TONE[String(r.rating).toLowerCase().trim()] || 'mid';
+          return `<div class="assess-row">
+            <span class="assess-label">${escapeHtml(r.label)}</span>
+            <span class="assess-chip assess-${tone}">${escapeHtml(r.rating)}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </section>`;
+}
+
+function pointColumnHtml(title, points, cls) {
+  const items = points.map(p => `
+    <li class="pt">
+      <div class="pt-head">${escapeHtml(clampText(p.heading, 110))}</div>
+      ${p.detail ? `<p class="pt-detail" data-full="${escapeAttr(p.detail)}">${escapeHtml(clampText(p.detail, 190))}</p>${p.detail.length > 190 ? '<button type="button" class="pt-more" onclick="this.previousElementSibling.textContent=this.previousElementSibling.dataset.full;this.remove()">Show more</button>' : ''}` : ''}
+    </li>`).join('');
+  return `
+    <div class="report-col ${cls}">
+      <h3 class="report-col-title">${title}</h3>
+      <ul class="pt-list">${items}</ul>
+    </div>`;
+}
+
+function recommendationsHtml(recs) {
+  if (!recs.length) return '';
+  return `
+    <section class="report-recs" aria-label="Recommendations">
+      <div class="report-sec-head"><h2>Recommendations</h2></div>
+      <ol class="rec-list">
+        ${recs.map((r, i) => `
+          <li class="rec">
+            <span class="rec-num">${String(i + 1).padStart(2, '0')}</span>
+            <div class="rec-body">
+              <h3 class="rec-title">${escapeHtml(clampText(r.title, 110))}</h3>
+              ${r.why ? `<p class="rec-why"><span class="rec-k">Why</span> ${escapeHtml(clampText(r.why, 220))}</p>` : ''}
+              ${r.evidence ? `<p class="rec-ev"><span class="rec-k">Evidence</span> ${escapeHtml(clampText(r.evidence, 200))}</p>` : ''}
+            </div>
+          </li>`).join('')}
+      </ol>
     </section>`;
 }
 
@@ -1605,17 +1922,21 @@ async function renderFeatureReport(requestId) {
   const scope = cb?.scope || (fb?.request?.scope?.length ? fb.request.scope : ['End-to-End Journey']);
   const date = cb?.date || fb?.request?.created_at || null;
 
-  let reportBodyHtml;
+  const rptStatus = cb?.status || 'complete';
+  const statusInfo = { ...cbStatus(rptStatus), status: rptStatus };
+
+  let parsed = null;
+  let fullHtml = '';
   let reportMeta = { capturedUrl: null, capturedAt: null, featureFound: false };
-  if (!reportPath) {
-    reportBodyHtml = `<div class="empty-state"><h3>Report is still being generated</h3><p>Check back once the run finishes — follow it in Activity.</p></div>`;
-  } else {
+  let notReady = !reportPath;
+  if (reportPath) {
     try {
       const r = await api.get(`/api/markdown?path=${encodeURIComponent(reportPath)}`);
       reportMeta = parseReportMeta(r.content);
-      reportBodyHtml = enhanceReportHtml(marked.parse(r.content), { company, feature });
+      parsed = parseReport(r.content, { company, feature });
+      fullHtml = enhanceReportHtml(marked.parse(r.content), { company, feature });
     } catch (e) {
-      reportBodyHtml = `<div class="empty-state"><h3>Report file is unavailable.</h3></div>`;
+      notReady = true;
     }
   }
 
@@ -1627,20 +1948,66 @@ async function renderFeatureReport(requestId) {
   } catch (e) { evidence = null; }
   const evidenceHtml = evidenceBlockHtml({ evidence, company, feature, meta: reportMeta });
 
-  const metaBits = [(scope || []).join(', '), date ? fmtDate(date) : null].filter(Boolean);
+  if (notReady) {
+    setContent(`
+      <article class="report">
+        ${BACK_TO_LIBRARY_LINK}
+        ${reportHeroHtml({ company, feature, scope, date, statusInfo })}
+        <div class="empty-state">
+          <h3>${reportPath ? 'Report file is unavailable' : 'Report is still being generated'}</h3>
+          <p>${reportPath ? 'The analysis exists but could not be loaded right now.' : 'Follow the run in Activity — the report opens here when it finishes.'}</p>
+        </div>
+      </article>`);
+    return;
+  }
+
+  const p = parsed || { takeaways: [], strengths: [], frictions: [], recommendations: [], assessment: null, limitations: '' };
+  const splitHtml = (p.strengths.length || p.frictions.length) ? `
+    <section class="report-split" aria-label="Strengths and friction points">
+      ${pointColumnHtml('UX/UI strengths', p.strengths, 'col-strength')}
+      ${pointColumnHtml('Friction points', p.frictions, 'col-friction')}
+    </section>` : '';
 
   setContent(`
     <article class="report">
       ${BACK_TO_LIBRARY_LINK}
-      <header class="report-head">
-        <div class="report-kicker">Benchmark report</div>
-        <h1 class="report-title">${company && company !== '—' ? company : feature}</h1>
-        ${company && company !== '—' ? `<div class="report-subject">${feature}</div>` : ''}
-        <div class="report-meta">${metaBits.join('  ·  ')}</div>
-      </header>
+      ${reportHeroHtml({ company, feature, scope, date, statusInfo })}
+      ${takeawaysHtml(p.takeaways)}
       ${evidenceHtml}
-      ${reportBodyHtml}
+      ${p.limitations ? `
+        <aside class="report-limits" role="note">
+          <span class="report-limits-tag">Evidence limitations</span>
+          <p>${escapeHtml(p.limitations)}</p>
+        </aside>` : ''}
+      ${assessmentHtml(p.assessment)}
+      ${splitHtml}
+      ${recommendationsHtml(p.recommendations)}
+      ${fullHtml ? `
+        <details class="report-full">
+          <summary><span class="report-full-label">View full analysis</span><span class="report-full-hint">complete model output, unedited</span></summary>
+          <div class="report-full-body">${fullHtml}</div>
+        </details>` : ''}
     </article>`);
+}
+
+function reportHeroHtml({ company, feature, scope, date, statusInfo }) {
+  const named = company && company !== '—';
+  return `
+    <header class="report-hero">
+      <div class="report-hero-id">
+        ${named ? `<span class="report-hero-mark" aria-hidden="true">${cbInitial(company)}</span>` : ''}
+        <div>
+          <h1 class="report-hero-company">${named ? escapeHtml(company) : escapeHtml(feature)}</h1>
+          ${named ? `<div class="report-hero-feature">${escapeHtml(feature)}</div>` : ''}
+        </div>
+      </div>
+      <div class="report-hero-meta">
+        <span>${escapeHtml((scope || []).join(', ') || 'Full journey')}</span>
+        <span class="dot">·</span>
+        <span>${escapeHtml(fmtDate(date))}</span>
+        <span class="status-pill status-${statusInfo.status}" style="margin-left:auto">${statusInfo.label}</span>
+      </div>
+    </header>`;
 }
 
 // ─── Page: Homepage Benchmarks ────────────────────────────────────────────────
