@@ -11,9 +11,10 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
   listRequests, createRequest, setStage, cancelRequest, listFeatureBenchmarks,
-  listCurrentFeatureBenchmarks,
+  listCurrentFeatureBenchmarks, getRequest,
   STAGES, BENCHMARK_TYPES, SCOPE_OPTIONS,
 } from './lib/requestsStore.js';
+import { authMiddleware, requireUser, getIdentity, authStatus, displaySnapshot, ownedBy } from './lib/auth.js';
 // Sprint V1.5: startBenchmark now comes from the Dashboard's own Benchmark
 // Service (Dashboard -> Benchmark Service -> Agent Provider -> Claude
 // Provider), not the Engine. 11_Benchmark_Engine/orchestrator/index.js's
@@ -88,10 +89,43 @@ let activeHomepageRun = null;
 
 const app = express();
 app.use(express.json());
+app.use(authMiddleware());   // wires the Clerk session context (no-op without keys)
 
 // ─── Static files ──────────────────────────────────────────────────────────
+// Public assets only. Per-user benchmark evidence never comes through here —
+// the `/screenshots` mount serves committed research imagery, so the two
+// private subtrees (Feature Benchmark evidence cache + navigation runs) are
+// forced through the auth+ownership-gated /api/evidence endpoints instead.
 app.use(express.static(join(__dirname, 'public')));
-app.use('/screenshots', express.static(join(PROJECT, '03_Screenshots')));
+app.use('/screenshots', (req, res, next) => {
+  if (/(^|\/)_evidence_cache(\/|$)|(^|\/)_navigation_runs(\/|$)/.test(req.path)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  next();
+}, express.static(join(PROJECT, '03_Screenshots')));
+
+// ─── Public config — drives the sign-in screen, carries no secret ──────────
+app.get('/api/config', (req, res) => {
+  res.json({ auth: authStatus() });
+});
+
+// ─── Auth boundary — every /api route below requires a signed-in identity ──
+// A consistent 401 with no hint about what exists. Ownership (which user may
+// see which benchmark) is enforced per-route further down.
+app.use('/api', requireUser);
+
+// Owner-or-404: look up a request by id and confirm the caller owns it.
+// Returns the raw request record, or sends a 404 and returns null. The 404 is
+// identical whether the request is missing or simply belongs to someone else,
+// so it never leaks another user's request ids.
+function ownedRequestOr404(req, res, requestId) {
+  const record = getRequest(PROJECT, requestId);
+  if (!ownedBy(record, req.identity.userId)) {
+    res.status(404).json({ error: 'Not found' });
+    return null;
+  }
+  return record;
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function readJSON(relPath) {
@@ -205,6 +239,16 @@ app.get('/api/markdown', async (req, res) => {
   const full = join(PROJECT, filePath);
   if (!full.startsWith(PROJECT)) return res.status(403).json({ error: 'Access denied' });
 
+  // Ownership: a Feature Benchmark report file is per-user benchmark content.
+  // `<feature>/<requestId>.md` — the caller must own that request. Any other
+  // markdown (committed research: exec summaries, UX analyses) stays readable
+  // to any signed-in user. A non-owned or missing report is a plain 404.
+  const reportKey = keyForMarkdownRequestPath(String(filePath));
+  if (reportKey) {
+    const requestId = String(filePath).replace(/\\/g, '/').split('/').pop().replace(/\.md$/, '');
+    if (!ownedRequestOr404(req, res, requestId)) return;
+  }
+
   const local = readMD(filePath);
   if (local !== null) return res.json({ content: local, path: filePath });
 
@@ -238,6 +282,7 @@ app.get('/api/evidence/:requestId', async (req, res) => {
   if (!/^[A-Za-z0-9._-]+$/.test(requestId)) {
     return res.status(400).json({ error: 'invalid request id' });
   }
+  if (!ownedRequestOr404(req, res, requestId)) return;
 
   const prefix = `screenshots/${requestId}/`;
   const names = new Set();
@@ -286,6 +331,7 @@ app.get('/api/evidence/:requestId/:filename', async (req, res) => {
   if (!/^[A-Za-z0-9._-]+$/.test(requestId) || !/^[A-Za-z0-9._-]+$/.test(filename)) {
     return res.status(400).json({ error: 'invalid evidence reference' });
   }
+  if (!ownedRequestOr404(req, res, requestId)) return;
   try {
     const found = await resolveEvidenceLocalPath({
       requestId, filename,
@@ -532,15 +578,16 @@ app.get('/api/stats', (req, res) => {
 
 // ─── API: Benchmark Requests (Wizard + Queue) ───────────────────────────────
 app.get('/api/requests', (req, res) => {
+  const uid = req.identity.userId;
   res.json({
-    requests: listRequests(PROJECT),
+    requests: listRequests(PROJECT).filter(r => ownedBy(r, uid)),
     stages: STAGES,
     benchmark_types: BENCHMARK_TYPES,
     scope_options: SCOPE_OPTIONS,
   });
 });
 
-app.post('/api/requests', (req, res) => {
+app.post('/api/requests', async (req, res) => {
   const { benchmark_type, feature, scope, notes, competitors } = req.body || {};
 
   if (!benchmark_type || !BENCHMARK_TYPES.includes(benchmark_type)) {
@@ -554,12 +601,17 @@ app.post('/api/requests', (req, res) => {
   }
 
   try {
+    // Ownership is assigned from the authenticated session — the browser
+    // payload can never choose `created_by` (any created_by/created_by_* in
+    // req.body is ignored: it is not read here).
+    const snapshot = await displaySnapshot(req.identity);
     const request = createRequest(PROJECT, {
       benchmark_type,
       feature: String(feature).trim(),
       scope: Array.isArray(scope) ? scope : [],
       notes: notes || '',
       competitors,
+      ...snapshot,
     });
     res.status(201).json(request);
   } catch (err) {
@@ -568,6 +620,7 @@ app.post('/api/requests', (req, res) => {
 });
 
 app.patch('/api/requests/:id/items/:slug', (req, res) => {
+  if (!ownedRequestOr404(req, res, req.params.id)) return;
   try {
     const stage = req.body?.stage;
     const request = setStage(PROJECT, req.params.id, req.params.slug, stage);
@@ -597,8 +650,17 @@ app.patch('/api/requests/:id/items/:slug', (req, res) => {
   }
 });
 
+// ─── API: the signed-in identity (drives "Welcome back, …") ────────────────
+app.get('/api/me', (req, res) => {
+  const { userId, name, email } = req.identity;
+  res.json({ userId, name: name || null, email: email || null });
+});
+
 app.get('/api/feature-benchmarks', (req, res) => {
-  res.json({ items: listFeatureBenchmarks(PROJECT) });
+  const uid = req.identity.userId;
+  // Only the caller's own Feature Benchmark reports. A report whose request is
+  // missing or owned by null (legacy) is never surfaced here.
+  res.json({ items: listFeatureBenchmarks(PROJECT).filter(it => ownedBy(it.request, uid)) });
 });
 
 // ─── API: Current Feature Benchmarks — the customer-facing product's ONLY ───
@@ -607,10 +669,12 @@ app.get('/api/feature-benchmarks', (req, res) => {
 // filtered out at the model level by listCurrentFeatureBenchmarks(); they
 // remain available through the legacy endpoints above for the Archive view.
 app.get('/api/current-benchmarks', (req, res) => {
-  res.json({ items: listCurrentFeatureBenchmarks(PROJECT) });
+  const uid = req.identity.userId;
+  res.json({ items: listCurrentFeatureBenchmarks(PROJECT).filter(b => ownedBy(b, uid)) });
 });
 
 app.post('/api/requests/:id/cancel', (req, res) => {
+  if (!ownedRequestOr404(req, res, req.params.id)) return;
   try {
     const request = cancelRequest(PROJECT, req.params.id);
     res.json(request);
@@ -687,7 +751,7 @@ app.get('/api/search', (req, res) => {
   }
 
   const seenFeatures = new Set();
-  for (const request of listRequests(PROJECT)) {
+  for (const request of listRequests(PROJECT).filter(r => ownedBy(r, req.identity.userId))) {
     const feature = request.feature || '';
     if (!feature || seenFeatures.has(feature.toLowerCase())) continue;
     if (feature.toLowerCase().includes(q)) {
@@ -748,13 +812,18 @@ async function start() {
     logError('storage startup restore failed', { error: err.message });
   }
 
+  const auth = authStatus();
   app.listen(PORT, () => {
-    console.log(`\n✅ AI Travel Benchmark Dashboard`);
+    console.log(`\n✅ Benchmark Intelligence`);
     console.log(`   http://localhost:${PORT}\n`);
     console.log(`   Reads live from: ${PROJECT}`);
     console.log(`   Storage provider: ${providerLabel}`);
-    console.log(`   Auto-updates after every benchmark — just refresh.\n`);
+    console.log(`   Auth: ${auth.configured ? 'Clerk (configured)' : auth.devMode ? 'DEV identity (AUTH_DEV_USER) — local only' : 'NOT configured — set CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY'}`);
   });
 }
 
-start();
+// Export the app for tests; only start a listener when run directly.
+export { app };
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  start();
+}

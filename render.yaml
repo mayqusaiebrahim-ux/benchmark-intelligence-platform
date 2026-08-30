@@ -30,6 +30,14 @@ services:
         sync: false
       - key: NODE_VERSION
         value: 20
+      # ─── Authentication (Clerk) — required for the team beta ────────────
+      # Without both keys every /api route returns 401 and the app shows
+      # only the sign-in screen. The publishable key is safe in the browser;
+      # the secret key is server-only and never logged. See 10_Dashboard/lib/auth.js.
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
       # Moves Feature Benchmark's Chromium (Discovery, Navigation Runner) off
       # Render entirely — Render Free/Starter's RAM ceiling could not survive
       # a local headless Chromium even after the memory-optimization pass.

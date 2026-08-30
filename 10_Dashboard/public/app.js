@@ -288,24 +288,152 @@ window.showConfirmModal = function(message, { title = 'Please confirm', confirmL
   });
 };
 
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+// Clerk is the identity provider. clerkMiddleware on the server reads the
+// same-origin __session cookie, so most requests are authorized by cookie
+// alone; we also attach a short-lived bearer token as a fallback. When Clerk
+// is not configured the server runs an explicit local dev identity instead
+// and this whole layer is inert.
+let _clerkReady = false;
+let SESSION_USER = null;   // { userId, name, email } once signed in
+
+async function authHeaders() {
+  if (_clerkReady && window.Clerk && window.Clerk.session) {
+    try {
+      const t = await window.Clerk.session.getToken();
+      if (t) return { Authorization: `Bearer ${t}` };
+    } catch { /* fall through to cookie-only */ }
+  }
+  return {};
+}
+
+function onUnauthorized() {
+  // The session lapsed. Send the user back to the sign-in screen cleanly.
+  if (!document.body.classList.contains('auth-gate')) location.reload();
+}
+
 // ─── API ──────────────────────────────────────────────────────────────────────
 const api = {
   async get(url) {
-    const r = await fetch(url);
+    const r = await fetch(url, { headers: await authHeaders() });
+    if (r.status === 401) { onUnauthorized(); throw new Error('unauthenticated'); }
     if (!r.ok) throw new Error(`${r.status} ${url}`);
     return r.json();
   },
   async post(url, body) {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify(body) });
+    if (r.status === 401) { onUnauthorized(); throw new Error('unauthenticated'); }
     if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || `${r.status} ${url}`); }
     return r.json();
   },
   async patch(url, body) {
-    const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify(body) });
+    if (r.status === 401) { onUnauthorized(); throw new Error('unauthenticated'); }
     if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || `${r.status} ${url}`); }
     return r.json();
   },
 };
+
+// Derive the Clerk Frontend API host from a publishable key
+// (pk_test_<base64("host$")>), then load clerk-js from it.
+function clerkHostFromKey(pk) {
+  try {
+    const b64 = String(pk).replace(/^pk_(test|live)_/, '');
+    return atob(b64).replace(/\$+$/, '');
+  } catch { return null; }
+}
+
+function loadClerkScript(pk) {
+  return new Promise((resolve, reject) => {
+    if (window.Clerk) return resolve();
+    const host = clerkHostFromKey(pk);
+    if (!host) return reject(new Error('Invalid Clerk publishable key'));
+    const s = document.createElement('script');
+    s.src = `https://${host}/npm/@clerk/clerk-js@5/dist/clerk.browser.js`;
+    s.async = true;
+    s.crossOrigin = 'anonymous';
+    s.setAttribute('data-clerk-publishable-key', pk);
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load Clerk'));
+    document.head.appendChild(s);
+  });
+}
+
+// Returns true when a user is signed in and the product should mount.
+// Otherwise renders the sign-in screen and returns false.
+async function bootClerk(pk) {
+  await loadClerkScript(pk);
+  await window.Clerk.load();
+  _clerkReady = true;
+
+  if (!window.Clerk.user) {
+    renderSignIn();
+    window.Clerk.addListener(({ user }) => { if (user) location.reload(); });
+    return false;
+  }
+  const u = window.Clerk.user;
+  SESSION_USER = {
+    userId: u.id,
+    name: u.firstName ? `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}` : (u.username || null),
+    email: u.primaryEmailAddress?.emailAddress || null,
+  };
+  return true;
+}
+
+function renderSignIn() {
+  document.body.classList.add('auth-gate');
+  const nav = document.getElementById('topnav');
+  if (nav) nav.hidden = true;
+  document.getElementById('content').innerHTML = `
+    <div class="signin">
+      <div class="signin-panel">
+        <div class="signin-brand">
+          <span class="signin-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 L16 12 L12 22 L8 12 Z"/></svg>
+          </span>
+          <span class="signin-name">Benchmark Intelligence</span>
+        </div>
+        <p class="signin-tagline">Automated competitive research on AI-powered travel experiences. Sign in to open your workspace.</p>
+        <div id="clerk-signin" class="signin-widget"></div>
+      </div>
+    </div>`;
+  window.Clerk.mountSignIn(document.getElementById('clerk-signin'), {
+    appearance: { variables: { colorPrimary: '#f59e0b', colorBackground: '#17181c', colorText: '#e7e7ea' } },
+  });
+}
+
+function renderAuthNotConfigured() {
+  document.body.classList.add('auth-gate');
+  const nav = document.getElementById('topnav');
+  if (nav) nav.hidden = true;
+  document.getElementById('content').innerHTML = `
+    <div class="signin">
+      <div class="signin-panel">
+        <div class="signin-brand">
+          <span class="signin-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 L16 12 L12 22 L8 12 Z"/></svg>
+          </span>
+          <span class="signin-name">Benchmark Intelligence</span>
+        </div>
+        <p class="signin-tagline">Authentication isn't configured on this server yet. Set <code>CLERK_PUBLISHABLE_KEY</code> and <code>CLERK_SECRET_KEY</code> and restart.</p>
+      </div>
+    </div>`;
+}
+
+async function mountUserMenu() {
+  const slot = document.getElementById('user-menu');
+  if (!slot) return;
+  if (_clerkReady && window.Clerk) {
+    slot.innerHTML = '<div id="clerk-user-button"></div>';
+    window.Clerk.mountUserButton(document.getElementById('clerk-user-button'), {
+      afterSignOutUrl: '/',
+      appearance: { variables: { colorPrimary: '#f59e0b' } },
+    });
+  } else if (SESSION_USER) {
+    // dev identity — a plain label, no Clerk widget
+    slot.innerHTML = `<span class="user-chip" title="${SESSION_USER.email || ''}">${SESSION_USER.name || 'You'}</span>`;
+  }
+}
 
 async function getMatrix() {
   if (!_matrix) _matrix = await api.get('/api/matrix');
@@ -498,6 +626,7 @@ function updateActiveNav(activeRoute) {
 }
 
 async function route(hash) {
+  if (!AUTHED) return;   // never render product views before the auth gate clears
   const raw = hash.replace('#', '') || 'home';
   const [h, queryString] = raw.split('?');
   const query = new URLSearchParams(queryString || '');
@@ -2771,8 +2900,32 @@ function setupMobileSearch() {
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+let AUTHED = false;
+
 async function init() {
   try {
+    const cfg = await fetch('/api/config').then(r => r.json()).catch(() => null);
+    const auth = (cfg && cfg.auth) || { configured: false, devMode: false };
+
+    if (auth.configured) {
+      const ok = await bootClerk(auth.publishableKey);
+      if (!ok) return;                       // sign-in screen is showing
+    } else if (!auth.devMode) {
+      renderAuthNotConfigured();
+      return;
+    }
+
+    // Signed in (Clerk) or running under a local dev identity.
+    if (!SESSION_USER) {
+      SESSION_USER = await fetch('/api/me', { headers: await authHeaders() })
+        .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    }
+    AUTHED = true;
+    document.body.classList.remove('auth-gate');
+    const nav = document.getElementById('topnav');
+    if (nav) nav.hidden = false;
+
+    await mountUserMenu();
     setupLightbox();
     await initSidebar();
     await route(location.hash);

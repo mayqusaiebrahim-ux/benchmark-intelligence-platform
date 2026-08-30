@@ -224,7 +224,13 @@ export function createRequest(projectRoot, payload) {
   const request = {
     id: nextRequestId(),
     created_at: new Date().toISOString(),
+    // Ownership: `created_by` is the authorization identity (a Clerk userId),
+    // set server-side from the authenticated session — never from the browser
+    // payload. `created_by_name` / `created_by_email` are display-only
+    // snapshots and are never used for access decisions.
     created_by: payload.created_by || null,
+    created_by_name: payload.created_by_name || null,
+    created_by_email: payload.created_by_email || null,
     benchmark_type: payload.benchmark_type,
     feature: payload.feature,
     scope: payload.scope || [],
@@ -334,6 +340,7 @@ export function listCurrentFeatureBenchmarks(projectRoot) {
       const completedAt = items.map(i => i.completed_at).filter(Boolean).sort().pop() || null;
       return {
         request_id: r.id,
+        created_by: r.created_by || null,
         company: items.map(i => i.name).join(', ') || '—',
         companies: items.map(i => i.name),
         feature: r.feature,

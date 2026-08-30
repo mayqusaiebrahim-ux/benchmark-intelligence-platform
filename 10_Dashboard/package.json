@@ -8,10 +8,12 @@
     "dev": "node --watch server.js",
     "test:persistence": "node --experimental-test-module-mocks --test-isolation=process --test \"tests/persistence/*.test.mjs\"",
     "test:correctness": "node --experimental-test-module-mocks --test-isolation=process --test \"../13_Orchestrator/tests/feature/*.test.mjs\"",
-    "test": "npm run test:correctness && npm run test:persistence"
+    "test:auth": "node --experimental-test-module-mocks --test-isolation=process --test \"tests/auth/*.test.mjs\"",
+    "test": "npm run test:correctness && npm run test:persistence && npm run test:auth"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
+    "@clerk/express": "^2.1.64",
     "aws4fetch": "^1.0.20",
     "express": "^4.18.2"
   }

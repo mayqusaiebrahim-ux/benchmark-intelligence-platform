@@ -83,7 +83,38 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   padding: 3px 6px; border-radius: 999px;
   background: var(--accent-dim); color: var(--accent);
 }
-.topnav-cta { margin-left: auto; }
+.topnav-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.topnav-user { display: flex; align-items: center; min-width: 28px; }
+.topnav-user .user-chip {
+  font-size: 13px; font-weight: 550; color: var(--text-2);
+  padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px;
+}
+#topnav[hidden] { display: none; }
+
+/* ─── Sign-in gate ─────────────────────────────────────────────────────── */
+body.auth-gate { background: var(--bg); }
+body.auth-gate #main, body.auth-gate #content { padding: 0; }
+.signin {
+  min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+  padding: 40px 20px;
+  background:
+    radial-gradient(60rem 40rem at 50% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
+    var(--bg);
+}
+.signin-panel {
+  width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 20px;
+}
+.signin-brand { display: flex; align-items: center; gap: 11px; }
+.signin-mark {
+  width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #14140f;
+  display: flex; align-items: center; justify-content: center;
+}
+.signin-mark svg { width: 19px; height: 19px; }
+.signin-name { font-size: 20px; font-weight: 680; letter-spacing: -0.02em; }
+.signin-tagline { font-size: 14px; line-height: 1.6; color: var(--text-2); max-width: 34ch; }
+.signin-widget { width: 100%; display: flex; justify-content: center; margin-top: 4px; }
+.signin-tagline code { font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; color: var(--text); }
 
 main#main { display: block; }
 #content {
