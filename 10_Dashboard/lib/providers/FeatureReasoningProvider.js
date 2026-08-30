@@ -29,25 +29,30 @@ try {
   // No .env file present — fall back to whatever is already in process.env.
 }
 
-function buildPrompt({ prompt, company, feature, previousOutput }) {
-  const { url, title, visionFindings, featureStepId, featureStepFound, selectedStep } = previousOutput || {};
+function buildPrompt({ prompt, company, feature, target, previousOutput }) {
+  const { url, title, visionFindings, featureStepId, featureStepFound, selectedStep, evidence } = previousOutput || {};
   const lines = ['## Feature Benchmark Context', ''];
-  lines.push(`Company: ${company || '(unknown)'}`);
+  lines.push(`THE PRODUCT UNDER ANALYSIS IS: ${company || '(unknown)'}`);
+  lines.push(`Its official website domain: ${target?.benchmark_target_url || url || '(unknown)'}`);
   lines.push(`Requested feature: ${feature}`);
+  lines.push('');
+  lines.push('Do NOT describe, name, or analyse any other company or product as the subject of this report. If the evidence below appears to be a different company than the one named above, state that clearly in summary_markdown, set feature_found to false, and still put the requested company name in analyzed_company.');
+  lines.push('');
   lines.push(`Mapped CLAUDE.md journey step: ${featureStepId || '(no journey step matched this feature keyword)'}`);
-  lines.push(`Target step actually reached by the crawler: ${featureStepFound ? 'yes' : 'no — the page below is the closest fallback the crawler could reach'}`);
-  if (selectedStep) lines.push(`Page examined: "${selectedStep.title}" (navigation status: ${selectedStep.status})`);
-  if (url) lines.push(`URL: ${url}`);
+  lines.push(`Evidence shows the requested feature directly: ${featureStepFound ? 'yes' : 'no — the evidence below is the homepage / base page for this same company'}`);
+  if (evidence) lines.push(`Evidence type: ${evidence.evidenceType} (relevance: ${evidence.relevance})`);
+  if (selectedStep) lines.push(`Navigation status of the captured step: ${selectedStep.status}`);
+  if (url) lines.push(`URL captured: ${url}`);
   if (title) lines.push(`Page title: ${title}`);
   if (visionFindings) {
     lines.push('', 'Structural findings from Vision (detection only, not judgment or opinion):', '```json', JSON.stringify(visionFindings, null, 2), '```');
   }
-  lines.push('', 'Write ONE concise benchmark report for this feature only. If the target step was not reached, say so honestly and set feature_found to false and evidence_source to an appropriate value (e.g. NOT FOUND) — do not invent content for a feature that was not actually observed.');
+  lines.push('', 'Write ONE concise benchmark report for this feature of THIS company only. If the feature was not directly observed, say so honestly and set feature_found to false and evidence_source to an appropriate value (e.g. NOT FOUND) — do not invent content for a feature that was not actually observed.');
   lines.push('', '---', '');
   return `${lines.join('\n')}${prompt}`;
 }
 
-export async function runFeatureReasoning({ prompt, company, feature, previousOutput }) {
+export async function runFeatureReasoning({ prompt, company, feature, target, previousOutput }) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return { status: 'failed', error: 'ANTHROPIC_API_KEY is not set. Add it to 10_Dashboard/.env or the environment.' };
   }
@@ -55,7 +60,7 @@ export async function runFeatureReasoning({ prompt, company, feature, previousOu
   const anthropicStartedAt = Date.now();
   logInfo('Anthropic request starting', { model: MODEL, maxTokens: MAX_TOKENS });
   try {
-    const augmentedPrompt = buildPrompt({ prompt, company, feature, previousOutput });
+    const augmentedPrompt = buildPrompt({ prompt, company, feature, target, previousOutput });
     const client = new Anthropic();
     const stream = client.messages.stream({
       model: MODEL,
@@ -87,6 +92,7 @@ export async function runFeatureReasoning({ prompt, company, feature, previousOu
     }
 
     const errors = [];
+    if (typeof data.analyzed_company !== 'string' || !data.analyzed_company.trim()) errors.push('analyzed_company must be a non-empty string');
     if (typeof data.feature_found !== 'boolean') errors.push('feature_found must be a boolean');
     if (!FEATURE_REPORT_EVIDENCE_SOURCES.includes(data.evidence_source)) errors.push(`evidence_source invalid: ${data.evidence_source}`);
     if (typeof data.summary_markdown !== 'string' || !data.summary_markdown.trim()) errors.push('summary_markdown must be a non-empty string');

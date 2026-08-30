@@ -1,26 +1,23 @@
 /**
- * featureReportWriterStage — Sprint Reset: writes Reasoning's concise
- * feature report to the Feature Benchmark Library, matching the storage
- * contract 10_Dashboard/lib/requestsStore.js already established
- * (feature_benchmark_path / listFeatureBenchmarks()) — one markdown file
- * per request, named `${requestId}.md`, inside
- * 02_Benchmark_Repository/_Feature_Benchmarks/${slugify(feature)}/. This is
- * the exact convention listFeatureBenchmarks() already reads from, so the
- * Dashboard's existing, unmodified Library view picks this up with zero
- * Dashboard changes.
+ * featureReportWriterStage — writes Reasoning's concise feature report to
+ * the Feature Benchmark Library, matching requestsStore.js's storage
+ * contract: one markdown file per request, `${requestId}.md`, inside
+ * 02_Benchmark_Repository/_Feature_Benchmarks/${slugify(feature)}/.
  *
- * A request can have multiple competitor items under one feature — each
- * company's completed run appends its own `## CompanyName` section to the
- * same requestId.md rather than overwriting it.
+ * Correctness additions (report belongs to the current request + target):
+ *  - logs the five benchmark_target_* fields before writing;
+ *  - re-validates the report identifies the target company before writing;
+ *  - embeds a machine-readable target marker in the section so the
+ *    completion gate (and any auditor) can prove which request / company /
+ *    URL / feature this section is for;
+ *  - never writes if any of that fails.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { Stage } from '../runtime/Stage.js';
+import { nameRefersToTarget, targetLogFields } from '../runtime/benchmarkTarget.js';
 import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
-// Matches requestsStore.js's own slugify() exactly, so the folder name this
-// stage writes to is identical to the one createRequest() already computed
-// into feature_benchmark_path when the request was created.
 function slugify(name) {
   return String(name)
     .toLowerCase()
@@ -32,34 +29,49 @@ function slugify(name) {
 export const featureReportWriterStage = new Stage(
   'feature_report_writer',
   'Feature Benchmark Report',
-  async ({ cwd, requestId, company, feature, previousOutput }) => {
+  async ({ cwd, target, previousOutput }) => {
     return withLogContext({ stage: 'feature_report_writer' }, async () => {
+      if (!target) throw new Error('featureReportWriterStage requires a benchmark target.');
       const data = previousOutput?.reasoningData;
       if (!data) {
-        const err = new Error('Feature Report Writer received no Reasoning output to write.');
-        logError('Feature Report Writer missing input', err);
-        throw err;
-      }
-      if (!requestId) {
-        const err = new Error('Feature Report Writer requires a requestId to name the report file.');
-        logError('Feature Report Writer missing requestId', err);
-        throw err;
+        throw new Error('Feature Report Writer received no Reasoning output to write.');
       }
 
-      const featureSlug = slugify(feature);
+      logInfo('Feature Report Writer starting', targetLogFields(target));
+
+      // Final gate before persisting: the content must be about the target.
+      const refCheck = nameRefersToTarget(target, `${data.analyzed_company || ''}\n${data.summary_markdown || ''}`);
+      if (!refCheck.ok) {
+        throw new Error(
+          `Feature Report Writer: report content is not about the target "${target.company}" — ${refCheck.reason}. Not writing.`,
+        );
+      }
+      // Evidence must have belonged to the target too (defence in depth).
+      const ev = previousOutput?.evidence;
+      if (!ev || ev.company !== target.slug || ev.feature !== target.feature) {
+        throw new Error('Feature Report Writer: evidence does not match the target. Not writing.');
+      }
+
+      const featureSlug = slugify(target.feature);
       const dir = join(cwd, '02_Benchmark_Repository', '_Feature_Benchmarks', featureSlug);
-      const filePath = join(dir, `${requestId}.md`);
-      logInfo('Feature Report Writer starting', { filePath });
+      const filePath = join(dir, `${target.requestId}.md`);
 
       try {
         mkdirSync(dir, { recursive: true });
 
+        // Machine-readable, human-invisible (HTML comment) — the completion
+        // gate checks for `request=<id>` and `company=<name>` here.
+        const marker = `<!-- benchmark-target: company=${target.company} | slug=${target.slug} | url=${target.url} | feature=${target.feature} | request=${target.requestId} -->`;
+
         const section = [
-          `## ${company || 'Unknown company'}`,
+          `## ${target.company}`,
           '',
-          `**Feature:** ${feature}`,
+          marker,
+          '',
+          `**Feature:** ${target.feature}`,
           `**Evidence source:** ${data.evidence_source}`,
           `**Feature found:** ${data.feature_found ? 'Yes' : 'No'}`,
+          `**Analyzed company:** ${data.analyzed_company}`,
           `**Benchmarked at:** ${new Date().toISOString()}`,
           '',
           data.summary_markdown,
@@ -68,15 +80,15 @@ export const featureReportWriterStage = new Stage(
           '',
         ].join('\n');
 
-        const header = `# Feature Benchmark — ${feature}\n\n`;
+        const header = `# Feature Benchmark — ${target.feature}\n\n`;
         const existing = existsSync(filePath) ? readFileSync(filePath, 'utf8') : header;
         writeFileSync(filePath, existing + section, 'utf8');
       } catch (err) {
         logError('Feature Report Writer threw', err);
-        throw err; // rethrow unchanged
+        throw err;
       }
 
-      logInfo('Feature Report Writer finished', { filePath });
+      logInfo('Feature Report Writer finished', { ...targetLogFields(target), filePath });
       return { ...(previousOutput || {}), reportPath: filePath };
     });
   },

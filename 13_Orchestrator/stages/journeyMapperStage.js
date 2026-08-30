@@ -1,4 +1,15 @@
 /**
+ * DEPRECATED / UNUSED as of the CRITICAL CORRECTNESS FIX sprint.
+ *
+ * This stage ran Journey Mapper's full breadth-first 12-step candidate plan
+ * for the Feature Benchmark pipeline. That is exactly what made a "Homepage"
+ * benchmark walk Payment / Check-in / Loyalty and analyse the wrong
+ * screenshot. featurePipeline.js now uses featureJourneyStage.js, which
+ * builds a feature-scoped one-step plan instead. Nothing imports this file
+ * any more; it is kept only for reference and can be deleted safely. The
+ * underlying journey_mapper module is untouched and still used elsewhere.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
  * journeyMapperStage — Sprint Reset: wraps the existing, unmodified Journey
  * Mapper module (11_Benchmark_Engine/modules/journey_mapper). Pure
  * computation, no browser — takes the Discovery Report the previous stage

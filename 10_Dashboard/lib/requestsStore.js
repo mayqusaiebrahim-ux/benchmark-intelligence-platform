@@ -7,6 +7,8 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
+import { randomBytes } from 'crypto';
+import { resolveOfficialUrl } from './companyUrls.js';
 
 export const STAGES = [
   'queued',
@@ -114,11 +116,16 @@ function computeBatchStatus(request) {
   return 'queued';
 }
 
-function nextRequestId(data) {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const todaysCount = data.requests.filter(r => r.id.startsWith(`req_${today}_`)).length;
-  const seq = String(todaysCount + 1).padStart(3, '0');
-  return `req_${today}_${seq}`;
+// Collision-resistant request id. The previous `req_<date>_<count>` scheme
+// depended on Benchmark_Requests.json's current contents for the count — and
+// that file can revert or disappear on a Render restart/redeploy, so two
+// different runs could be assigned the same id and one report file could
+// overwrite another's. This scheme depends on nothing but the clock and a
+// CSPRNG: `req_<epoch-ms>_<8 hex>`. Still chronologically sortable, and old
+// `req_YYYYMMDD_NNN` ids remain valid strings that every lookup (exact
+// `r.id` match, `${requestId}.md` filename) keeps handling unchanged.
+function nextRequestId() {
+  return `req_${Date.now()}_${randomBytes(4).toString('hex')}`;
 }
 
 function buildTriggerPrompt({ name, feature, scope }) {
@@ -188,10 +195,22 @@ export function createRequest(projectRoot, payload) {
     if (isNew && isFullPipeline) {
       seedMatrixStub(projectRoot, { slug, name: c.name, category: c.category });
     }
+    // URL resolution: prefer the URL supplied with the request; otherwise
+    // fall back ONLY to the hand-curated companyUrls.js table (keyed by a
+    // normalised slug — an explicit identity match, not "reuse whatever URL
+    // some earlier run had"). Still null if the company is unknown and no
+    // URL was given — a Feature Benchmark then fails before any browser work
+    // (createBenchmarkTarget / benchmarkService), which is the intended
+    // behaviour, not a silent guess.
+    const url = (typeof c.url === 'string' && c.url.trim())
+      ? c.url.trim()
+      : (resolveOfficialUrl(c.name) || null);
     return {
       slug,
       name: c.name,
-      url: c.url || null,
+      url,
+      url_source: (typeof c.url === 'string' && c.url.trim()) ? 'request'
+        : (url ? 'resolved:companyUrls' : 'unresolved'),
       is_new_company: isNew,
       stage: 'queued',
       updated_at: new Date().toISOString(),
@@ -200,7 +219,7 @@ export function createRequest(projectRoot, payload) {
   });
 
   const request = {
-    id: nextRequestId(data),
+    id: nextRequestId(),
     created_at: new Date().toISOString(),
     created_by: payload.created_by || null,
     benchmark_type: payload.benchmark_type,

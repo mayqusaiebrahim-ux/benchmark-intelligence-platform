@@ -490,6 +490,7 @@ app.patch('/api/requests/:id/items/:slug', (req, res) => {
       startBenchmark({
         company: item?.name,
         feature: request.feature,
+        scope: request.scope || [],
         benchmarkType: request.benchmark_type,
         requestId: request.id,
         slug: req.params.slug,

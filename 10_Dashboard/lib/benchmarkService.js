@@ -24,6 +24,7 @@
 
 import { BenchmarkOrchestrator } from '../../13_Orchestrator/index.js';
 import { setStage } from './requestsStore.js';
+import { resolveOfficialUrl } from './companyUrls.js';
 
 const orchestrator = new BenchmarkOrchestrator();
 
@@ -83,10 +84,35 @@ const PIPELINE_TYPE_BY_BENCHMARK_TYPE = {
  *                                    BenchmarkOrchestrator, same mechanism as any other
  *                                    missing required field.
  */
-export function startBenchmark({ company, feature, benchmarkType, requestId, slug, prompt, projectRoot, url }) {
+export function startBenchmark({ company, feature, scope, benchmarkType, requestId, slug, prompt, projectRoot, url }) {
   const jobId = `${requestId}:${slug}`;
   const type = PIPELINE_TYPE_BY_BENCHMARK_TYPE[benchmarkType];
   const browserProvider = (process.env.BROWSER_PROVIDER || 'local').trim().toLowerCase();
+
+  // ── Feature Benchmark URL pre-flight ─────────────────────────────────────
+  // A Feature Benchmark must open the requested company's OWN official site.
+  // If the item has no URL, try one last resolution from the curated
+  // companyUrls.js table; if that also fails, record a clear failed run and
+  // never start browser work with a guessed or borrowed URL.
+  let resolvedUrl = (typeof url === 'string' && url.trim()) ? url.trim() : null;
+  if (type === 'feature' && !resolvedUrl) {
+    resolvedUrl = resolveOfficialUrl(company) || null;
+    if (!resolvedUrl) {
+      const message = `No official website URL for "${company}". A Feature Benchmark cannot start without one — add a URL to this competitor and re-run.`;
+      console.log(`[benchmarkService] ${message} (requestId=${requestId} slug=${slug})`);
+      runStatus.set(jobId, 'completed');
+      try {
+        setStage(projectRoot, requestId, slug, 'failed', {
+          completed_at: new Date().toISOString(),
+          execution_status: 'failed',
+          execution_message: message,
+        });
+      } catch (err) {
+        console.log(`[benchmarkService] Could not set stage to 'failed' for ${jobId}: ${err.message}`);
+      }
+      return;
+    }
+  }
 
   // Required runtime log, every call, before any routing decision short-
   // circuits — this is the one line that would have shown the production
@@ -194,7 +220,7 @@ export function startBenchmark({ company, feature, benchmarkType, requestId, slu
   let lastProgressStage = null;
 
   orchestrator.runBenchmark(
-    { type, requestId, prompt, cwd: projectRoot, jobId, url, feature, company },
+    { type, requestId, prompt, cwd: projectRoot, jobId, url: resolvedUrl || url, feature, company, slug, scope: scope || [] },
     {
       onProgress: (event) => {
         if (!RUNTIME_STAGE_IDS.has(event.stage) || event.status !== 'running') return;

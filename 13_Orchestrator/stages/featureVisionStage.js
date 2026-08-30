@@ -1,113 +1,165 @@
 /**
- * featureVisionStage — Sprint Reset: selects which of Navigation Runner's
- * already-captured per-step screenshots is most relevant to the requested
- * Feature, then sends it to the existing, unmodified Vision capability
- * (VisionProvider.describe(), the same call visionStage.js already makes
- * for the Full Benchmark pipeline).
+ * featureVisionStage — selects the ONE screenshot to analyse for the
+ * requested feature, then sends it to the existing, unmodified Vision
+ * capability (VisionProvider.describe()).
  *
- * Combined into one stage — rather than a separate "selection" stage plus
- * reusing visionStage.js as-is — because Runtime's previousOutput only ever
- * carries the immediately preceding stage's output (see screenshotStage.js's
- * own note on this). visionStage.js's return shape does not forward
- * arbitrary extra fields, so featureStepId/featureStepFound/selectedStep
- * would be lost by the time Reasoning ran if this were split in two. This
- * stage still calls the exact same Vision Provider — nothing about the
- * Vision capability itself is reimplemented.
+ * Correctness rewrite (evidence integrity). Previously, when the mapped
+ * journey step was not found among the captured steps, this stage fell back
+ * to "the last successful step" — which, for a Homepage benchmark walking a
+ * generic journey, was a Payment or Loyalty screenshot. That is forbidden.
  *
- * Feature -> CLAUDE.md journey step mapping is intentionally a small,
- * explicit keyword table: Journey Mapper's own JourneyStepId enum
- * (contracts/journey_plan.schema.json) already matches CLAUDE.md's 12 step
- * names, so this only has to bridge free-text feature input to that
- * existing vocabulary, not invent a new taxonomy.
+ * Now:
+ *  - navigation is already feature-scoped (featureJourneyStage produces one
+ *    step), so `steps` normally holds exactly the right screenshot;
+ *  - selection accepts ONLY: the feature's own step, or — for a
+ *    homepage-scoped / unmapped feature — the homepage base screenshot of
+ *    the SAME target domain;
+ *  - anything else FAILS the evidence stage with a clear reason. There is no
+ *    unrelated-screenshot path;
+ *  - every evidence item carries { company, url, feature, screenshotPath,
+ *    evidenceType, relevance } and is validated against the target
+ *    (company slug, feature, domain) before Vision is called.
  */
+import { existsSync } from 'fs';
 import { getVisionProvider } from '../../12_Provider_Layer/registry/ProviderRegistry.js';
 import { Stage } from '../runtime/Stage.js';
+import { resolveFeatureIntent } from '../featureNavigation/featureIntent.js';
+import { assertObservedUrl, sameRegistrableDomain, targetLogFields } from '../runtime/benchmarkTarget.js';
 import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
 
-const FEATURE_KEYWORD_MAP = [
-  [['entry', 'landing', 'homepage'], 'step_01_entry'],
-  [['discover', 'inspiration', 'explore', 'trending'], 'step_02_discovery'],
-  [['search', 'filter'], 'step_03_search'],
-  [['ai interaction', 'chatbot', 'chat', 'assistant', 'ai planner'], 'step_04_ai_interaction'],
-  [['recommendation', 'personalization'], 'step_05_recommendations'],
-  [['map'], 'step_06_maps'],
-  [['booking', 'book'], 'step_07_booking'],
-  [['ancillary', 'ancillaries', 'upsell', 'add-on', 'addon'], 'step_08_ancillaries'],
-  [['payment', 'checkout', 'pay', 'bnpl'], 'step_09_payment'],
-  [['trip management', 'dashboard', 'itinerary', 'post-booking'], 'step_10_trip_management'],
-  [['check-in', 'checkin', 'boarding'], 'step_11_checkin'],
-  [['loyalty', 'rewards', 'points'], 'step_12_loyalty'],
-];
+// Re-exported for existing callers/tests that imported it from here.
+export { mapFeatureToStepId } from '../featureNavigation/featureIntent.js';
 
-export function mapFeatureToStepId(feature) {
-  const text = String(feature || '').toLowerCase();
-  for (const [keywords, stepId] of FEATURE_KEYWORD_MAP) {
-    if (keywords.some((k) => text.includes(k))) return stepId;
-  }
-  return null;
-}
+/**
+ * Choose the evidence screenshot. Returns { evidence } or throws.
+ * `evidence` = { company, url, feature, screenshotPath, evidenceType,
+ * relevance, stepId, stepStatus }.
+ *
+ * Accepts ONLY:
+ *   - the feature's own scoped step (relevance: 'direct'), or
+ *   - for a homepage-scoped / unmapped feature, a step_01_entry step whose
+ *     page_url is on the target's own domain (relevance: 'base_page').
+ * Anything else throws — there is deliberately no "use whatever screenshot
+ * we have" path, because that is exactly what analysed a Payment screenshot
+ * for a Homepage benchmark.
+ */
+export function selectEvidence({ steps, target, intent }) {
+  const withShots = steps.filter((s) => s.screenshot_path && existsSync(s.screenshot_path));
 
-function selectStep(steps, featureStepId) {
-  if (featureStepId) {
-    const exactSuccess = steps.find((s) => s.step_id === featureStepId && s.status === 'success');
-    if (exactSuccess) return { step: exactSuccess, featureStepFound: true };
-    const exactAny = steps.find((s) => s.step_id === featureStepId);
-    if (exactAny) return { step: exactAny, featureStepFound: true };
+  // 1 — the feature's own step.
+  const own = withShots.find((s) => s.step_id === intent.stepId);
+  if (own && (own.page_url == null || sameRegistrableDomain(target.url, own.page_url))) {
+    return {
+      evidence: {
+        company: target.slug,
+        url: own.page_url || target.url,
+        feature: target.feature,
+        screenshotPath: own.screenshot_path,
+        evidenceType: intent.homepageOnly ? 'homepage' : 'feature_page',
+        relevance: 'direct',
+        stepId: own.step_id,
+        stepStatus: own.status,
+      },
+    };
   }
-  const lastSuccess = [...steps].reverse().find((s) => s.status === 'success');
-  if (lastSuccess) return { step: lastSuccess, featureStepFound: false };
-  return { step: steps[steps.length - 1] || null, featureStepFound: false };
+
+  // 2 — homepage base fallback: ONLY a step_01_entry screenshot on the
+  //     target's own domain, and ONLY for a homepage-scoped feature.
+  if (intent.homepageOnly) {
+    const base = withShots.find(
+      (s) => s.step_id === 'step_01_entry' &&
+        (s.page_url == null || sameRegistrableDomain(target.url, s.page_url)),
+    );
+    if (base) {
+      return {
+        evidence: {
+          company: target.slug,
+          url: base.page_url || target.url,
+          feature: target.feature,
+          screenshotPath: base.screenshot_path,
+          evidenceType: 'homepage_base',
+          relevance: 'base_page',
+          stepId: base.step_id,
+          stepStatus: base.status,
+        },
+      };
+    }
+  }
+
+  // 3 — nothing acceptable. Do NOT analyse an unrelated screenshot.
+  const seen = steps.map((s) => `${s.step_id}:${s.status}${s.screenshot_path ? '' : ' (no shot)'}`).join(', ');
+  throw new Error(
+    `No evidence relevant to "${target.feature}" for ${target.company} was captured (needed step "${intent.stepId}"). ` +
+    `Captured: [${seen || 'nothing'}]. Refusing to analyse an unrelated screenshot.`,
+  );
 }
 
 export const featureVisionStage = new Stage(
   'feature_vision',
   'Screenshot Selection + Vision Analysis',
-  async ({ feature, jobId, previousOutput }) => {
+  async ({ target, previousOutput }) => {
     return withLogContext({ stage: 'feature_vision' }, async () => {
+      if (!target) throw new Error('featureVisionStage requires a benchmark target.');
       const steps = previousOutput?.steps || [];
-      const featureStepId = mapFeatureToStepId(feature);
-      const { step: selected, featureStepFound } = selectStep(steps, featureStepId);
+      const intent = resolveFeatureIntent(target.feature);
 
-      if (!selected || !selected.screenshot_path) {
-        const err = new Error(`No usable screenshot was captured for feature "${feature}" (mapped journey step: ${featureStepId || 'none'}).`);
-        logError('No usable screenshot for Vision', err);
-        throw err;
+      logInfo('Feature Vision starting', { ...targetLogFields(target), feature_step: intent.stepId, homepage_only: intent.homepageOnly });
+
+      const { evidence } = selectEvidence({ steps, target, intent });
+
+      // ── Validate the chosen evidence against the target BEFORE spending a
+      //    Vision call on it.
+      if (evidence.company !== target.slug) {
+        throw new Error(`Evidence company "${evidence.company}" != target slug "${target.slug}".`);
+      }
+      if (evidence.feature !== target.feature) {
+        throw new Error(`Evidence feature "${evidence.feature}" != target feature "${target.feature}".`);
+      }
+      if (evidence.url) assertObservedUrl(target, evidence.url, 'Feature Vision (evidence url)');
+      if (!existsSync(evidence.screenshotPath)) {
+        throw new Error(`Evidence screenshot "${evidence.screenshotPath}" does not exist on disk.`);
       }
 
-      logInfo('Screenshot selected for Vision', { screenshotPath: selected.screenshot_path, featureStepId, featureStepFound, stepStatus: selected.status });
+      logInfo('Evidence selected for Vision', {
+        ...targetLogFields(target),
+        screenshotPath: evidence.screenshotPath,
+        evidenceType: evidence.evidenceType,
+        relevance: evidence.relevance,
+        stepStatus: evidence.stepStatus,
+      });
 
-      const companySlug = typeof jobId === 'string' ? jobId.split(':')[1] : undefined;
       const visionStartedAt = Date.now();
-      logInfo('Vision request starting', { screenshotPath: selected.screenshot_path, url: selected.page_url });
       let result;
       try {
         result = await getVisionProvider().describe({
-          screenshotPath: selected.screenshot_path,
-          companySlug,
-          url: selected.page_url,
-          title: selected.title,
+          screenshotPath: evidence.screenshotPath,
+          companySlug: target.slug,
+          url: evidence.url,
+          title: null,
         });
       } catch (err) {
         logError('Vision request threw', err);
         throw err; // rethrow unchanged
       }
-      logInfo('Vision request finished', { success: result.success, durationMs: Date.now() - visionStartedAt });
+      logInfo('Vision request finished', { ...targetLogFields(target), success: result.success, durationMs: Date.now() - visionStartedAt });
 
       if (!result.success) {
-        const err = new Error(result.error || 'Vision analysis failed');
-        logError('Vision analysis failed', err);
-        throw err;
+        throw new Error(result.error || 'Vision analysis failed');
       }
 
       return {
-        url: selected.page_url || null,
-        title: selected.title || null,
-        screenshotPath: selected.screenshot_path,
+        // accumulator fields threaded to Reasoning / Report Writer / gate
+        targetCompany: target.company,
+        targetFeature: target.feature,
+        url: evidence.url || null,
+        title: null,
+        screenshotPath: evidence.screenshotPath,
         visionFindings: result.findings,
         visionJsonPath: result.jsonPath,
-        featureStepId,
-        featureStepFound,
-        selectedStep: { step_id: selected.step_id, title: selected.title, status: selected.status },
+        featureStepId: intent.stepId,
+        featureStepFound: evidence.relevance === 'direct',
+        selectedStep: { step_id: evidence.stepId, status: evidence.stepStatus },
+        evidence,
         timing: result.timing,
       };
     });

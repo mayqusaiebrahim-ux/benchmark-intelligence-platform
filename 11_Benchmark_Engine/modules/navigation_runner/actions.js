@@ -28,9 +28,18 @@ const SAFE_SEARCH_QUERY = 'Paris';
 
 // One interaction hint per canonical journey step. `kind: 'click'` looks for
 // a matching button/link; `kind: 'search'` types into a matching input and
-// submits. Steps with no safe, well-defined interaction (login, payment
-// completion) simply have no hint and are never attempted.
+// submits; `kind: 'observe'` takes no action at all (the page as loaded IS
+// the evidence). Steps with no safe, well-defined interaction (login,
+// payment completion) simply have no hint and are never attempted.
+//
+// step_01_entry (added for feature-scoped navigation — see
+// 13_Orchestrator/featureNavigation/featureIntent.js): the homepage itself
+// is the thing being benchmarked, so `observe` just re-baselines to
+// starting_url and lets capture.js screenshot it. This does NOT change
+// Complete Journey behaviour: journey_mapper/planner.js's buildJourneyPlan()
+// explicitly excludes step_01_entry, so the full journey never reaches here.
 const STEP_INTERACTION_HINTS = {
+  step_01_entry: { kind: 'observe' },
   step_02_discovery: { kind: 'click', keywords: ['discover', 'explore', 'inspiration', 'destinations', 'things to do', 'guide'] },
   step_03_search: { kind: 'search', keywords: ['search', 'destination', 'where to', 'flights', 'hotels'], submitKeywords: ['search', 'find', 'go'] },
   step_04_ai_interaction: { kind: 'click', keywords: ['ai', 'assistant', 'chat', 'planner', 'ask ai', 'genie', 'copilot', 'concierge', 'start a chat', 'start chatting'] },
@@ -136,6 +145,13 @@ export async function performStepAction(page, step) {
   const hint = STEP_INTERACTION_HINTS[step.id];
   if (!hint) {
     return { success: false, error: `No safe interaction strategy is defined for ${step.id}.`, action_taken: null };
+  }
+  if (hint.kind === 'observe') {
+    // No interaction — the page as loaded (already re-baselined to
+    // starting_url by runner.js) is the evidence. Wait for it to settle so
+    // the screenshot capture.js takes next is of the final rendered state.
+    await waitForSettle(page);
+    return { success: true, error: null, action_taken: 'Observed the page as loaded (no interaction required)' };
   }
   if (hint.kind === 'search') {
     return performSearchAction(page, hint);

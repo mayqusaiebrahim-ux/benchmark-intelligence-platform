@@ -13,8 +13,12 @@
 export const FEATURE_REPORT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['feature_found', 'evidence_source', 'summary_markdown'],
+  required: ['analyzed_company', 'feature_found', 'evidence_source', 'summary_markdown'],
   properties: {
+    analyzed_company: {
+      type: 'string',
+      description: 'The exact name of the company / product this report analyses. This MUST be the company named in the context you were given — never a different travel brand. If the evidence appears to show a different company, say so in summary_markdown and still put the requested company name here.',
+    },
     feature_found: {
       type: 'boolean',
       description: 'True if the captured page/screenshot actually shows the requested feature; false if the crawler could only reach a related or fallback page.',
