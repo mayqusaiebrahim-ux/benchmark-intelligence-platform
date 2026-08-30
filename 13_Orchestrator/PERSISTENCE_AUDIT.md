@@ -23,6 +23,15 @@ key for every run's objects — never a mutable company label. Old
 `req_YYYYMMDD_NNN.md` report paths still map correctly (the key is derived
 from the `_Feature_Benchmarks/<feature>/<file>.md` tail).
 
+**Availability is gated up front.** Before a new Feature Benchmark spends any
+Browserbase / Discovery / Vision / Anthropic work, `benchmarkService` runs
+`checkStorageHealth()` — one lightweight, non-destructive `ListObjectsV2`
+(capped at 1 key) against the bucket. If `STORAGE_PROVIDER=r2` and that probe
+fails (bad credentials, missing bucket, network), the run fails immediately
+with *"Persistent storage is currently unavailable. Benchmark was not
+started."* and the orchestrator is never invoked. `STORAGE_PROVIDER=local`
+reports healthy (skipped) — unchanged.
+
 **Completion is gated on persistence.** A Feature Benchmark cannot stand as
 `completed` unless, in `r2` mode: the report uploaded (else the run fails at
 `feature_report_writer`), the evidence uploaded (else it fails at

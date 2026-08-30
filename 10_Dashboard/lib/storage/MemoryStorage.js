@@ -7,11 +7,19 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 
 export class MemoryStorage {
-  constructor({ failWrites = false } = {}) {
+  constructor({ failWrites = false, failHealth = false } = {}) {
     this.provider = 'memory';
     this.isRemote = true;
     this._objects = new Map(); // key -> Buffer
     this.failWrites = failWrites;
+    this.failHealth = failHealth;
+  }
+
+  // Mirrors R2Storage.healthCheck(): a lightweight, non-destructive probe.
+  // `failHealth` lets a test simulate an unreachable bucket.
+  async healthCheck() {
+    if (this.failHealth) return { ok: false, detail: 'simulated storage unavailable' };
+    return { ok: true };
   }
 
   async putBytes(key, buf) {

@@ -18,4 +18,8 @@ export class LocalStorage {
   async list() { return []; }
   async putFile() { return { ok: true, skipped: true }; }
   async restoreFile() { return false; }
+
+  // Nothing to reach — the local disk is always "available" from this layer's
+  // point of view. checkStorageHealth() short-circuits on !isRemote anyway.
+  async healthCheck() { return { ok: true }; }
 }

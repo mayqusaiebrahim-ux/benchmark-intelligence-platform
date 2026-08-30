@@ -125,6 +125,35 @@ function safeGetStorage() {
 }
 
 /**
+ * Storage availability preflight — is the configured persistent store
+ * actually reachable and usable right now?
+ *
+ * Uses ONE lightweight, non-destructive operation (the provider's
+ * healthCheck(): a ListObjectsV2 capped at 1 key for R2). Never uploads,
+ * never deletes, never throws.
+ *
+ *   local              -> { ok: true,  provider: 'local', skipped: true }
+ *   r2/memory healthy   -> { ok: true,  provider }
+ *   r2 misconfigured    -> { ok: false, provider: 'misconfigured', reason }
+ *   r2 unreachable      -> { ok: false, provider: 'r2', reason }
+ *
+ * Callers (benchmarkService) use this to fail a new run BEFORE any
+ * Browserbase / Discovery / Vision / Anthropic work when ok === false.
+ */
+export async function checkStorageHealth() {
+  const { s, err } = safeGetStorage();
+  if (err) return { ok: false, provider: 'misconfigured', reason: err.message };
+  if (!s.isRemote) return { ok: true, provider: s.provider, skipped: true };
+  try {
+    const r = await s.healthCheck();
+    if (r && r.ok) return { ok: true, provider: s.provider };
+    return { ok: false, provider: s.provider, reason: (r && r.detail) || 'storage did not report healthy' };
+  } catch (e) {
+    return { ok: false, provider: s.provider, reason: e.message };
+  }
+}
+
+/**
  * putFile that resolves the content-type and NEVER throws (returns a result
  * object). `{ ok, skipped?, key, error? }`. skipped:true for the local
  * provider; ok:false + error for a misconfigured/failed remote.

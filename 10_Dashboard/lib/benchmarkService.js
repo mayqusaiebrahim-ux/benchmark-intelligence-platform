@@ -25,7 +25,7 @@
 import { BenchmarkOrchestrator } from '../../13_Orchestrator/index.js';
 import { setStage } from './requestsStore.js';
 import { resolveOfficialUrl } from './companyUrls.js';
-import { flushStatePersistence } from './storage/index.js';
+import { flushStatePersistence, checkStorageHealth } from './storage/index.js';
 
 const orchestrator = new BenchmarkOrchestrator();
 
@@ -220,23 +220,39 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
   ]);
   let lastProgressStage = null;
 
-  orchestrator.runBenchmark(
-    { type, requestId, prompt, cwd: projectRoot, jobId, url: resolvedUrl || url, feature, company, slug, scope: scope || [] },
-    {
-      onProgress: (event) => {
-        if (!RUNTIME_STAGE_IDS.has(event.stage) || event.status !== 'running') return;
-        lastProgressStage = event.stage;
-        try {
-          setStage(projectRoot, requestId, slug, event.stage, {});
-        } catch (err) {
-          // Same non-fatal handling as every other setStage() call in this
-          // file — the request/item may have been cancelled or removed
-          // between events; the benchmark itself keeps running regardless.
-          console.log(`[benchmarkService] Could not set live stage '${event.stage}' for ${jobId}: ${err.message}`);
-        }
-      },
-    },
-  )
+  // ── Storage availability preflight ──────────────────────────────────────
+  // With STORAGE_PROVIDER=r2 the server can boot even when the R2 credentials
+  // are wrong or the bucket is unreachable. Verify persistence is actually
+  // usable with ONE lightweight, non-destructive call BEFORE any Browserbase /
+  // Discovery / Vision / Anthropic work is spent — a run whose report can
+  // never be saved is not worth starting. STORAGE_PROVIDER=local reports
+  // healthy (skipped) and this stays a no-op, so local dev is unchanged.
+  Promise.resolve()
+    .then(() => checkStorageHealth())
+    .then((health) => {
+      if (!health.ok) {
+        const err = new Error('STORAGE_PREFLIGHT_FAILED');
+        err.storagePreflight = health;
+        throw err;
+      }
+      return orchestrator.runBenchmark(
+        { type, requestId, prompt, cwd: projectRoot, jobId, url: resolvedUrl || url, feature, company, slug, scope: scope || [] },
+        {
+          onProgress: (event) => {
+            if (!RUNTIME_STAGE_IDS.has(event.stage) || event.status !== 'running') return;
+            lastProgressStage = event.stage;
+            try {
+              setStage(projectRoot, requestId, slug, event.stage, {});
+            } catch (err) {
+              // Same non-fatal handling as every other setStage() call in this
+              // file — the request/item may have been cancelled or removed
+              // between events; the benchmark itself keeps running regardless.
+              console.log(`[benchmarkService] Could not set live stage '${event.stage}' for ${jobId}: ${err.message}`);
+            }
+          },
+        },
+      );
+    })
     .then(async (outcome) => {
       runStatus.set(jobId, 'completed');
       const finishedAt = new Date().toISOString();
@@ -331,6 +347,27 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
     })
     .catch((err) => {
       runStatus.set(jobId, 'completed');
+
+      // Storage preflight failure — nothing downstream ran: no Browserbase
+      // session, no Discovery, no Vision, no Anthropic call. Fail the run
+      // with a clear human-readable reason; the technical detail is
+      // server-side only (non-secret — a status line / bucket name at most).
+      if (err && err.storagePreflight) {
+        const h = err.storagePreflight;
+        console.log(`[benchmarkService] Storage preflight FAILED — requestId=${requestId} slug=${slug} provider=${h.provider} — ${h.reason}`);
+        try {
+          setStage(projectRoot, requestId, slug, 'failed', {
+            completed_at: new Date().toISOString(),
+            execution_status: 'failed',
+            execution_message: 'Persistent storage is currently unavailable. Benchmark was not started.',
+            failed_stage: 'storage_preflight',
+          });
+        } catch (setStageErr) {
+          console.log(`[benchmarkService] Could not set stage to 'failed' for ${jobId}: ${setStageErr.message}`);
+        }
+        return;
+      }
+
       console.log(`[benchmarkService] Completed with an unexpected error — company=${company} requestId=${requestId} — ${err.message}`);
       try {
         setStage(projectRoot, requestId, slug, 'failed', {

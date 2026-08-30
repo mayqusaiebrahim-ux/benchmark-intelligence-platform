@@ -88,6 +88,27 @@ export class R2Storage {
     return keys;
   }
 
+  /**
+   * Lightweight, non-destructive reachability probe: one ListObjectsV2 call
+   * capped at a single key. Verifies the credentials sign correctly AND the
+   * bucket exists AND R2 is reachable — without writing or deleting anything.
+   * Returns { ok, detail? }; never throws (network errors become ok:false).
+   */
+  async healthCheck() {
+    try {
+      const u = new URL(`${this._endpoint}/${this._bucket}`);
+      u.searchParams.set('list-type', '2');
+      u.searchParams.set('max-keys', '1');
+      const res = await this._client.fetch(u.toString());
+      if (!res.ok) {
+        return { ok: false, detail: `R2 list-check failed: ${res.status} ${res.statusText}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, detail: `R2 unreachable: ${err.message}` };
+    }
+  }
+
   async putFile(key, localPath, contentType) {
     const buf = await readFile(localPath);
     return this.putBytes(key, buf, contentType);
