@@ -2,378 +2,553 @@
  * goal_navigator/playwrightAdapter — the one place goalNavigator.js touches a
  * real Playwright `page`. Reuses the existing Navigation Runner browser
  * session (no new browser infrastructure — spec §13): the caller passes the
- * same continuous `page` object.
+ * same continuous `page` object. The goal navigator NEVER closes the page,
+ * context, or browser — the Navigation Runner owns that lifecycle.
  *
- * Real airline booking widgets are interactive: the "From"/"To" controls are
- * often buttons that open an autocomplete panel (not plain inputs), dates are
- * custom calendar grids (not <input type=date>), flight results render
- * asynchronously, and Select/Continue live inside dynamically-rendered cards.
- * This adapter is built for those patterns — all resolution is by accessible
- * name / role / label / placeholder, never nth-child or a vendor selector.
+ * Performance (production hotfix): DOM extraction is ONE page.evaluate() that
+ * walks the document in-browser and returns a plain JSON snapshot, instead of
+ * iterating hundreds of ElementHandles with sequential awaits over CDP (that
+ * cost ~95s per observation against Browserbase). Everything else stays
+ * generic: resolution is by accessible name / role / label / container
+ * context, never nth-child or a vendor selector.
  */
 import { resolveFieldSemantic } from './formAutofill.js';
 
-const clip = (s, n = 200) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
-const lc = (s) => clip(s).toLowerCase();
-// CSS.escape is a browser global — not defined in Node. Minimal id escaper.
 const cssEscape = (s) => String(s).replace(/["\\\]#.:>~+*\s]/g, '\\$&');
+const rxEscape = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const now = () => Date.now();
 
-const CLICKABLE = 'button, [role="button"], a[href], input[type="submit"], input[type="button"], [role="option"], [role="tab"]';
-const FIELDISH = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea, [role="combobox"], [role="spinbutton"], [aria-haspopup="listbox"], [aria-autocomplete]';
+// Trip semantics that get de-duplicated to ONE best control per observation.
 const TRIP_TRIGGER_SEMANTICS = new Set(['origin', 'destination', 'depart_date', 'return_date', 'passengers', 'cabin']);
 
-/**
- * waitForSettle — network quiet AND the DOM has stopped mutating. Bounded, but
- * generous enough for async flight-result rendering.
- */
-async function settle(page, { maxMs = 12000 } = {}) {
-  try { await page.waitForLoadState('networkidle', { timeout: Math.min(maxMs, 8000) }); } catch { /* never fully idle */ }
-  try {
-    await page.waitForFunction(
-      () => {
-        // eslint-disable-next-line no-undef
-        const w = window;
-        if (!w.__gnMut) return true;
-        return (Date.now() - w.__gnMut) > 600;
-      },
-      { timeout: Math.min(maxMs, 4000), polling: 200 },
-    ).catch(() => {});
-  } catch { /* ignore */ }
-  try { await page.waitForTimeout(250); } catch { /* ignore */ }
+// ─── the single in-browser DOM snapshot ─────────────────────────────────────
+// Runs entirely in the page. Returns bounded plain data. No Playwright calls.
+/* eslint-disable */
+function DOM_SNAPSHOT(LIMITS) {
+  const T = (s) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim();
+  const lc = (s) => T(s).toLowerCase();
+  const vis = (el) => {
+    if (!el || !el.getClientRects || !el.getClientRects().length) return false;
+    const st = getComputedStyle(el);
+    if (st.visibility === 'hidden' || st.display === 'none' || Number(st.opacity) === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1;
+  };
+  const accName = (el) => {
+    const al = el.getAttribute && el.getAttribute('aria-label');
+    if (al) return T(al);
+    const lb = el.getAttribute && el.getAttribute('aria-labelledby');
+    if (lb) {
+      const parts = lb.split(/\s+/).map((id) => { const n = document.getElementById(id); return n ? n.textContent : ''; });
+      const j = T(parts.join(' '));
+      if (j) return j;
+    }
+    const it = T(el.innerText || el.textContent);
+    if (it) return it;
+    const v = el.getAttribute && el.getAttribute('value');
+    if (v) return T(v);
+    const ti = el.getAttribute && el.getAttribute('title');
+    return ti ? T(ti) : '';
+  };
+  const contextOf = (el) => {
+    let n = el;
+    for (let i = 0; i < 12 && n; i++, n = n.parentElement) {
+      const tag = n.tagName;
+      const idc = lc((n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : ''));
+      if (tag === 'HEADER' || /(^|[^a-z])(site-)?header([^a-z]|$)|masthead|topbar|top-bar/.test(idc)) return 'header';
+      if (tag === 'NAV' || /(^|[^a-z])nav([^a-z]|$)|navbar|navigation|megamenu|mega-menu/.test(idc)) return 'nav';
+      if (tag === 'FOOTER' || /(^|[^a-z])footer([^a-z]|$)/.test(idc)) return 'footer';
+      if (/booking|flight-search|flightsearch|search-widget|searchwidget|search-panel|book-a-flight|bookaflight|fare-finder|farefinder|search-flights|searchflights|trip-search|journey-search|ibe|dib-|widget-booking/.test(idc)) return 'booking';
+      if (tag === 'FORM' && /(search|book|flight|trip|fare)/.test(idc || lc(n.getAttribute('name') || n.getAttribute('action') || ''))) return 'booking';
+      if (tag === 'FORM') return 'form';
+    }
+    // header search boxes: a plain <form role=search> in the header
+    return 'other';
+  };
+  const isGlobalSearch = (el) => {
+    let n = el;
+    for (let i = 0; i < 10 && n; i++, n = n.parentElement) {
+      const role = n.getAttribute && n.getAttribute('role');
+      const idc = lc((n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : ''));
+      if (role === 'search' || /site-search|sitesearch|global-search|globalsearch|search-form|searchform|search-box|searchbox|header-search|nav-search/.test(idc)) return true;
+    }
+    return false;
+  };
+
+  const url = location.href;
+
+  // headings
+  const headings = [];
+  document.querySelectorAll('h1,h2,h3,[role="heading"],[aria-current="step"]').forEach((h) => {
+    if (headings.length >= LIMITS.headings) return;
+    if (!vis(h)) return;
+    const t = lc(h.innerText || h.textContent);
+    if (t) headings.push(t.slice(0, 120));
+  });
+
+  const bodyText = lc(document.body ? document.body.innerText : '').slice(0, 10000);
+
+  // clickable controls
+  const controls = [];
+  const buttonNames = [];
+  const CLICK_SEL = 'button,[role="button"],a[href],input[type="submit"],input[type="button"],[role="tab"]';
+  const clickEls = Array.from(document.querySelectorAll(CLICK_SEL));
+  for (const el of clickEls) {
+    if (controls.length >= LIMITS.controls) break;
+    if (!vis(el)) continue;
+    const name = accName(el);
+    if (!name || name.length > 60) continue;
+    const ctx = isGlobalSearch(el) ? 'header' : contextOf(el);
+    const disabled = !!(el.disabled || el.getAttribute('aria-disabled') === 'true');
+    controls.push({ name: name.toLowerCase(), context: ctx, disabled });
+    buttonNames.push(name.toLowerCase());
+  }
+
+  // form fields (+ button-triggered trip pickers)
+  const fields = [];
+  const FIELD_SEL = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]),select,textarea,[role="combobox"],[role="spinbutton"],[aria-haspopup="listbox"],[aria-autocomplete]';
+  const fieldEls = Array.from(document.querySelectorAll(FIELD_SEL));
+  const seen = new Set();
+  const fieldDesc = (el, forceTrigger) => {
+    let label = '';
+    if (el.labels && el.labels.length) label = T(el.labels[0].textContent);
+    if (!label) {
+      const w = el.closest && el.closest('label');
+      if (w) label = T(w.textContent);
+    }
+    if (!label) {
+      const p = el.previousElementSibling;
+      if (p && p.tagName === 'LABEL') label = T(p.textContent);
+    }
+    const g = (a) => (el.getAttribute ? el.getAttribute(a) : null);
+    return {
+      label: label.slice(0, 80) || null,
+      ariaLabel: T(g('aria-label')).slice(0, 80) || null,
+      placeholder: T(g('placeholder')).slice(0, 80) || null,
+      name: g('name') || null,
+      id: el.id || null,
+      type: g('type') || null,
+      role: g('role') || null,
+      tag: forceTrigger ? 'trigger' : el.tagName.toLowerCase(),
+      autocomplete: g('autocomplete') || g('aria-autocomplete') || null,
+      haspopup: g('aria-haspopup') || null,
+      context: contextOf(el),
+      visible: vis(el),
+      disabled: !!(el.disabled || g('aria-disabled') === 'true' || g('readonly') != null),
+      hasValue: !!(el.value && String(el.value).trim()),
+    };
+  };
+  for (const el of fieldEls) {
+    if (fields.length >= LIMITS.fields) break;
+    if (!vis(el)) continue;
+    const d = fieldDesc(el, false);
+    const k = (d.name || '') + '|' + (d.id || '') + '|' + (d.ariaLabel || d.placeholder || d.label || '');
+    if (seen.has(k)) continue;
+    seen.add(k);
+    fields.push(d);
+  }
+  // button-triggered trip controls (airport/date/passenger pickers that are not <input>)
+  for (const el of clickEls) {
+    if (fields.length >= LIMITS.fields) break;
+    if (!vis(el)) continue;
+    const nm = accName(el);
+    if (!nm || nm.length > 50) continue;
+    const d = fieldDesc(el, true);
+    d.label = nm.slice(0, 80); d.ariaLabel = d.ariaLabel || nm.slice(0, 80);
+    const k = 'trig|' + nm.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    fields.push(d);
+  }
+
+  const cnt = (sel) => { try { return Math.min(document.querySelectorAll(sel).length, 999); } catch (e) { return 0; } };
+  const counts = {
+    flightCards: cnt('[class*="flight" i][class*="card" i],[data-testid*="flight" i],[class*="result" i][class*="card" i],[class*="fare-option" i],[class*="journey" i][class*="option" i],[class*="itinerary" i]'),
+    fareCards: cnt('[class*="fare" i][class*="card" i],[class*="fare-family" i],[class*="cabin" i][class*="option" i],[data-testid*="fare" i],[class*="brand" i][class*="fare" i]'),
+    seatCells: cnt('[class*="seat" i]:not([class*="select" i]):not([class*="selector" i]),[data-testid*="seat" i],button[aria-label*="seat" i]'),
+    priceTags: cnt('[class*="price" i],[class*="amount" i],[class*="fare-price" i],[class*="total" i]'),
+  };
+
+  return { url, headings, bodyText, controls, buttonNames, fields, counts, elementCount: clickEls.length + fieldEls.length };
+}
+/* eslint-enable */
+
+// ─── Node-side: resolve semantics + de-duplicate to one control per trip field
+export function normalizeObservation(raw) {
+  const nameStrength = (d) => {
+    // strongest accessible-name signal wins when de-duplicating
+    let s = 0;
+    if (d.ariaLabel) s += 3;
+    if (d.label) s += 3;
+    if (d.placeholder) s += 2;
+    if (d.name) s += 1;
+    if (d.id) s += 1;
+    return s;
+  };
+  const contextScore = (c) => ({ booking: 5, form: 2, other: 0, footer: -3, nav: -4, header: -5 }[c] ?? 0);
+
+  const scored = (raw.fields || []).map((d) => ({
+    ...d,
+    semantic: d.semantic || resolveFieldSemantic(d),
+    _score: (d.visible ? 2 : 0) + (d.disabled ? -3 : 0) + contextScore(d.context) + nameStrength(d)
+      + (d.tag === 'trigger' ? 0.5 : 0) + (d.combobox || d.role === 'combobox' || d.autocomplete ? 1 : 0)
+      + (d.hasValue ? -1 : 0),
+  }));
+
+  // one best control per trip semantic; keep all non-trip fields (deduped by key)
+  const bestByTrip = new Map();
+  const others = [];
+  const otherKeys = new Set();
+  for (const d of scored) {
+    if (d.semantic && TRIP_TRIGGER_SEMANTICS.has(d.semantic)) {
+      const cur = bestByTrip.get(d.semantic);
+      if (!cur || d._score > cur._score) bestByTrip.set(d.semantic, d);
+    } else {
+      const k = `${d.semantic || ''}|${d.name || ''}|${d.id || ''}|${d.placeholder || d.label || d.ariaLabel || ''}`;
+      if (otherKeys.has(k)) continue;
+      otherKeys.add(k);
+      others.push(d);
+    }
+  }
+  const fields = [...bestByTrip.values(), ...others].map((d) => { const { _score, ...rest } = d; return rest; });
+
+  return {
+    url: raw.url || null,
+    headings: raw.headings || [],
+    bodyText: raw.bodyText || '',
+    buttons: raw.buttonNames || [],       // string names — for the pure detectors/tests
+    controls: raw.controls || [],         // {name, context, disabled} — for CTA selection
+    fields,
+    counts: raw.counts || {},
+    elementCount: raw.elementCount || 0,
+  };
 }
 
-// Install a lightweight mutation stamp once per page so `settle` can tell when
-// the DOM has quiesced (SPA route changes rarely fire load events).
+const SNAPSHOT_LIMITS = { headings: 30, controls: 140, fields: 60 };
+
+async function settle(page, { maxMs = 6000 } = {}) {
+  try { await page.waitForLoadState('networkidle', { timeout: Math.min(maxMs, 4000) }); } catch { /* never idle */ }
+  try {
+    await page.waitForFunction(
+      () => { const w = window; return !w.__gnMut || (Date.now() - w.__gnMut) > 500; },
+      { timeout: Math.min(maxMs, 2500), polling: 200 },
+    ).catch(() => {});
+  } catch { /* ignore */ }
+}
+
 async function ensureMutationStamp(page) {
   try {
     await page.evaluate(() => {
-      // eslint-disable-next-line no-undef
       const w = window;
       if (w.__gnMutObs) return;
       w.__gnMut = Date.now();
       w.__gnMutObs = new MutationObserver(() => { w.__gnMut = Date.now(); });
-      // eslint-disable-next-line no-undef
       w.__gnMutObs.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
     });
-  } catch { /* page may be mid-navigation */ }
+  } catch { /* mid-navigation */ }
 }
 
-async function countLoose(page, selector) {
-  try { return Math.min(await page.locator(selector).count(), 999); }
-  catch { return 0; }
+export async function buildObservation(page, { logger } = {}) {
+  const t0 = now();
+  await ensureMutationStamp(page);
+  let raw;
+  try {
+    raw = await page.evaluate(DOM_SNAPSHOT, SNAPSHOT_LIMITS);
+  } catch (err) {
+    raw = { url: (() => { try { return page.url(); } catch { return null; } })(), headings: [], bodyText: '', controls: [], buttonNames: [], fields: [], counts: {}, elementCount: 0, _error: err.message };
+  }
+  const obs = normalizeObservation(raw);
+  logger?.info?.('goal_nav_perf', { phase: 'observation', durationMs: now() - t0, elementCount: raw.elementCount || 0 });
+  return obs;
 }
+
+// ─── clickable resolution — null-safe, container-context aware ───────────────
+export const safeLc = (v) => String(v == null ? '' : v).toLowerCase().replace(/\s+/g, ' ').trim();
 
 /**
- * buildObservation — snapshot the current page into the plain shape the pure
- * detectors/planners consume. Bounded element counts.
+ * resolveClickable — find a visible control whose accessible name matches
+ * `name`. `preferContext` (e.g. ['booking','form']) and `avoidContext`
+ * (e.g. ['header','nav','footer']) bias which one when several match. Never
+ * throws on a null label.
  */
-export async function buildObservation(page) {
-  await ensureMutationStamp(page);
-  const url = (() => { try { return page.url(); } catch { return null; } })();
-
-  const headings = [];
+export async function resolveClickable(page, name, { preferContext = [], avoidContext = [] } = {}) {
+  const target = safeLc(name);
+  if (!target) return null;
+  // One in-page pass: score every matching visible control by name + container
+  // context, tag the winner, then hand back a locator for it.
   try {
-    const hs = await page.locator('h1, h2, h3, [role="heading"], [aria-current="step"]').all();
-    for (const h of hs.slice(0, 40)) {
-      const t = lc(await h.innerText().catch(() => ''));
-      if (t) headings.push(t);
-    }
-  } catch { /* ignore */ }
-
-  let bodyText = '';
-  try { bodyText = lc(await page.locator('body').innerText().catch(() => '')).slice(0, 10000); }
-  catch { /* ignore */ }
-
-  const buttons = [];
-  try {
-    const els = await page.locator(CLICKABLE).all();
-    for (const el of els.slice(0, 160)) {
-      if (!(await el.isVisible().catch(() => false))) continue;
-      const name = clip((await el.innerText().catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')) || (await el.getAttribute('value').catch(() => '')));
-      if (name && name.length <= 60) buttons.push(name.toLowerCase());
-    }
-  } catch { /* ignore */ }
-
-  const fields = [];
-  const seenFieldKeys = new Set();
-  try {
-    const els = await page.locator(FIELDISH).all();
-    for (const el of els.slice(0, 90)) {
-      if (!(await el.isVisible().catch(() => false))) continue;
-      const desc = await describeField(page, el);
-      const key = `${desc.semantic || ''}|${desc.name || ''}|${desc.id || ''}|${desc.placeholder || ''}`;
-      if (seenFieldKeys.has(key)) continue;
-      seenFieldKeys.add(key);
-      fields.push(desc);
-    }
-  } catch { /* ignore */ }
-
-  // Button-triggered trip controls (airport / date / passenger pickers that
-  // are NOT <input>s) — surface them as fields so the planner can target them.
-  try {
-    const els = await page.locator('button, [role="button"], [role="combobox"]').all();
-    for (const el of els.slice(0, 120)) {
-      if (!(await el.isVisible().catch(() => false))) continue;
-      const name = clip((await el.innerText().catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')));
-      if (!name || name.length > 50) continue;
-      const semantic = resolveFieldSemantic({ label: name, ariaLabel: name });
-      if (!semantic || !TRIP_TRIGGER_SEMANTICS.has(semantic)) continue;
-      const key = `${semantic}|trigger|${name}`;
-      if (seenFieldKeys.has(key)) continue;
-      seenFieldKeys.add(key);
-      fields.push({ label: name, ariaLabel: name, semantic, tag: 'trigger', trigger: true });
-    }
-  } catch { /* ignore */ }
-
-  const counts = {
-    flightCards: await countLoose(page, '[class*="flight" i][class*="card" i], [data-testid*="flight" i], [class*="result" i][class*="card" i], [class*="fare-option" i], [class*="journey" i][class*="option" i], [class*="itinerary" i]'),
-    fareCards: await countLoose(page, '[class*="fare" i][class*="card" i], [class*="fare-family" i], [class*="cabin" i][class*="option" i], [data-testid*="fare" i], [class*="brand" i][class*="fare" i]'),
-    seatCells: await countLoose(page, '[class*="seat" i]:not([class*="select" i]):not([class*="selector" i]), [data-testid*="seat" i], button[aria-label*="seat" i]'),
-    priceTags: await countLoose(page, '[class*="price" i], [class*="amount" i], [class*="fare-price" i], [class*="total" i]'),
-  };
-
-  return { url, headings, bodyText, buttons, fields, counts };
-}
-
-async function describeField(page, el) {
-  const [ariaLabel, placeholder, name, id, type, role, tag, autocomplete, ariaAutocomplete, haspopup] = await Promise.all([
-    el.getAttribute('aria-label').catch(() => null),
-    el.getAttribute('placeholder').catch(() => null),
-    el.getAttribute('name').catch(() => null),
-    el.getAttribute('id').catch(() => null),
-    el.getAttribute('type').catch(() => null),
-    el.getAttribute('role').catch(() => null),
-    el.evaluate((n) => n.tagName.toLowerCase()).catch(() => null),
-    el.getAttribute('autocomplete').catch(() => null),
-    el.getAttribute('aria-autocomplete').catch(() => null),
-    el.getAttribute('aria-haspopup').catch(() => null),
-  ]);
-  let label = null;
-  if (id) label = await page.locator(`label[for="${cssEscape(id)}"]`).first().innerText().catch(() => null);
-  if (!label) {
-    // label wrapping the input, or an adjacent label
-    label = await el.evaluate((n) => {
-      const wrap = n.closest('label');
-      if (wrap) return wrap.textContent;
-      const prev = n.previousElementSibling;
-      if (prev && prev.tagName === 'LABEL') return prev.textContent;
-      return null;
-    }).catch(() => null);
+    const picked = await page.evaluate(({ target, preferContext, avoidContext }) => {
+      const T = (s) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim().toLowerCase();
+      const vis = (el) => {
+        if (!el.getClientRects || !el.getClientRects().length) return false;
+        const st = getComputedStyle(el); if (st.visibility === 'hidden' || st.display === 'none') return false;
+        const r = el.getBoundingClientRect(); return r.width > 1 && r.height > 1;
+      };
+      const ctxOf = (el) => {
+        let n = el;
+        for (let i = 0; i < 12 && n; i++, n = n.parentElement) {
+          const tag = n.tagName; const idc = T((n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : ''));
+          if (tag === 'HEADER' || /header|masthead|topbar/.test(idc)) return 'header';
+          if (tag === 'NAV' || /nav|navbar|navigation|megamenu/.test(idc)) return 'nav';
+          if (tag === 'FOOTER' || /footer/.test(idc)) return 'footer';
+          if (/booking|flight-search|flightsearch|search-widget|book-a-flight|fare-finder|search-flights|ibe/.test(idc)) return 'booking';
+          if (n.getAttribute && n.getAttribute('role') === 'search') return 'header';
+          if (tag === 'FORM') return 'form';
+        }
+        return 'other';
+      };
+      const accName = (el) => {
+        const al = el.getAttribute('aria-label'); if (al) return T(al);
+        const it = T(el.innerText || el.textContent); if (it) return it;
+        const v = el.getAttribute('value'); if (v) return T(v);
+        const ti = el.getAttribute('title'); return ti ? T(ti) : '';
+      };
+      document.querySelectorAll('[data-gn-pick]').forEach((n) => n.removeAttribute('data-gn-pick')); // clear stale marker
+      const els = Array.from(document.querySelectorAll('button,[role="button"],a[href],input[type="submit"],input[type="button"],[role="option"],[role="tab"]'));
+      let best = null, bestScore = -1e9, bestIdx = -1;
+      els.forEach((el, idx) => {
+        if (!vis(el)) return;
+        const n = accName(el);
+        if (!n) return;
+        const isMatch = n === target || n.includes(target) || target.includes(n);
+        if (!isMatch) return;
+        const c = ctxOf(el);
+        let score = 0;
+        if (n === target) score += 5;
+        if (preferContext.includes(c)) score += 8;
+        if (avoidContext.includes(c)) score -= 12;
+        if (c === 'booking') score += 4;
+        if (c === 'header' || c === 'nav' || c === 'footer') score -= 6;
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') score -= 8;
+        if (score > bestScore) { bestScore = score; best = el; bestIdx = idx; }
+      });
+      if (!best) return null;
+      best.setAttribute('data-gn-pick', '1');
+      return { idx: bestIdx, context: ctxOf(best), name: accName(best), score: bestScore };
+    }, { target, preferContext, avoidContext });
+    if (!picked) return null;
+    const loc = page.locator('[data-gn-pick="1"]').first();
+    if (await loc.count().catch(() => 0)) return { loc, meta: picked };
+    return null;
+  } catch {
+    return null;
   }
-  const desc = {
-    label: label && clip(label), ariaLabel: ariaLabel && clip(ariaLabel), placeholder: placeholder && clip(placeholder),
-    name, id, type, role, tag,
-    autocomplete: autocomplete || ariaAutocomplete || null,
-    combobox: role === 'combobox' || ariaAutocomplete === 'list' || haspopup === 'listbox' || undefined,
-  };
-  desc.semantic = resolveFieldSemantic(desc);
-  return desc;
-}
-
-// ─── element resolution (stale-safe) ─────────────────────────────────────
-async function resolveClickable(page, name) {
-  const target = String(name || '').toLowerCase();
-  // Prefer controls inside a result/fare/passenger card so "Select" picks the
-  // right one on a page full of identical buttons.
-  const scopes = [
-    '[class*="card" i], [class*="result" i], [class*="fare" i], [class*="option" i], [role="listitem"], article',
-    'body',
-  ];
-  for (const scope of scopes) {
-    let containers;
-    try { containers = await page.locator(scope).all(); } catch { containers = []; }
-    for (const c of containers.slice(0, 40)) {
-      let els;
-      try { els = await c.locator(CLICKABLE).all(); } catch { continue; }
-      for (const el of els) {
-        if (!(await el.isVisible().catch(() => false))) continue;
-        const n = ((await el.innerText().catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')) || (await el.getAttribute('value').catch(() => ''))).toLowerCase().replace(/\s+/g, ' ').trim();
-        if (n && (n === target || n.includes(target) || target.includes(n))) return el;
-      }
-    }
-  }
-  return null;
+  // NOTE: the [data-gn-pick] marker is intentionally left on the element — the
+  // caller clicks via the returned locator, and the NEXT resolveClickable call
+  // clears stale markers before scoring. Cleaning it here (finally) would strip
+  // it before the caller could use the locator.
 }
 
 async function resolveField(page, descriptor) {
   const tries = [];
   if (descriptor.id) tries.push(`#${cssEscape(descriptor.id)}`);
-  if (descriptor.name) tries.push(`[name="${descriptor.name}"]`);
-  if (descriptor.ariaLabel) tries.push(`[aria-label="${descriptor.ariaLabel}"]`);
-  if (descriptor.placeholder) tries.push(`[placeholder="${descriptor.placeholder}"]`);
+  if (descriptor.name) tries.push(`[name="${cssEscape(descriptor.name)}"]`);
+  if (descriptor.ariaLabel) tries.push(`[aria-label="${descriptor.ariaLabel.replace(/"/g, '\\"')}"]`);
+  if (descriptor.placeholder) tries.push(`[placeholder="${descriptor.placeholder.replace(/"/g, '\\"')}"]`);
   for (const sel of tries) {
-    const loc = page.locator(sel).first();
-    if (await loc.isVisible().catch(() => false)) return loc;
+    try {
+      const loc = page.locator(sel).first();
+      if (await loc.isVisible({ timeout: 800 }).catch(() => false)) return loc;
+    } catch { /* bad selector — skip */ }
   }
-  // trigger buttons: match by accessible name
-  if (descriptor.label || descriptor.ariaLabel) {
-    const nm = (descriptor.label || descriptor.ariaLabel);
-    const loc = page.getByRole('button', { name: new RegExp(nm.slice(0, 24).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }).first();
-    if (await loc.isVisible().catch(() => false)) return loc;
-    const combo = page.getByRole('combobox', { name: new RegExp(nm.slice(0, 24).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }).first();
-    if (await combo.isVisible().catch(() => false)) return combo;
+  const nm = descriptor.label || descriptor.ariaLabel;
+  if (nm) {
+    const re = new RegExp(rxEscape(nm.slice(0, 24)), 'i');
+    for (const role of ['button', 'combobox', 'textbox']) {
+      try {
+        const loc = page.getByRole(role, { name: re }).first();
+        if (await loc.isVisible({ timeout: 800 }).catch(() => false)) return loc;
+      } catch { /* ignore */ }
+    }
   }
   return null;
 }
 
-/** Pick a suggestion from an open autocomplete/listbox by matching `value`. */
 async function pickSuggestion(page, value) {
   const needle = String(value).slice(0, 3).toLowerCase();
-  const optionSel = '[role="option"], [role="listbox"] li, [class*="suggestion" i], [class*="autocomplete" i] li, [class*="typeahead" i] li, [class*="dropdown" i] [class*="item" i], [id*="listbox" i] li';
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const optionSel = '[role="option"],[role="listbox"] li,[class*="suggestion" i],[class*="autocomplete" i] li,[class*="typeahead" i] li,[id*="listbox" i] li';
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const opts = await page.locator(optionSel).all();
-      for (const o of opts.slice(0, 30)) {
-        if (!(await o.isVisible().catch(() => false))) continue;
-        const t = lc(await o.innerText().catch(() => ''));
-        if (t && (t.includes(needle) || t.includes(String(value).toLowerCase()))) {
-          await o.click({ timeout: 3000 }).catch(() => {});
-          return true;
+      const clicked = await page.evaluate(({ optionSel, needle, value }) => {
+        const T = (s) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim().toLowerCase();
+        const opts = Array.from(document.querySelectorAll(optionSel)).slice(0, 40);
+        for (const o of opts) {
+          const r = o.getBoundingClientRect();
+          if (r.width < 1 || r.height < 1) continue;
+          const t = T(o.innerText || o.textContent);
+          if (t && (t.includes(needle) || t.includes(String(value).toLowerCase()))) { o.click(); return true; }
         }
-      }
-      // no visible match yet — wait for async suggestions
-      await page.waitForTimeout(500);
+        return false;
+      }, { optionSel, needle, value });
+      if (clicked) return true;
+      await page.waitForTimeout(450);
     } catch { /* retry */ }
   }
   return false;
 }
 
-/** Click a calendar cell matching an ISO date (YYYY-MM-DD) if a grid is open. */
 async function pickCalendarDate(page, iso) {
   const [y, m, d] = iso.split('-').map(Number);
-  const day = String(d);
-  const gridSel = '[role="grid"], [class*="calendar" i], [class*="datepicker" i], [class*="date-picker" i]';
   const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
   const wantLabel = `${monthNames[m - 1]} ${d}, ${y}`;
   for (let nav = 0; nav < 14; nav++) {
-    let grid;
-    try { grid = page.locator(gridSel).first(); if (!(await grid.isVisible().catch(() => false))) return false; }
-    catch { return false; }
-    // exact aria-label match first (most reliable)
-    const byLabel = grid.locator(`[aria-label*="${wantLabel}" i], [aria-label*="${iso}" i], td[data-date="${iso}"], button[data-date="${iso}"], [data-day="${iso}"]`).first();
-    if (await byLabel.isVisible().catch(() => false)) {
-      const disabled = await byLabel.getAttribute('aria-disabled').catch(() => null);
-      if (disabled !== 'true') { await byLabel.click({ timeout: 3000 }).catch(() => {}); return true; }
-    }
-    // else: is the visible month header the target month? then click the day cell.
-    const header = lc(await grid.locator('[class*="month" i], [class*="header" i], [role="heading"], caption').first().innerText().catch(() => ''));
-    if (header.includes(monthNames[m - 1]) && header.includes(String(y))) {
-      const cell = grid.locator('[role="gridcell"], td, button').filter({ hasText: new RegExp(`^\\s*${day}\\s*$`) }).first();
-      if (await cell.isVisible().catch(() => false)) {
-        const dis = await cell.getAttribute('aria-disabled').catch(() => null);
-        if (dis !== 'true') { await cell.click({ timeout: 3000 }).catch(() => {}); return true; }
+    const done = await page.evaluate(({ iso, wantLabel, day, monthName, year }) => {
+      const grid = document.querySelector('[role="grid"],[class*="calendar" i],[class*="datepicker" i],[class*="date-picker" i]');
+      if (!grid || !grid.getClientRects().length) return 'no-grid';
+      const T = (s) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim().toLowerCase();
+      const byLabel = grid.querySelector(`[aria-label*="${wantLabel}" i],[aria-label*="${iso}" i],td[data-date="${iso}"],button[data-date="${iso}"],[data-day="${iso}"]`);
+      if (byLabel && byLabel.getAttribute('aria-disabled') !== 'true') { byLabel.click(); return 'clicked'; }
+      const header = T((grid.querySelector('[class*="month" i],[class*="header" i],[role="heading"],caption') || {}).textContent);
+      if (header.includes(monthName) && header.includes(String(year))) {
+        const cells = Array.from(grid.querySelectorAll('[role="gridcell"],td,button'));
+        for (const c of cells) {
+          if (T(c.textContent) === String(day) && c.getAttribute('aria-disabled') !== 'true') { c.click(); return 'clicked'; }
+        }
       }
-    }
-    // advance one month
-    const next = page.locator('[aria-label*="next month" i], [aria-label*="next" i][class*="month" i], button[class*="next" i], [class*="calendar" i] [class*="next" i]').first();
-    if (!(await next.isVisible().catch(() => false))) return false;
-    await next.click({ timeout: 2000 }).catch(() => {});
-    await page.waitForTimeout(300);
+      const next = document.querySelector('[aria-label*="next month" i],[aria-label*="next" i][class*="month" i],button[class*="next" i]');
+      if (next) { next.click(); return 'advanced'; }
+      return 'stuck';
+    }, { iso, wantLabel, day: d, monthName: monthNames[m - 1], year: y });
+    if (done === 'clicked') return true;
+    if (done === 'no-grid' || done === 'stuck') return false;
+    await page.waitForTimeout(250);
   }
   return false;
 }
 
+/** Did the trip field actually accept a selection? Generic confirmation. */
+async function confirmTripSelection(page, descriptor, value) {
+  try {
+    return await page.evaluate(({ id, name, val }) => {
+      const T = (s) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim().toLowerCase();
+      const target = T(val);
+      let el = null;
+      if (id) el = document.getElementById(id);
+      if (!el && name) el = document.querySelector(`[name="${name}"]`);
+      // a) the (or a nearby) input now displays the value / an airport code
+      const near = el ? el.closest('[class*="field" i],[class*="input" i],[class*="control" i],fieldset,form') || el.parentElement : document.body;
+      const displayed = T((near && near.innerText) || '');
+      if (target && displayed.includes(target.slice(0, 3))) return true;
+      // b) a hidden input holding an IATA code changed
+      const hidden = near && near.querySelector('input[type="hidden"]');
+      if (hidden && /^[A-Z]{3}$/.test(String(hidden.value || '').trim().toUpperCase())) return true;
+      // c) no suggestion list is still open (collapsed combobox)
+      const open = document.querySelector('[role="listbox"]:not([hidden]),[class*="suggestion" i]:not([hidden])');
+      if (el && !open && T(el.value).length >= 3) return true;
+      return false;
+    }, { id: descriptor.id || null, name: descriptor.name || null, val: String(value) });
+  } catch { return false; }
+}
+
 /**
- * playwrightAdapter — the adapter object goalNavigator.runGoalNavigation()
- * consumes. `page` is the shared Navigation Runner page.
+ * playwrightAdapter — the object goalNavigator.runGoalNavigation() consumes.
+ * `page` is the shared Navigation Runner page. `logger` receives goal_nav_perf
+ * / goal_nav_field_result events (optional).
  */
-export function playwrightAdapter(page) {
+export function playwrightAdapter(page, { logger } = {}) {
+  const log = (event, fields) => { try { logger?.info?.(event, fields); } catch { /* logging must not break nav */ } };
+
   return {
     async observe() {
-      return buildObservation(page);
+      return buildObservation(page, { logger });
     },
 
     async fill(descriptor, value, method) {
-      const loc = await resolveField(page, descriptor);
-      if (!loc) return { ok: false, error: 'field not locatable' };
+      const t0 = now();
+      const semantic = descriptor.semantic || null;
+      const controlType = descriptor.tag === 'trigger' ? 'trigger'
+        : (descriptor.combobox || descriptor.role === 'combobox' || descriptor.autocomplete ? 'combobox' : 'input');
+      const done = (ok, selectionConfirmed, extra = {}) => {
+        log('goal_nav_field_result', { semantic, success: !!ok, selectionConfirmed: !!selectionConfirmed, controlType, durationMs: now() - t0 });
+        log('goal_nav_perf', { phase: 'fill', durationMs: now() - t0, elementCount: 1 });
+        return { ok: !!ok, selectionConfirmed: !!selectionConfirmed, ...extra };
+      };
 
-      if (method === 'date' || descriptor.semantic === 'depart_date' || descriptor.semantic === 'return_date' || descriptor.semantic === 'date_of_birth') {
-        try { await loc.click({ timeout: 3000 }); await page.waitForTimeout(300); } catch { /* ignore */ }
-        if (await pickCalendarDate(page, String(value))) return { ok: true, via: 'calendar' };
-        // fall back to typing an ISO / localized string
-        try { await loc.fill(String(value), { timeout: 3000 }); return { ok: true, via: 'type' }; }
-        catch { try { await loc.type(String(value), { delay: 20 }); return { ok: true, via: 'type' }; } catch (e) { return { ok: false, error: e.message }; } }
+      const loc = await resolveField(page, descriptor);
+      if (!loc) return done(false, false, { error: 'field not locatable' });
+
+      // dates → calendar first
+      if (method === 'date' || semantic === 'depart_date' || semantic === 'return_date' || semantic === 'date_of_birth') {
+        try { await loc.click({ timeout: 2500 }); await page.waitForTimeout(250); } catch { /* ignore */ }
+        if (await pickCalendarDate(page, String(value))) return done(true, true, { via: 'calendar' });
+        try { await loc.fill(String(value), { timeout: 2500 }); return done(true, false, { via: 'type' }); }
+        catch { return done(false, false, { error: 'date not settable' }); }
       }
 
-      // autocomplete / combobox text field
-      const isCombo = descriptor.combobox || descriptor.autocomplete || descriptor.tag === 'trigger' || method === 'combobox';
+      const isCombo = controlType !== 'input' || method === 'combobox';
       try {
-        await loc.click({ timeout: 3000 }).catch(() => {});
+        await loc.click({ timeout: 2500 }).catch(() => {});
         if (isCombo) {
-          // some triggers reveal a nested search input
           const nested = page.locator('input[type="text"]:visible, input[type="search"]:visible, [role="combobox"] input:visible').first();
-          const typeInto = (await nested.isVisible().catch(() => false)) ? nested : loc;
+          const typeInto = (await nested.isVisible({ timeout: 600 }).catch(() => false)) ? nested : loc;
           await typeInto.fill('').catch(() => {});
-          await typeInto.type(String(value), { delay: 40 });
-          await page.waitForTimeout(700);
-          if (await pickSuggestion(page, value)) return { ok: true, via: 'suggestion' };
-          await typeInto.press('Enter').catch(() => {});
-          return { ok: true, via: 'enter' };
+          await typeInto.type(String(value), { delay: 30 });
+          await page.waitForTimeout(500);
+          const picked = await pickSuggestion(page, value);
+          if (!picked) await typeInto.press('Enter').catch(() => {});
+          const confirmed = picked || await confirmTripSelection(page, descriptor, value);
+          return done(true, confirmed, { via: picked ? 'suggestion' : 'enter' });
         }
-        await loc.fill(String(value), { timeout: 4000 });
-        return { ok: true, via: 'fill' };
+        await loc.fill(String(value), { timeout: 3000 });
+        return done(true, true, { via: 'fill' });
       } catch (err) {
-        try { await loc.type(String(value), { delay: 25, timeout: 4000 }); return { ok: true, via: 'type' }; }
-        catch { return { ok: false, error: err.message }; }
+        try { await loc.type(String(value), { delay: 20, timeout: 3000 }); return done(true, false, { via: 'type' }); }
+        catch { return done(false, false, { error: err.message }); }
       }
     },
 
     async selectOption(descriptor, value) {
-      const loc = await resolveField(page, descriptor);
-      if (!loc) return { ok: false, error: 'field not locatable' };
-      try {
-        if ((descriptor.tag || '').toLowerCase() === 'select') {
-          await loc.selectOption({ label: String(value) }).catch(async () => loc.selectOption(String(value)));
-          return { ok: true, via: 'select' };
-        }
-        await loc.click({ timeout: 3000 });
-        await page.waitForTimeout(300);
-        const nested = page.locator('input[type="text"]:visible, input[type="search"]:visible, [role="combobox"] input:visible').first();
-        const typeInto = (await nested.isVisible().catch(() => false)) ? nested : loc;
-        await typeInto.fill(String(value)).catch(() => typeInto.type(String(value), { delay: 30 }));
-        await page.waitForTimeout(600);
-        if (await pickSuggestion(page, value)) return { ok: true, via: 'suggestion' };
-        await typeInto.press('Enter').catch(() => {});
-        return { ok: true, via: 'enter' };
-      } catch (err) {
-        return { ok: false, error: err.message };
-      }
+      // combobox trip fields route through fill()'s suggestion logic
+      return this.fill(descriptor, value, 'combobox');
     },
 
-    async click(name) {
+    async click(name, opts = {}) {
+      const t0 = now();
       const before = (() => { try { return page.url(); } catch { return null; } })();
+      const preferContext = opts.preferContext || [];
+      const avoidContext = opts.avoidContext || [];
+      let result = { ok: false, error: `no visible control named "${name}"` };
       for (let attempt = 0; attempt < 2; attempt++) {
-        const el = await resolveClickable(page, name);
-        if (!el) { if (attempt === 0) { await page.waitForTimeout(500); continue; } return { ok: false, error: `no visible control named "${name}"` }; }
+        const found = await resolveClickable(page, name, { preferContext, avoidContext });
+        if (!found) { if (attempt === 0) { await page.waitForTimeout(400); continue; } break; }
         try {
-          await el.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
-          await el.click({ timeout: 6000 });
+          await found.loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
+          await found.loc.click({ timeout: 5000 });
           await settle(page);
           const after = (() => { try { return page.url(); } catch { return null; } })();
-          return { ok: true, navigated: before !== after };
+          result = { ok: true, navigated: before !== after, pickedContext: found.meta?.context || null };
+          break;
         } catch (err) {
-          if (/detached|not attached|stale|element is not/i.test(err.message) && attempt === 0) { await page.waitForTimeout(400); continue; }
-          return { ok: false, error: err.message };
+          if (/detached|not attached|stale|element is not/i.test(err.message || '') && attempt === 0) { await page.waitForTimeout(350); continue; }
+          result = { ok: false, error: err.message };
+          break;
         }
       }
-      return { ok: false, error: `could not click "${name}"` };
+      log('goal_nav_perf', { phase: 'click', durationMs: now() - t0, elementCount: 1 });
+      return result;
     },
 
     async waitForSettle() {
+      const t0 = now();
       await settle(page);
+      log('goal_nav_perf', { phase: 'settle', durationMs: now() - t0, elementCount: 0 });
     },
 
     async validationErrors() {
-      const out = [];
       try {
-        const els = await page.locator('[aria-invalid="true"], [class*="error" i]:not([class*="no-error" i]), [class*="invalid" i], [role="alert"], .field-error, [class*="validation" i]').all();
-        for (const el of els.slice(0, 25)) {
-          if (!(await el.isVisible().catch(() => false))) continue;
-          const t = clip(await el.innerText().catch(() => ''));
-          if (t && t.length > 2 && t.length < 180) out.push(t);
-        }
-      } catch { /* ignore */ }
-      return [...new Set(out)];
+        return await page.evaluate(() => {
+          const T = (s) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim();
+          const out = new Set();
+          const els = Array.from(document.querySelectorAll('[aria-invalid="true"],[class*="error" i],[class*="invalid" i],[role="alert"],[class*="validation" i]')).slice(0, 30);
+          for (const el of els) {
+            const r = el.getBoundingClientRect();
+            if (r.width < 1 || r.height < 1) continue;
+            const t = T(el.innerText || el.textContent);
+            if (t.length > 2 && t.length < 180) out.add(t);
+          }
+          return Array.from(out);
+        });
+      } catch { return []; }
     },
   };
 }

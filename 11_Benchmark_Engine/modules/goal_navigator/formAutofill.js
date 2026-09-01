@@ -142,12 +142,18 @@ export function planAutofill(fields = [], profile) {
   const fills = [];
   const blocked = [];
   let unresolved = 0;
+  // Defensive de-duplication: a responsive/mobile-duplicated form can expose
+  // the same semantic several times. One semantic = at most one fill attempt.
+  const filledSemantics = new Set();
+  const blockedSemantics = new Set();
 
   for (const descriptor of fields) {
     const semantic = descriptor.semantic || resolveFieldSemantic(descriptor);
     if (!semantic) { unresolved++; continue; }
+    if (filledSemantics.has(semantic) || blockedSemantics.has(semantic)) continue;
 
     if (BLOCKED_SEMANTICS.has(semantic)) {
+      blockedSemantics.add(semantic);
       blocked.push({
         descriptor, semantic,
         reason: /^card_/.test(semantic)
@@ -159,6 +165,7 @@ export function planAutofill(fields = [], profile) {
 
     const value = valueForSemantic(semantic, profile);
     if (value === null || value === '') { unresolved++; continue; }
+    filledSemantics.add(semantic);
     fills.push({ descriptor, semantic, value, method: methodFor(descriptor, semantic) });
   }
 

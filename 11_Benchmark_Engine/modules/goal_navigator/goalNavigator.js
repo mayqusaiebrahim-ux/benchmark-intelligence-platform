@@ -32,7 +32,12 @@ import { chooseOptionalControl } from './optionalStepHandler.js';
 
 export const DEFAULT_LIMITS = Object.freeze({
   maxActions: 25,
-  maxMs: 5 * 60 * 1000,
+  // Comfortably below the Browserbase session budget so the Navigation Runner
+  // still has a live page to screenshot after we stop.
+  maxMs: 3 * 60 * 1000,
+  // When less than this remains, stop NOW (honestly) so the deepest page can
+  // be captured before the session/page dies.
+  evidenceReserveMs: 20 * 1000,
   maxRetriesPerAction: 2,
   maxStallLoops: 3,
 });
@@ -71,9 +76,38 @@ function obsSignature(o = {}) {
  * `filledSignatures` is a Set of "already filled this exact field set" markers
  * so we don't re-fill the same form forever.
  */
+const HEADER_CONTEXTS = new Set(['header', 'nav', 'footer']);
+
+/** Pick the best control for a name-pattern, biased by container context. */
+function pickControl(controls, predicate, { prefer = [], avoid = [] } = {}) {
+  const cands = (controls || []).filter((c) => c && !c.disabled && predicate(c.name || ''));
+  if (!cands.length) return null;
+  const score = (c) => {
+    let s = 0;
+    if (prefer.includes(c.context)) s += 10;
+    if (c.context === 'booking') s += 6;
+    if (c.context === 'form') s += 2;
+    if (avoid.includes(c.context) || HEADER_CONTEXTS.has(c.context)) s -= 10;
+    return s;
+  };
+  cands.sort((a, b) => score(b) - score(a));
+  // If the best candidate is a header/nav/footer control AND a non-header one
+  // exists, take the non-header one.
+  const nonHeader = cands.find((c) => !HEADER_CONTEXTS.has(c.context));
+  const best = (HEADER_CONTEXTS.has(cands[0].context) && nonHeader) ? nonHeader : cands[0];
+  return { name: best.name, context: best.context };
+}
+
 export function decideNextAction(observation, { profile, filledKey, alreadyFilled }) {
   const o = observation || {};
   const fields = (o.fields || []).map((f) => ({ ...f, semantic: f.semantic || resolveFieldSemantic(f) }));
+  // controls[] carries container context; fall back to bare names.
+  const controls = (o.controls && o.controls.length)
+    ? o.controls
+    : (o.buttons || []).map((n) => ({ name: n, context: 'other', disabled: false }));
+  // On a search page (origin/destination controls present) the forward CTA
+  // must come from the booking widget, never the header / global search.
+  const detectedSearch = fields.some((f) => f.semantic === 'origin' || f.semantic === 'destination');
 
   const plan = planAutofill(fields, profile);
 
@@ -83,25 +117,34 @@ export function decideNextAction(observation, { profile, filledKey, alreadyFille
 
   const cardBlock = plan.blocked.find((b) => /^card_/.test(b.semantic));
 
-  // 1 — fields to fill that we haven't filled yet.
+  // 1 — fields to fill that we haven't filled yet. Defensive de-dup: at most
+  //     ONE fill per semantic per cycle (the observation should already give
+  //     one control per trip semantic, but never trust that).
   if (plan.fills.length && !alreadyFilled.has(filledKey)) {
-    return { type: 'fill', items: plan.fills };
+    const bySemantic = new Map();
+    for (const item of plan.fills) if (!bySemantic.has(item.semantic)) bySemantic.set(item.semantic, item);
+    return { type: 'fill', items: [...bySemantic.values()] };
   }
 
   // 2 — optional-extras interstitial: prefer skip / plain continue.
-  const optional = chooseOptionalControl(o.buttons || []);
+  const optional = chooseOptionalControl((controls).map((c) => c.name));
   if (optional) return { type: optional.action === 'skip' ? 'skip' : 'continue', name: optional.name };
 
   // 3 — a selection control (choose flight / fare / seat).
-  const selectName = (o.buttons || []).find((n) => classifyAction({ kind: 'click', name: n }).classification === 'SAFE_SELECTION');
-  if (selectName) return { type: 'select', name: selectName };
+  const sel = pickControl(controls, (n) => classifyAction({ kind: 'click', name: n }).classification === 'SAFE_SELECTION', { prefer: ['booking', 'form'] });
+  if (sel) return { type: 'select', name: sel.name, context: sel.context };
 
-  // 4 — a plain forward control (continue / next / to payment).
-  const contName = (o.buttons || []).find((n) => classifyAction({ kind: 'click', name: n }).classification === 'SAFE_NAVIGATION' && n.trim().toLowerCase() !== 'observe');
-  if (contName) return { type: 'continue', name: contName };
+  // 4 — a plain forward / search-submit control. On a search page the CTA MUST
+  //     come from the booking-widget context, never the header/nav search.
+  const cont = pickControl(
+    controls,
+    (n) => classifyAction({ kind: 'click', name: n }).classification === 'SAFE_NAVIGATION' && n.trim().toLowerCase() !== 'observe',
+    detectedSearch ? { prefer: ['booking', 'form'], avoid: ['header', 'nav', 'footer'] } : {},
+  );
+  if (cont) return { type: 'continue', name: cont.name, context: cont.context };
 
   // 5 — only card fields / a pay button remain → payment boundary.
-  if (cardBlock || (o.buttons || []).some((n) => classifyAction({ kind: 'click', name: n }).classification === 'IRREVERSIBLE_TRANSACTION')) {
+  if (cardBlock || controls.some((c) => classifyAction({ kind: 'click', name: c.name }).classification === 'IRREVERSIBLE_TRANSACTION')) {
     return { type: 'transaction', reason: 'only payment controls remain on this page' };
   }
 
@@ -182,8 +225,12 @@ export async function runGoalNavigation({
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
+      const elapsedMs = Date.now() - startedAt;
+      const remainingMs = L.maxMs - elapsedMs;
+      log('goal_nav_budget', { elapsedMs, remainingMs, actionNumber: actionsTaken });
+
       if (actionsTaken >= L.maxActions) return finish(TARGET_STATUS.MAX_STEPS, { blocker: `hit the ${L.maxActions}-action ceiling before reaching "${feature}"` });
-      if (Date.now() - startedAt >= L.maxMs) return finish(TARGET_STATUS.MAX_TIME, { blocker: `hit the ${Math.round(L.maxMs / 1000)}s time budget before reaching "${feature}"` });
+      if (remainingMs <= 0) return finish(TARGET_STATUS.MAX_TIME, { blocker: `hit the ${Math.round(L.maxMs / 1000)}s time budget before reaching "${feature}"` });
 
       let obs;
       try {
@@ -199,6 +246,13 @@ export async function runGoalNavigation({
       if (obs && obs.url) deepest = { url: obs.url, headings: obs.headings || [] };
 
       flushPendingAction(obs);
+
+      // Budget guard — AFTER one observation so `deepest` is captured, so the
+      // Navigation Runner still has a live page + a known deepest URL to
+      // screenshot before the Browserbase session/page is torn down.
+      if (L.maxMs - (Date.now() - startedAt) <= L.evidenceReserveMs) {
+        return finish(TARGET_STATUS.MAX_TIME, { blocker: `stopped with ~${Math.round((L.maxMs - (Date.now() - startedAt)) / 1000)}s of session budget left so the deepest page reached could be captured before teardown; "${feature}" was not reached` });
+      }
 
       // B — target detector.
       const det = detectFeature(detectorKey, obs, { minConfidence: 'medium' });
@@ -288,7 +342,7 @@ export async function runGoalNavigation({
               : await adapter.fill(item.descriptor, item.value, item.method);
             if (r && r.ok) {
               performed = true;
-              interactionsPerformed.push(`Filled ${item.semantic.replace(/_/g, ' ')}`);
+              interactionsPerformed.push(`Filled ${item.semantic.replace(/_/g, ' ')}${r.selectionConfirmed === false ? ' (unconfirmed)' : ''}`);
             }
           } catch { /* individual field failure is non-fatal */ }
         }
@@ -302,10 +356,16 @@ export async function runGoalNavigation({
           if (cls.classification === 'AUTH_REQUIRED') return finish(TARGET_STATUS.AUTH, { blocker: cls.reason });
           return finish(TARGET_STATUS.BLOCKER, { blocker: `next control "${decision.name}" is ${cls.classification}: ${cls.reason}` });
         }
+        // On a search page, force the forward CTA to come from the booking
+        // widget — never the header / global-search control.
+        const clickOpts = (decision.type === 'continue' || decision.type === 'select')
+          ? { preferContext: ['booking', 'form'], avoidContext: ['header', 'nav', 'footer'] }
+          : {};
         try {
-          const r = await adapter.click(decision.name);
+          const r = await adapter.click(decision.name, clickOpts);
           performed = !!(r && r.ok);
-          if (performed) interactionsPerformed.push(`${decision.type === 'skip' ? 'Skipped optional step via' : decision.type === 'select' ? 'Selected' : 'Clicked'} "${decision.name}"`);
+          if (performed) interactionsPerformed.push(`${decision.type === 'skip' ? 'Skipped optional step via' : decision.type === 'select' ? 'Selected' : 'Clicked'} "${decision.name}"${r.pickedContext && r.pickedContext !== 'other' ? ` [${r.pickedContext}]` : ''}`);
+          else logger.warn?.('goal_nav_click_failed', { name: decision.name, error: r && r.error });
         } catch (err) {
           logger.warn?.('goal_nav_click_failed', { name: decision.name, error: err.message });
         }

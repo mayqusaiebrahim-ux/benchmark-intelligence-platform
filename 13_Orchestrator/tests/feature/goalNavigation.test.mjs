@@ -11,6 +11,7 @@ import { resolveFieldSemantic, planAutofill, valueForSemantic, BLOCKED_SEMANTICS
 import { detectFeature, FEATURE_DETECTORS } from '../../../11_Benchmark_Engine/modules/goal_navigator/featureDetectors.js';
 import { isOptionalSkip, isPaidAddon, chooseOptionalControl } from '../../../11_Benchmark_Engine/modules/goal_navigator/optionalStepHandler.js';
 import { runGoalNavigation, decideNextAction, TARGET_STATUS } from '../../../11_Benchmark_Engine/modules/goal_navigator/goalNavigator.js';
+import { normalizeObservation, resolveClickable, safeLc } from '../../../11_Benchmark_Engine/modules/goal_navigator/playwrightAdapter.js';
 import { resolveFeatureIntent, buildFeatureJourneyPlan, mapFeatureToDetectorKey } from '../../featureNavigation/featureIntent.js';
 import { selectEvidence } from '../../stages/featureVisionStage.js';
 import { createBenchmarkTarget } from '../../runtime/benchmarkTarget.js';
@@ -473,4 +474,144 @@ test('evidence: a goal-driven target-reached step is direct feature evidence', (
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ─── 11. production hotfix regressions (first real Etihad Browserbase run) ─
+
+test('null accessible label never crashes resolveClickable / safeLc', async () => {
+  assert.equal(safeLc(null), '');
+  assert.equal(safeLc(undefined), '');
+  assert.equal(safeLc('  Search  FLIGHTS '), 'search flights');
+  const fakePage = {
+    async evaluate() { return null; },
+    locator() { return { first: () => ({ async count() { return 0; } }) }; },
+  };
+  assert.equal(await resolveClickable(fakePage, null), null);
+  assert.equal(await resolveClickable(fakePage, 'search flights'), null);
+});
+
+test('context-aware CTA: header search is rejected when a booking-widget Search Flights exists', () => {
+  const alreadyFilled = new Set(['from,to']);
+  const withBoth = {
+    url: 'https://air.com/', headings: ['book a flight'], bodyText: '', buttons: ['search', 'search flights'],
+    controls: [
+      { name: 'search', context: 'header', disabled: false },
+      { name: 'search flights', context: 'booking', disabled: false },
+    ],
+    fields: [{ label: 'From', semantic: 'origin' }, { label: 'To', semantic: 'destination' }], counts: {},
+  };
+  const d1 = decideNextAction(withBoth, { profile: PROFILE, filledKey: 'from,to', alreadyFilled });
+  assert.equal(d1.type, 'continue');
+  assert.equal(d1.name, 'search flights');
+  assert.equal(d1.context, 'booking');
+
+  const headerOnly = { ...withBoth, controls: [{ name: 'search', context: 'header', disabled: false }], buttons: ['search'] };
+  const d2 = decideNextAction(headerOnly, { profile: PROFILE, filledKey: 'from,to', alreadyFilled });
+  assert.equal(d2.type, 'continue');
+  assert.equal(d2.name, 'search');
+});
+
+test('duplicated responsive destination controls collapse to ONE semantic target', () => {
+  const raw = {
+    url: 'https://air.com/', headings: ['book a flight'], bodyText: '', buttonNames: [], controls: [],
+    fields: [
+      { label: 'From', context: 'booking', visible: true, disabled: false, id: 'orig-d' },
+      { label: 'To', context: 'booking', visible: true, disabled: false, id: 'dest-desktop', ariaLabel: 'Destination' },
+      { label: 'To', context: 'booking', visible: false, disabled: false, id: 'dest-mobile' },
+      { label: 'To', context: 'nav', visible: true, disabled: false, id: 'dest-nav' },
+      { label: 'To', context: 'other', visible: true, disabled: true, id: 'dest-hidden' },
+      { placeholder: 'Destination', context: 'other', visible: true, disabled: false, id: 'dest-suggest' },
+      { label: 'To', context: 'booking', visible: true, disabled: false, id: 'dest-dupe2' },
+    ],
+    counts: {},
+  };
+  const obs = normalizeObservation(raw);
+  const dests = obs.fields.filter((f) => f.semantic === 'destination');
+  assert.equal(dests.length, 1, 'exactly one destination control survives');
+  assert.equal(dests[0].context, 'booking');
+  assert.equal(dests[0].visible, true);
+  assert.equal(dests[0].disabled, false);
+  assert.equal(obs.fields.filter((f) => f.semantic === 'origin').length, 1);
+});
+
+test('observation does bounded / batched DOM work (one snapshot evaluate)', async () => {
+  const { buildObservation } = await import('../../../11_Benchmark_Engine/modules/goal_navigator/playwrightAdapter.js');
+  let evaluateCalls = 0;
+  const fakePage = {
+    url: () => 'https://air.com/',
+    async evaluate() {
+      evaluateCalls++;
+      if (evaluateCalls === 1) return undefined; // ensureMutationStamp
+      return {
+        url: 'https://air.com/', headings: ['book a flight'], bodyText: 'welcome',
+        controls: Array.from({ length: 500 }, (_, i) => ({ name: 'btn ' + i, context: 'other', disabled: false })),
+        buttonNames: ['search flights'], fields: [{ label: 'From' }, { label: 'To' }],
+        counts: {}, elementCount: 1234,
+      };
+    },
+  };
+  const logs = [];
+  const obs = await buildObservation(fakePage, { logger: { info: (e, f) => logs.push({ e, f }) } });
+  assert.ok(evaluateCalls <= 2, 'expected <=2 evaluate calls, got ' + evaluateCalls);
+  assert.equal(obs.url, 'https://air.com/');
+  const perf = logs.find((l) => l.e === 'goal_nav_perf' && l.f.phase === 'observation');
+  assert.ok(perf && typeof perf.f.durationMs === 'number' && perf.f.elementCount === 1234);
+});
+
+test('one fill batch never fills the same semantic twice', () => {
+  const fields = [
+    { label: 'From', semantic: 'origin' },
+    { label: 'To', semantic: 'destination' },
+    { label: 'To', semantic: 'destination' },
+    { label: 'To', semantic: 'destination' },
+    { label: 'First name', semantic: 'first_name' },
+    { label: 'First name', semantic: 'first_name' },
+  ];
+  const { fills } = planAutofill(fields, PROFILE);
+  const counts = {};
+  for (const f of fills) counts[f.semantic] = (counts[f.semantic] || 0) + 1;
+  assert.equal(counts.destination, 1);
+  assert.equal(counts.origin, 1);
+  assert.equal(counts.first_name, 1);
+
+  const d = decideNextAction({ fields, buttons: [], controls: [] }, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set() });
+  assert.equal(d.type, 'fill');
+  const sems = d.items.map((i) => i.semantic);
+  assert.equal(new Set(sems).size, sems.length, 'no duplicate semantics in the fill batch');
+});
+
+test('runtime-budget stop preserves the deepest evidence and stops honestly', async () => {
+  const adapter = scriptedAdapter([
+    { url: 'https://air.com/deep-page', headings: ['book a flight'], bodyText: '', buttons: ['Search flights'],
+      fields: [{ label: 'From' }, { label: 'To' }], counts: {} },
+  ]);
+  const r = await runGoalNavigation({
+    adapter, detectorKey: 'passenger_details', feature: 'Passenger Details', profile: PROFILE,
+    limits: { maxMs: 100, evidenceReserveMs: 500 }, // reserve > budget → stop right after the first observation
+  });
+  assert.equal(r.targetStatus, TARGET_STATUS.MAX_TIME);
+  assert.equal(r.targetReached, false);
+  assert.equal(r.deepestUrl, 'https://air.com/deep-page');
+  assert.match(r.blocker, /session budget|captured before teardown/i);
+});
+
+test('the goal navigator NEVER closes the page / context / browser', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const dir = fileURLToPath(new URL('../../../11_Benchmark_Engine/modules/goal_navigator/', import.meta.url));
+  for (const f of readdirSync(dir).filter((n) => n.endsWith('.js'))) {
+    const src = readFileSync(dir + f, 'utf8');
+    assert.ok(!/\b(page|context|browser|session)\s*\.\s*close\s*\(/.test(src), f + ' must not close the browser lifecycle');
+  }
+});
+
+test('budget telemetry: goal_nav_budget is emitted each cycle', async () => {
+  const events = [];
+  const adapter = scriptedAdapter([
+    { url: 'https://air.com/pax', headings: ['passenger details'], bodyText: '',
+      buttons: ['continue'], fields: [{ label: 'First name' }, { label: 'Last name' }], counts: {} },
+  ]);
+  await runGoalNavigation({ adapter, detectorKey: 'passenger_details', feature: 'Passenger Details', profile: PROFILE, logger: { info: (e, f) => events.push({ e, f }), warn: () => {} } });
+  const b = events.find((e) => e.e === 'goal_nav_budget');
+  assert.ok(b && typeof b.f.elapsedMs === 'number' && typeof b.f.remainingMs === 'number' && 'actionNumber' in b.f);
 });

@@ -269,12 +269,13 @@ export async function performStepAction(page, step) {
     logInfo('Navigation Runner: goal-driven navigation starting', { stepId: step.id, detectorKey: step.detector_key });
     let goal;
     try {
+      const goalLogger = { info: (m, x) => logInfo(m, x), warn: (m, x) => logInfo(m, x) };
       goal = await runGoalNavigation({
-        adapter: playwrightAdapter(page),
+        adapter: playwrightAdapter(page, { logger: goalLogger }),
         detectorKey: step.detector_key,
         feature: step.feature_label || step.title || step.detector_key,
         profile: buildTestProfile(),
-        logger: { info: (m, x) => logInfo(m, x), warn: (m, x) => logInfo(m, x) },
+        logger: goalLogger,
       });
     } catch (err) {
       goal = { targetStatus: TARGET_STATUS.BLOCKER, targetReached: false, blocker: `goal navigation threw: ${err.message}`, interactionsPerformed: [], classificationsSeen: [] };
