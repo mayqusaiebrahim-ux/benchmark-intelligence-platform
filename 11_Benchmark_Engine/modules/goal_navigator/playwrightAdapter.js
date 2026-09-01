@@ -50,19 +50,32 @@ function DOM_SNAPSHOT(LIMITS) {
     const ti = el.getAttribute && el.getAttribute('title');
     return ti ? T(ti) : '';
   };
+  const isVisibleEl = (el) => {
+    if (!el || !el.getClientRects || !el.getClientRects().length) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
   const contextOf = (el) => {
     let n = el;
-    for (let i = 0; i < 12 && n; i++, n = n.parentElement) {
+    for (let i = 0; i < 14 && n; i++, n = n.parentElement) {
       const tag = n.tagName;
+      const role = (n.getAttribute && n.getAttribute('role')) || '';
       const idc = lc((n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : ''));
+      // A visible dialog / modal / overlay wins — it is what the user must act on.
+      if ((role === 'dialog' || role === 'alertdialog' || (n.getAttribute && n.getAttribute('aria-modal') === 'true')
+        || /(^|[^a-z])(modal|dialog|lightbox|overlay-panel|popup-panel)([^a-z]|$)/.test(idc)) && isVisibleEl(n)) {
+        return /(login|log-in|signin|sign-in|auth|password|account)/.test(idc) ? 'auth' : 'modal';
+      }
+      // An actual login / sign-in surface.
+      if (/(^|[^a-z])(login|log-in|signin|sign-in|authentication|auth-)([^a-z]|$)|account-menu|account-dropdown|member-login|user-login/.test(idc)) return 'auth';
       if (tag === 'HEADER' || /(^|[^a-z])(site-)?header([^a-z]|$)|masthead|topbar|top-bar/.test(idc)) return 'header';
       if (tag === 'NAV' || /(^|[^a-z])nav([^a-z]|$)|navbar|navigation|megamenu|mega-menu/.test(idc)) return 'nav';
       if (tag === 'FOOTER' || /(^|[^a-z])footer([^a-z]|$)/.test(idc)) return 'footer';
       if (/booking|flight-search|flightsearch|search-widget|searchwidget|search-panel|book-a-flight|bookaflight|fare-finder|farefinder|search-flights|searchflights|trip-search|journey-search|ibe|dib-|widget-booking/.test(idc)) return 'booking';
-      if (tag === 'FORM' && /(search|book|flight|trip|fare)/.test(idc || lc(n.getAttribute('name') || n.getAttribute('action') || ''))) return 'booking';
+      if (tag === 'FORM' && /(login|signin|sign-in|log-in|password|auth)/.test(idc || lc((n.getAttribute && (n.getAttribute('name') || n.getAttribute('action'))) || ''))) return 'auth';
+      if (tag === 'FORM' && /(search|book|flight|trip|fare)/.test(idc || lc((n.getAttribute && (n.getAttribute('name') || n.getAttribute('action'))) || ''))) return 'booking';
       if (tag === 'FORM') return 'form';
     }
-    // header search boxes: a plain <form role=search> in the header
     return 'other';
   };
   const isGlobalSearch = (el) => {
@@ -185,32 +198,36 @@ export function normalizeObservation(raw) {
     if (d.id) s += 1;
     return s;
   };
-  const contextScore = (c) => ({ booking: 5, form: 2, other: 0, footer: -3, nav: -4, header: -5 }[c] ?? 0);
+  // An auth/modal-context control is the one that matters when several DOM
+  // nodes share a semantic (a header account password vs. a live sign-in
+  // modal password): the planner needs the blocking one.
+  const contextScore = (c) => ({ auth: 6, modal: 4, booking: 5, form: 2, other: 0, footer: -3, nav: -4, header: -5 }[c] ?? 0);
 
   const scored = (raw.fields || []).map((d) => ({
     ...d,
     semantic: d.semantic || resolveFieldSemantic(d),
-    _score: (d.visible ? 2 : 0) + (d.disabled ? -3 : 0) + contextScore(d.context) + nameStrength(d)
+    _score: (d.visible === false ? -2 : 2) + (d.disabled ? -3 : 0) + contextScore(d.context) + nameStrength(d)
       + (d.tag === 'trigger' ? 0.5 : 0) + (d.combobox || d.role === 'combobox' || d.autocomplete ? 1 : 0)
       + (d.hasValue ? -1 : 0),
   }));
 
-  // one best control per trip semantic; keep all non-trip fields (deduped by key)
-  const bestByTrip = new Map();
+  // One best control PER SEMANTIC (spec: one semantic = one primary target).
+  // Semantic-less fields are kept, deduped by a structural key.
+  const bestBySemantic = new Map();
   const others = [];
   const otherKeys = new Set();
   for (const d of scored) {
-    if (d.semantic && TRIP_TRIGGER_SEMANTICS.has(d.semantic)) {
-      const cur = bestByTrip.get(d.semantic);
-      if (!cur || d._score > cur._score) bestByTrip.set(d.semantic, d);
+    if (d.semantic) {
+      const cur = bestBySemantic.get(d.semantic);
+      if (!cur || d._score > cur._score) bestBySemantic.set(d.semantic, d);
     } else {
-      const k = `${d.semantic || ''}|${d.name || ''}|${d.id || ''}|${d.placeholder || d.label || d.ariaLabel || ''}`;
+      const k = `${d.name || ''}|${d.id || ''}|${d.placeholder || d.label || d.ariaLabel || ''}`;
       if (otherKeys.has(k)) continue;
       otherKeys.add(k);
       others.push(d);
     }
   }
-  const fields = [...bestByTrip.values(), ...others].map((d) => { const { _score, ...rest } = d; return rest; });
+  const fields = [...bestBySemantic.values(), ...others].map((d) => { const { _score, ...rest } = d; return rest; });
 
   return {
     url: raw.url || null,
@@ -226,14 +243,27 @@ export function normalizeObservation(raw) {
 
 const SNAPSHOT_LIMITS = { headings: 30, controls: 140, fields: 60 };
 
-async function settle(page, { maxMs = 6000 } = {}) {
-  try { await page.waitForLoadState('networkidle', { timeout: Math.min(maxMs, 4000) }); } catch { /* never idle */ }
-  try {
-    await page.waitForFunction(
-      () => { const w = window; return !w.__gnMut || (Date.now() - w.__gnMut) > 500; },
-      { timeout: Math.min(maxMs, 2500), polling: 200 },
-    ).catch(() => {});
-  } catch { /* ignore */ }
+// Hard cap for a whole logical settle. Individual sub-waits can never stack
+// past this — Promise.race against a real wall-clock deadline (production saw
+// a single settle phase burn 34s when sub-waits compounded).
+const SETTLE_HARD_CAP_MS = 5000;
+
+export async function settle(page, { maxMs = 4000 } = {}) {
+  const cap = Math.min(Math.max(500, maxMs), SETTLE_HARD_CAP_MS);
+  const deadline = Date.now() + cap;
+  const left = () => Math.max(0, deadline - Date.now());
+  const work = (async () => {
+    // network quiet — capped to whatever budget remains
+    await page.waitForLoadState('networkidle', { timeout: Math.min(left(), cap) }).catch(() => {});
+    // DOM has stopped mutating for ~350ms — capped to remaining budget
+    if (left() > 150) {
+      await page.waitForFunction(
+        () => { const w = window; return !w.__gnMut || (Date.now() - w.__gnMut) > 350; },
+        { timeout: left(), polling: 150 },
+      ).catch(() => {});
+    }
+  })();
+  await Promise.race([work, new Promise((r) => setTimeout(r, cap))]);
 }
 
 async function ensureMutationStamp(page) {
@@ -453,15 +483,21 @@ export function playwrightAdapter(page, { logger } = {}) {
       return buildObservation(page, { logger });
     },
 
-    async fill(descriptor, value, method) {
+    async fill(descriptor, value, method, opts = {}) {
       const t0 = now();
+      const attempt = opts.attempt || 1;
       const semantic = descriptor.semantic || null;
+      // A REQUIRED airport must be genuinely selected — "text is in the box" is
+      // not enough (production: destination success=true, selectionConfirmed=false).
+      const requiredSelection = semantic === 'origin' || semantic === 'destination';
       const controlType = descriptor.tag === 'trigger' ? 'trigger'
         : (descriptor.combobox || descriptor.role === 'combobox' || descriptor.autocomplete ? 'combobox' : 'input');
-      const done = (ok, selectionConfirmed, extra = {}) => {
-        log('goal_nav_field_result', { semantic, success: !!ok, selectionConfirmed: !!selectionConfirmed, controlType, durationMs: now() - t0 });
+      const done = (rawOk, selectionConfirmed, extra = {}) => {
+        // For required-selection fields, ok tracks confirmation.
+        const ok = requiredSelection ? (!!rawOk && !!selectionConfirmed) : !!rawOk;
+        log('goal_nav_field_result', { semantic, success: ok, selectionConfirmed: !!selectionConfirmed, controlType, attempt, durationMs: now() - t0 });
         log('goal_nav_perf', { phase: 'fill', durationMs: now() - t0, elementCount: 1 });
-        return { ok: !!ok, selectionConfirmed: !!selectionConfirmed, ...extra };
+        return { ok, selectionConfirmed: !!selectionConfirmed, ...extra };
       };
 
       const loc = await resolveField(page, descriptor);
@@ -469,37 +505,46 @@ export function playwrightAdapter(page, { logger } = {}) {
 
       // dates → calendar first
       if (method === 'date' || semantic === 'depart_date' || semantic === 'return_date' || semantic === 'date_of_birth') {
-        try { await loc.click({ timeout: 2500 }); await page.waitForTimeout(250); } catch { /* ignore */ }
+        try { await loc.click({ timeout: 2000 }); await page.waitForTimeout(200); } catch { /* ignore */ }
         if (await pickCalendarDate(page, String(value))) return done(true, true, { via: 'calendar' });
-        try { await loc.fill(String(value), { timeout: 2500 }); return done(true, false, { via: 'type' }); }
+        try { await loc.fill(String(value), { timeout: 2000 }); return done(true, false, { via: 'type' }); }
         catch { return done(false, false, { error: 'date not settable' }); }
       }
 
       const isCombo = controlType !== 'input' || method === 'combobox';
       try {
-        await loc.click({ timeout: 2500 }).catch(() => {});
+        await loc.click({ timeout: 2000 }).catch(() => {});
         if (isCombo) {
           const nested = page.locator('input[type="text"]:visible, input[type="search"]:visible, [role="combobox"] input:visible').first();
-          const typeInto = (await nested.isVisible({ timeout: 600 }).catch(() => false)) ? nested : loc;
+          const typeInto = (await nested.isVisible({ timeout: 500 }).catch(() => false)) ? nested : loc;
           await typeInto.fill('').catch(() => {});
-          await typeInto.type(String(value), { delay: 30 });
-          await page.waitForTimeout(500);
-          const picked = await pickSuggestion(page, value);
+          await typeInto.type(String(value), { delay: 25 });
+          await page.waitForTimeout(attempt >= 2 ? 800 : 450);
+
+          let picked = await pickSuggestion(page, value);
+          // Alternate strategy on retry: keyboard-select the first option.
+          if (!picked && attempt >= 2) {
+            await typeInto.press('ArrowDown').catch(() => {});
+            await page.waitForTimeout(150);
+            await typeInto.press('Enter').catch(() => {});
+            await page.waitForTimeout(250);
+            picked = await pickSuggestion(page, value); // may now be closed → false
+          }
           if (!picked) await typeInto.press('Enter').catch(() => {});
           const confirmed = picked || await confirmTripSelection(page, descriptor, value);
-          return done(true, confirmed, { via: picked ? 'suggestion' : 'enter' });
+          return done(true, confirmed, { via: picked ? 'suggestion' : 'keyboard' });
         }
-        await loc.fill(String(value), { timeout: 3000 });
+        await loc.fill(String(value), { timeout: 2500 });
         return done(true, true, { via: 'fill' });
       } catch (err) {
-        try { await loc.type(String(value), { delay: 20, timeout: 3000 }); return done(true, false, { via: 'type' }); }
+        try { await loc.type(String(value), { delay: 20, timeout: 2500 }); return done(true, false, { via: 'type' }); }
         catch { return done(false, false, { error: err.message }); }
       }
     },
 
-    async selectOption(descriptor, value) {
+    async selectOption(descriptor, value, opts = {}) {
       // combobox trip fields route through fill()'s suggestion logic
-      return this.fill(descriptor, value, 'combobox');
+      return this.fill(descriptor, value, 'combobox', opts);
     },
 
     async click(name, opts = {}) {

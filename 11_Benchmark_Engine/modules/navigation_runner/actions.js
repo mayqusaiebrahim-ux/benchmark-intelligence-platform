@@ -287,8 +287,12 @@ export async function performStepAction(page, step) {
     const summary = goal.interactionsPerformed?.length
       ? goal.interactionsPerformed.join(' → ')
       : 'no safe action was available';
+    // Every goal-nav outcome is a CLASSIFIED terminal result — the navigator
+    // ran its own bounded retries. `terminal:true` tells runner.js NOT to fire
+    // the generic recovery retry (which would re-run the whole traversal).
     return {
       success: !!goal.targetReached,
+      terminal: true,
       error: goal.targetReached ? null : (goal.blocker || `"${step.title}" was not reached (${goal.targetStatus})`),
       action_taken: `Goal navigation (${goal.targetStatus}): ${summary}`,
       consent,

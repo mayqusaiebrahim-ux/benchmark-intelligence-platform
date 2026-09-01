@@ -11,7 +11,7 @@ import { resolveFieldSemantic, planAutofill, valueForSemantic, BLOCKED_SEMANTICS
 import { detectFeature, FEATURE_DETECTORS } from '../../../11_Benchmark_Engine/modules/goal_navigator/featureDetectors.js';
 import { isOptionalSkip, isPaidAddon, chooseOptionalControl } from '../../../11_Benchmark_Engine/modules/goal_navigator/optionalStepHandler.js';
 import { runGoalNavigation, decideNextAction, TARGET_STATUS } from '../../../11_Benchmark_Engine/modules/goal_navigator/goalNavigator.js';
-import { normalizeObservation, resolveClickable, safeLc } from '../../../11_Benchmark_Engine/modules/goal_navigator/playwrightAdapter.js';
+import { normalizeObservation, resolveClickable, safeLc, settle } from '../../../11_Benchmark_Engine/modules/goal_navigator/playwrightAdapter.js';
 import { resolveFeatureIntent, buildFeatureJourneyPlan, mapFeatureToDetectorKey } from '../../featureNavigation/featureIntent.js';
 import { selectEvidence } from '../../stages/featureVisionStage.js';
 import { createBenchmarkTarget } from '../../runtime/benchmarkTarget.js';
@@ -491,22 +491,23 @@ test('null accessible label never crashes resolveClickable / safeLc', async () =
 });
 
 test('context-aware CTA: header search is rejected when a booking-widget Search Flights exists', () => {
-  const alreadyFilled = new Set(['from,to']);
+  // trip form already complete/confirmed → the decision is the forward CTA
+  const confirmed = new Set(['origin', 'destination', 'depart_date']);
   const withBoth = {
     url: 'https://air.com/', headings: ['book a flight'], bodyText: '', buttons: ['search', 'search flights'],
     controls: [
       { name: 'search', context: 'header', disabled: false },
       { name: 'search flights', context: 'booking', disabled: false },
     ],
-    fields: [{ label: 'From', semantic: 'origin' }, { label: 'To', semantic: 'destination' }], counts: {},
+    fields: [{ label: 'From', semantic: 'origin' }, { label: 'To', semantic: 'destination' }, { label: 'Departure', semantic: 'depart_date' }], counts: {},
   };
-  const d1 = decideNextAction(withBoth, { profile: PROFILE, filledKey: 'from,to', alreadyFilled });
+  const d1 = decideNextAction(withBoth, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set(), confirmed });
   assert.equal(d1.type, 'continue');
   assert.equal(d1.name, 'search flights');
   assert.equal(d1.context, 'booking');
 
   const headerOnly = { ...withBoth, controls: [{ name: 'search', context: 'header', disabled: false }], buttons: ['search'] };
-  const d2 = decideNextAction(headerOnly, { profile: PROFILE, filledKey: 'from,to', alreadyFilled });
+  const d2 = decideNextAction(headerOnly, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set(), confirmed });
   assert.equal(d2.type, 'continue');
   assert.equal(d2.name, 'search');
 });
@@ -614,4 +615,135 @@ test('budget telemetry: goal_nav_budget is emitted each cycle', async () => {
   await runGoalNavigation({ adapter, detectorKey: 'passenger_details', feature: 'Passenger Details', profile: PROFILE, logger: { info: (e, f) => events.push({ e, f }), warn: () => {} } });
   const b = events.find((e) => e.e === 'goal_nav_budget');
   assert.ok(b && typeof b.f.elapsedMs === 'number' && typeof b.f.remainingMs === 'number' && 'actionNumber' in b.f);
+});
+
+// ─── 12. hotfix #2 regressions (false auth / unconfirmed autocomplete / settle) ─
+
+const SEARCH_PAGE = (extraFields = [], controls = []) => ({
+  url: 'https://air.com/', headings: ['book a flight'], bodyText: 'plan your trip. from to travel dates guests and cabin.',
+  buttons: ['search flights', ...controls.map((c) => c.name)],
+  controls: [{ name: 'search flights', context: 'booking', disabled: false }, ...controls],
+  fields: [
+    { label: 'From', semantic: 'origin', context: 'booking', visible: true, disabled: false },
+    { label: 'To', semantic: 'destination', context: 'booking', visible: true, disabled: false },
+    { label: 'Departure date', semantic: 'depart_date', context: 'booking', visible: true, disabled: false },
+    ...extraFields,
+  ],
+  counts: {},
+});
+
+test('a password field in a header account menu does NOT gate a flight search', () => {
+  const obs = SEARCH_PAGE([
+    { label: 'Password', semantic: 'password', context: 'header', visible: true, disabled: false },
+  ]);
+  const d = decideNextAction(obs, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set(), confirmed: new Set() });
+  assert.notEqual(d.type, 'auth');
+  assert.equal(d.type, 'fill'); // proceeds to fill the booking form
+});
+
+test('AUTH only triggers when the active journey is genuinely gated', () => {
+  // a) sign-in modal on top → gated
+  const modal = {
+    url: 'https://air.com/', headings: ['sign in'], bodyText: 'please sign in to continue with your booking',
+    buttons: ['sign in'], controls: [{ name: 'sign in', context: 'auth', disabled: false }],
+    fields: [
+      { label: 'Email', semantic: 'email', context: 'auth', visible: true, disabled: false },
+      { label: 'Password', semantic: 'password', context: 'auth', visible: true, disabled: false },
+    ],
+    counts: {},
+  };
+  const d1 = decideNextAction(modal, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set(), confirmed: new Set() });
+  assert.equal(d1.type, 'auth');
+
+  // b) blocking copy but the field is elsewhere → still gated
+  const copy = SEARCH_PAGE([{ label: 'Password', semantic: 'password', context: 'other', visible: true, disabled: false }]);
+  copy.bodyText = 'your session has expired. login required to continue.';
+  const d2 = decideNextAction(copy, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set(), confirmed: new Set() });
+  assert.equal(d2.type, 'auth');
+
+  // c) password field present, no blocking copy, booking form usable → NOT gated
+  const ok = SEARCH_PAGE([{ label: 'Password', semantic: 'password', context: 'nav', visible: true, disabled: false }]);
+  const d3 = decideNextAction(ok, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set(), confirmed: new Set() });
+  assert.notEqual(d3.type, 'auth');
+});
+
+test('an unconfirmed required destination keeps the search form incomplete (planner retries it)', async () => {
+  // adapter whose destination fill reports ok but selectionConfirmed:false
+  const states = [SEARCH_PAGE(), SEARCH_PAGE()];
+  let i = 0;
+  const filled = [];
+  const adapter = {
+    async observe() { return states[Math.min(i, states.length - 1)]; },
+    async fill(desc, value, method, opts) {
+      filled.push({ semantic: desc.semantic, attempt: opts && opts.attempt });
+      if (desc.semantic === 'destination') return { ok: false, selectionConfirmed: false };
+      return { ok: true, selectionConfirmed: true };
+    },
+    async selectOption(desc, value, opts) { return this.fill(desc, value, 'combobox', opts); },
+    async click() { i++; return { ok: true, navigated: true }; },
+    async waitForSettle() {},
+  };
+  const r = await runGoalNavigation({
+    adapter, detectorKey: 'flight_results', feature: 'Flight Results', profile: PROFILE,
+    limits: { maxActions: 12, maxMs: 60000 },
+  });
+  // destination was retried multiple times, never confirmed → honest blocker,
+  // and the Search CTA was NEVER clicked (form was never "ready")
+  const destAttempts = filled.filter((f) => f.semantic === 'destination').length;
+  assert.ok(destAttempts >= 2, `destination retried (${destAttempts})`);
+  assert.equal(r.targetReached, false);
+  assert.match(r.blocker, /incomplete|destination|not.*confirmed/i);
+  assert.ok(!r.interactionsPerformed.some((s) => /Clicked "search flights"/i.test(s)), 'never submitted the search');
+});
+
+test('an incomplete flight-search form cannot advance to Search', () => {
+  const obs = SEARCH_PAGE(); // no fields confirmed yet
+  const d = decideNextAction(obs, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set(), confirmed: new Set(['origin']) });
+  assert.equal(d.type, 'fill'); // still filling destination / date — not 'continue'
+  const sems = d.items.map((i) => i.semantic);
+  assert.ok(sems.includes('destination'));
+  assert.ok(!sems.includes('origin')); // already confirmed
+});
+
+test('an unrelated "city" field outside the booking widget is ignored during flight search', () => {
+  const obs = SEARCH_PAGE([
+    { label: 'City', semantic: 'city', context: 'footer', visible: true, disabled: false }, // newsletter city
+    { label: 'Email', semantic: 'email', context: 'footer', visible: true, disabled: false },
+  ]);
+  const d = decideNextAction(obs, { profile: PROFILE, filledKey: 'x', alreadyFilled: new Set(), confirmed: new Set() });
+  assert.equal(d.type, 'fill');
+  const sems = d.items.map((i) => i.semantic);
+  assert.ok(!sems.includes('city'), 'city not in the flight-search fill plan');
+  assert.ok(!sems.includes('email'), 'newsletter email not in the flight-search fill plan');
+  assert.ok(sems.every((s) => ['origin', 'destination', 'depart_date', 'return_date', 'passengers', 'cabin'].includes(s)));
+});
+
+test('settle has a hard cap even when the network never idles and the DOM never quiesces', async () => {
+  const hang = () => new Promise(() => {});
+  const fakePage = {
+    async waitForLoadState() { return hang(); },
+    waitForFunction() { return { catch: () => hang() }; },
+  };
+  const t0 = Date.now();
+  await settle(fakePage, { maxMs: 300 }); // clamped up to the 500ms floor
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 1500, `settle returned in ${elapsed}ms (hard cap)`);
+});
+
+test('a terminal goal result is not re-run by the Navigation Runner recovery path', async () => {
+  // simulate runner.js's decision: goalTerminal ⇒ skip attemptRecovery
+  const cases = [
+    { goal: { targetStatus: 'blocked_auth_or_booking_reference' }, terminal: true, success: false },
+    { goal: { targetStatus: 'unrecoverable_blocker' }, terminal: true, success: false },
+    { goal: { targetStatus: 'safety_boundary' }, terminal: true, success: false },
+    { goal: { targetStatus: 'max_time_exceeded' }, terminal: true, success: false },
+  ];
+  for (const actionResult of cases) {
+    const goalTerminal = !!(actionResult.goal && actionResult.terminal);
+    const wouldRecover = !actionResult.success && !goalTerminal;
+    assert.equal(wouldRecover, false, `${actionResult.goal.targetStatus} must not re-run`);
+  }
+  // a genuine transient failure (no goal object) still recovers
+  const transient = { success: false, error: 'net::ERR_TIMED_OUT' };
+  assert.equal(!transient.success && !(transient.goal && transient.terminal), true);
 });

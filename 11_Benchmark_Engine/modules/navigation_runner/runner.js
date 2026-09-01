@@ -74,7 +74,14 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
   }
 
   let recovered = false;
-  if (!actionResult.success) {
+  // A goal-driven step that returned a CLASSIFIED terminal status (auth gate,
+  // safety boundary, budget, target reached, honest blocker) is a legitimate
+  // navigation outcome — not a transient execution failure. Re-running the
+  // whole goal navigator would just repeat the same expensive traversal and
+  // reach the same conclusion (production: a 2nd goal-nav run from action 0).
+  // The goal navigator already does its own bounded internal retries.
+  const goalTerminal = !!(actionResult.goal && actionResult.terminal);
+  if (!actionResult.success && !goalTerminal) {
     actionResult = await attemptRecovery({ page, step, previousResult: actionResult });
     recovered = !!actionResult.recovered;
   }

@@ -77,6 +77,34 @@ function obsSignature(o = {}) {
  * so we don't re-fill the same form forever.
  */
 const HEADER_CONTEXTS = new Set(['header', 'nav', 'footer']);
+const AUTH_CONTEXTS = new Set(['auth', 'modal']);
+const TRIP_SEMANTICS = new Set(['origin', 'destination', 'depart_date', 'return_date', 'passengers', 'cabin']);
+// Required to run a flight search (return_date only for round trips; cabin can
+// use a site default).
+const SEARCH_REQUIRED = ['origin', 'destination', 'depart_date'];
+
+// Copy that genuinely means "you cannot proceed without signing in".
+const AUTH_BLOCKING_COPY = /\b(sign\s?in\s+to\s+continue|log\s?in\s+to\s+continue|login\s+(is\s+)?required|please\s+(sign|log)\s?in\s+to|you\s+must\s+(sign|log)\s?in|session\s+(has\s+)?expired|authentication\s+(is\s+)?required|your\s+session\s+has\s+timed\s+out)\b/i;
+
+/**
+ * isAuthGating — a visible password / booking-reference field does NOT mean
+ * the active journey is auth-gated (airlines routinely ship a header account
+ * menu / hidden login panel alongside the booking page). Only treat it as a
+ * gate when there is strong contextual evidence.
+ */
+function isAuthGating({ authBlocks, controls, bodyText, searchPhase, tripFieldCount }) {
+  if (!authBlocks.length) return false;
+  const inAuthSurface = authBlocks.some((b) => AUTH_CONTEXTS.has(b.descriptor?.context));
+  const blockingCopy = AUTH_BLOCKING_COPY.test(bodyText || '');
+  const forwardControl = (controls || []).some(
+    (c) => c && !c.disabled && /\b(search|find flights?|show flights?|continue|next|proceed)\b/i.test(c.name || ''),
+  );
+  const bookingUsable = tripFieldCount >= 2 || (searchPhase && forwardControl);
+  // Genuine gate: an auth modal/surface, or explicit blocking copy, or a page
+  // where nothing else is actionable. A working booking form present ⇒ NOT gated.
+  if (bookingUsable && !inAuthSurface && !blockingCopy) return false;
+  return inAuthSurface || blockingCopy || (!bookingUsable && !forwardControl);
+}
 
 /** Pick the best control for a name-pattern, biased by container context. */
 function pickControl(controls, predicate, { prefer = [], avoid = [] } = {}) {
@@ -98,41 +126,71 @@ function pickControl(controls, predicate, { prefer = [], avoid = [] } = {}) {
   return { name: best.name, context: best.context };
 }
 
-export function decideNextAction(observation, { profile, filledKey, alreadyFilled }) {
+export function decideNextAction(observation, { profile, filledKey, alreadyFilled, confirmed = new Set(), fillAttempts = new Map() }) {
   const o = observation || {};
   const fields = (o.fields || []).map((f) => ({ ...f, semantic: f.semantic || resolveFieldSemantic(f) }));
   // controls[] carries container context; fall back to bare names.
   const controls = (o.controls && o.controls.length)
     ? o.controls
     : (o.buttons || []).map((n) => ({ name: n, context: 'other', disabled: false }));
-  // On a search page (origin/destination controls present) the forward CTA
-  // must come from the booking widget, never the header / global search.
-  const detectedSearch = fields.some((f) => f.semantic === 'origin' || f.semantic === 'destination');
 
-  const plan = planAutofill(fields, profile);
+  const hasPaxFields = fields.some((f) => /^(first_name|last_name|date_of_birth)$/.test(f.semantic || ''));
+  const tripFields = fields.filter((f) => TRIP_SEMANTICS.has(f.semantic));
+  // "Search phase" = a booking widget is on screen and we are NOT yet on a
+  // passenger form. The forward CTA must come from the booking widget only.
+  const searchPhase = !hasPaxFields && tripFields.some((f) => f.semantic === 'origin' || f.semantic === 'destination');
+  const detectedSearch = searchPhase;
 
-  // A blocked auth field that is actually on this page = hard stop.
-  const authBlock = plan.blocked.find((b) => /^(password|booking_reference|member_id)$/.test(b.semantic));
-  if (authBlock) return { type: 'auth', reason: authBlock.reason, semantic: authBlock.semantic };
+  // Only plan autofill for fields that belong to the ACTIVE journey. During the
+  // search phase that is exactly the trip fields — never a stray newsletter
+  // "city", profile "email", or footer field whose label merely matches a
+  // known semantic.
+  const planFields = searchPhase ? tripFields : fields;
+  const plan = planAutofill(planFields, profile);
+
+  // ── AUTH: a password/booking-ref field is only a GATE with strong evidence.
+  const authBlocks = planAutofill(fields, profile).blocked.filter((b) => /^(password|booking_reference|member_id)$/.test(b.semantic));
+  if (isAuthGating({ authBlocks, controls, bodyText: o.bodyText, searchPhase, tripFieldCount: tripFields.length })) {
+    return { type: 'auth', reason: authBlocks[0].reason, semantic: authBlocks[0].semantic };
+  }
 
   const cardBlock = plan.blocked.find((b) => /^card_/.test(b.semantic));
 
-  // 1 — fields to fill that we haven't filled yet. Defensive de-dup: at most
-  //     ONE fill per semantic per cycle (the observation should already give
-  //     one control per trip semantic, but never trust that).
-  if (plan.fills.length && !alreadyFilled.has(filledKey)) {
+  // 1 — fill fields. During the search phase, fill each REQUIRED trip field
+  //     until it is actually confirmed (a required airport with
+  //     selectionConfirmed=false is NOT done). Bounded per semantic.
+  if (searchPhase) {
+    const pending = [];
+    const bySemantic = new Map();
+    for (const item of plan.fills) {
+      if (confirmed.has(item.semantic)) continue;
+      if ((fillAttempts.get(item.semantic) || 0) >= 3) continue; // give up on this one
+      if (!bySemantic.has(item.semantic)) { bySemantic.set(item.semantic, item); pending.push(item.semantic); }
+    }
+    if (bySemantic.size) return { type: 'fill', items: [...bySemantic.values()], phase: 'search-form' };
+    // nothing left to fill — is the form actually ready?
+    const missing = SEARCH_REQUIRED.filter((s) => !confirmed.has(s));
+    if (missing.length) {
+      return { type: 'none', reason: `flight-search form is incomplete — ${missing.join(', ')} could not be confirmed`, incompleteForm: true };
+    }
+    // ready → fall through to the booking-widget Search CTA (step 4)
+  } else if (plan.fills.length && !alreadyFilled.has(filledKey)) {
     const bySemantic = new Map();
     for (const item of plan.fills) if (!bySemantic.has(item.semantic)) bySemantic.set(item.semantic, item);
     return { type: 'fill', items: [...bySemantic.values()] };
   }
 
-  // 2 — optional-extras interstitial: prefer skip / plain continue.
-  const optional = chooseOptionalControl((controls).map((c) => c.name));
-  if (optional) return { type: optional.action === 'skip' ? 'skip' : 'continue', name: optional.name };
+  // 2 & 3 are skipped during the search phase — the only valid next action
+  // once the trip form is complete is submitting the booking-widget search.
+  if (!searchPhase) {
+    // 2 — optional-extras interstitial: prefer skip / plain continue.
+    const optional = chooseOptionalControl((controls).map((c) => c.name));
+    if (optional) return { type: optional.action === 'skip' ? 'skip' : 'continue', name: optional.name };
 
-  // 3 — a selection control (choose flight / fare / seat).
-  const sel = pickControl(controls, (n) => classifyAction({ kind: 'click', name: n }).classification === 'SAFE_SELECTION', { prefer: ['booking', 'form'] });
-  if (sel) return { type: 'select', name: sel.name, context: sel.context };
+    // 3 — a selection control (choose flight / fare / seat).
+    const sel = pickControl(controls, (n) => classifyAction({ kind: 'click', name: n }).classification === 'SAFE_SELECTION', { prefer: ['booking', 'form'] });
+    if (sel) return { type: 'select', name: sel.name, context: sel.context };
+  }
 
   // 4 — a plain forward / search-submit control. On a search page the CTA MUST
   //     come from the booking-widget context, never the header/nav search.
@@ -168,6 +226,8 @@ export async function runGoalNavigation({
   const interactionsPerformed = [];
   const classificationsSeen = new Set();
   const alreadyFilled = new Set();
+  const confirmed = new Set();      // semantics whose selection is actually confirmed
+  const fillAttempts = new Map();   // semantic -> attempts (bounded retry)
   let actionsTaken = 0;
   let stallLoops = 0;
   let lastSignature = null;
@@ -278,12 +338,14 @@ export async function runGoalNavigation({
 
       // C — decide.
       const filledKey = (obs.fields || []).map((f) => f.semantic || f.label).sort().join(',');
-      const decision = decideNextAction(obs, { profile, filledKey, alreadyFilled });
+      const decision = decideNextAction(obs, { profile, filledKey, alreadyFilled, confirmed, fillAttempts });
 
       // stall guard — trip only when we would repeat the SAME action on a page
       // that never changed, and we're not mid validation-recovery.
       const decisionSig = `${decision.type}:${decision.name || (decision.items || []).map((i) => i.semantic).join('+')}`;
-      if (samePage && decisionSig === lastDecisionSig && retriesThisAction === 0) {
+      // search-form fills are bounded separately by fillAttempts (≤3 per
+      // semantic) — don't also let the stall guard cut them short.
+      if (samePage && decisionSig === lastDecisionSig && retriesThisAction === 0 && decision.phase !== 'search-form') {
         stallLoops++;
         if (stallLoops >= L.maxStallLoops) {
           const others = scanAllDetectors(obs).filter((h) => h.key !== detectorKey);
@@ -322,31 +384,40 @@ export async function runGoalNavigation({
         return finish(TARGET_STATUS.SAFETY, { blocker: `stopped at the payment boundary before any transaction — ${decision.reason}` });
       }
       if (decision.type === 'none') {
-        // Maybe a LATER feature is on screen (we overshot) — still honest.
         const others = scanAllDetectors(obs).filter((h) => h.key !== detectorKey);
         const overshoot = others.length ? ` (page instead shows: ${others.map((h) => h.key).join(', ')})` : '';
-        return finish(TARGET_STATUS.BLOCKER, { blocker: `no known-safe next action toward "${feature}"${overshoot}` });
+        const why = decision.reason ? `${decision.reason}` : `no known-safe next action toward "${feature}"`;
+        return finish(TARGET_STATUS.BLOCKER, { blocker: `${why}${overshoot}` });
       }
 
       // D — classify + perform.
       let performed = false;
 
       if (decision.type === 'fill') {
+        const required = new Set(SEARCH_REQUIRED);
         for (const item of decision.items) {
-          const cls = classifyAction({ kind: item.method === 'combobox' || item.method === 'date' ? 'fill' : 'fill', name: item.descriptor.label, fieldSemantic: item.semantic });
+          const cls = classifyAction({ kind: 'fill', name: item.descriptor.label, fieldSemantic: item.semantic });
           classificationsSeen.add(cls.classification);
           if (!cls.allowed) continue; // blocked semantics were already filtered, belt-and-braces
+          fillAttempts.set(item.semantic, (fillAttempts.get(item.semantic) || 0) + 1);
+          const attempt = fillAttempts.get(item.semantic);
           try {
             const r = item.method === 'combobox'
-              ? await adapter.selectOption(item.descriptor, item.value)
-              : await adapter.fill(item.descriptor, item.value, item.method);
-            if (r && r.ok) {
-              performed = true;
-              interactionsPerformed.push(`Filled ${item.semantic.replace(/_/g, ' ')}${r.selectionConfirmed === false ? ' (unconfirmed)' : ''}`);
+              ? await adapter.selectOption(item.descriptor, item.value, { attempt })
+              : await adapter.fill(item.descriptor, item.value, item.method, { attempt });
+            const fieldOk = !!(r && r.ok);
+            const isConfirmed = fieldOk && r.selectionConfirmed !== false;
+            if (isConfirmed) confirmed.add(item.semantic);
+            // A REQUIRED trip field that isn't confirmed does NOT count as done.
+            if (fieldOk && !(required.has(item.semantic) && !isConfirmed)) performed = true;
+            if (fieldOk) {
+              interactionsPerformed.push(`Filled ${item.semantic.replace(/_/g, ' ')}${isConfirmed ? '' : ` (unconfirmed, attempt ${attempt})`}`);
             }
           } catch { /* individual field failure is non-fatal */ }
         }
-        alreadyFilled.add(filledKey);
+        // In the search phase we retry unconfirmed required fields (bounded by
+        // fillAttempts), so do NOT mark this field-set permanently "filled".
+        if (decision.phase !== 'search-form') alreadyFilled.add(filledKey);
         actionsTaken++;
       } else {
         const cls = classifyAction({ kind: decision.type === 'select' ? 'click' : 'click', name: decision.name });
