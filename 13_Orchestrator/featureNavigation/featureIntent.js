@@ -21,18 +21,54 @@
 const FEATURE_KEYWORD_MAP = [
   [['entry', 'landing', 'homepage', 'home page', 'hero'], 'step_01_entry'],
   [['discover', 'inspiration', 'explore', 'trending'], 'step_02_discovery'],
-  [['search results', 'results page'], 'step_03_search'],
-  [['search', 'filter'], 'step_03_search'],
+  [['search results', 'results page', 'flight results', 'flight list'], 'step_03_search'],
+  [['flight search', 'search', 'filter'], 'step_03_search'],
   [['ai travel planner', 'ai planner', 'ai interaction', 'chatbot', 'ai chat', 'chat', 'assistant', 'copilot', 'concierge'], 'step_04_ai_interaction'],
   [['recommendation', 'personalization', 'personalisation', 'for you'], 'step_05_recommendations'],
   [['map'], 'step_06_maps'],
-  [['booking flow', 'booking', 'book', 'reserve', 'passenger details'], 'step_07_booking'],
-  [['ancillary', 'ancillaries', 'upsell', 'add-on', 'addon', 'baggage', 'seat selection'], 'step_08_ancillaries'],
-  [['payment', 'checkout', 'pay', 'bnpl', 'wallet'], 'step_09_payment'],
-  [['trip management', 'manage booking', 'my trips', 'itinerary', 'post-booking'], 'step_10_trip_management'],
-  [['check-in', 'checkin', 'boarding'], 'step_11_checkin'],
-  [['loyalty', 'rewards', 'points', 'miles', 'frequent flyer'], 'step_12_loyalty'],
+  [['fare selection', 'fare family', 'fare options', 'fare family', 'select fare', 'branded fares'], 'step_07_booking'],
+  [['booking flow', 'booking', 'book', 'reserve', 'passenger details', 'passenger information', 'traveller details', 'traveler details', 'contact details'], 'step_07_booking'],
+  [['ancillary', 'ancillaries', 'upsell', 'add-on', 'addon', 'baggage', 'extra bags', 'meal', 'seat selection', 'seat map', 'choose seat', 'upgrade'], 'step_08_ancillaries'],
+  [['payment', 'checkout', 'pay', 'bnpl', 'wallet', 'billing'], 'step_09_payment'],
+  [['trip management', 'manage booking', 'manage my booking', 'my trips', 'itinerary', 'post-booking', 'retrieve booking'], 'step_10_trip_management'],
+  [['check-in', 'checkin', 'check in', 'boarding pass'], 'step_11_checkin'],
+  [['loyalty', 'rewards', 'points', 'miles', 'frequent flyer', 'privilege club', 'skywards', 'alfursan'], 'step_12_loyalty'],
+  [['sign-in', 'sign in', 'signin', 'log in', 'login', 'member login', 'account login'], 'step_auth'],
 ];
+
+// A feature keyword → goal_navigator/featureDetectors.js detector key. More
+// specific than the journey step: "Fare Selection" and "Passenger Details"
+// both map to step_07_booking, but need different arrival detectors.
+const DETECTOR_KEYWORD_MAP = [
+  [['flight results', 'search results', 'results page', 'flight list'], 'flight_results'],
+  [['fare selection', 'fare family', 'fare options', 'select fare', 'branded fares'], 'fare_selection'],
+  [['passenger details', 'passenger information', 'traveller details', 'traveler details', 'contact details'], 'passenger_details'],
+  [['seat selection', 'seat map', 'choose seat', 'select seat'], 'seat_selection'],
+  [['ancillary', 'ancillaries', 'baggage', 'extra bags', 'meal', 'extras', 'add-on', 'addon', 'upgrade'], 'ancillaries'],
+  [['payment', 'checkout', 'billing', 'bnpl'], 'payment'],
+  [['check-in', 'checkin', 'check in', 'boarding pass'], 'checkin'],
+  [['manage booking', 'manage my booking', 'trip management', 'my trips', 'retrieve booking'], 'manage_booking'],
+  [['sign-in', 'sign in', 'signin', 'log in', 'login', 'member login'], 'signin'],
+  [['loyalty', 'privilege club', 'skywards', 'alfursan', 'frequent flyer', 'miles', 'rewards'], 'loyalty'],
+  [['flight search', 'search flights', 'book a flight'], 'flight_search'],
+];
+
+function mapFeatureToDetectorKey(feature) {
+  const text = String(feature || '').toLowerCase();
+  for (const [keywords, key] of DETECTOR_KEYWORD_MAP) {
+    if (keywords.some((k) => text.includes(k))) return key;
+  }
+  return null;
+}
+export { mapFeatureToDetectorKey };
+
+// Detectors the goal-driven multi-step navigator is allowed to drive toward.
+// (flight_search is intentionally NOT here — it is reachable in one hop and
+// the existing single-step search interaction already covers it.)
+const GOAL_DRIVEN_DETECTORS = new Set([
+  'flight_results', 'fare_selection', 'passenger_details', 'seat_selection',
+  'ancillaries', 'payment', 'checkin', 'manage_booking', 'signin',
+]);
 
 // Features that are, by nature, examined on the landing page itself — no
 // second navigation hop. "Burger menu", "notifications", "profile entry"
@@ -51,13 +87,15 @@ export function mapFeatureToStepId(feature) {
 }
 
 /**
- * @returns {{ stepId: string|null, homepageOnly: boolean, label: string,
- *   description: string, note: string|null }}
+ * @returns {{ stepId: string|null, homepageOnly: boolean, goalDriven: boolean,
+ *   detectorKey: string|null, label: string, description: string,
+ *   note: string|null }}
  */
 export function resolveFeatureIntent(feature) {
   const f = String(feature || '').trim();
   const lower = f.toLowerCase();
-  const stepId = mapFeatureToStepId(f);
+  const stepId = mapFeatureToStepId(f) || (/(sign[- ]?in|log[- ]?in|login)/.test(lower) ? 'step_auth' : null);
+  const detectorKey = mapFeatureToDetectorKey(f);
 
   const homepageSurface = HOMEPAGE_SURFACE_KEYWORDS.some((k) => lower.includes(k));
 
@@ -65,6 +103,8 @@ export function resolveFeatureIntent(feature) {
     return {
       stepId: 'step_01_entry',
       homepageOnly: true,
+      goalDriven: false,
+      detectorKey: null,
       label: `Homepage — ${f}`,
       description: `Open the company homepage, clear any cookie/consent overlay, and capture the homepage as evidence for the "${f}" benchmark. Do not navigate into Payment, Check-in, Loyalty, Ancillaries or any other unrelated journey step.`,
       note: null,
@@ -72,11 +112,16 @@ export function resolveFeatureIntent(feature) {
   }
 
   if (stepId) {
+    const goalDriven = !!detectorKey && GOAL_DRIVEN_DETECTORS.has(detectorKey);
     return {
       stepId,
       homepageOnly: false,
-      label: `${f} (${stepId})`,
-      description: `From the company homepage, take at most one safe hop to the "${f}" surface (${stepId}) and capture it. Do not walk the rest of the journey.`,
+      goalDriven,
+      detectorKey,
+      label: `${f} (${stepId}${goalDriven ? ', goal-driven' : ''})`,
+      description: goalDriven
+        ? `From the company homepage, autonomously complete every SAFE prerequisite step (search with synthetic test data, pick a flight/fare, fill synthetic passenger details, skip optional extras) needed to reach the "${f}" surface, then STOP and capture it. Never submit payment, authenticate, or add a paid ancillary.`
+        : `From the company homepage, take at most one safe hop to the "${f}" surface (${stepId}) and capture it. Do not walk the rest of the journey.`,
       note: null,
     };
   }
@@ -87,6 +132,8 @@ export function resolveFeatureIntent(feature) {
   return {
     stepId: 'step_01_entry',
     homepageOnly: true,
+    goalDriven: false,
+    detectorKey: null,
     label: `Homepage (custom feature: ${f})`,
     description: `"${f}" does not map to a known journey step. Examine the company homepage only and report honestly whether the feature is visible there.`,
     note: `custom feature "${f}" — no journey step matched; examined on the homepage`,
@@ -106,6 +153,7 @@ const STEP_TITLES = {
   step_10_trip_management: 'Open trip management',
   step_11_checkin: 'Open the check-in flow',
   step_12_loyalty: 'Open the loyalty surface',
+  step_auth: 'Open the sign-in / member login surface',
 };
 
 /**
@@ -142,9 +190,15 @@ export function buildFeatureJourneyPlan({ discoveryReport, target, intent }) {
     confidence: 'high',
     expected_result: `A screenshot of ${intent.homepageOnly ? 'the homepage' : `the "${target.feature}" surface`} for ${target.company} is captured.`,
     depends_on_previous: false,
+    // Goal-driven navigation: Navigation Runner hands this step to
+    // goal_navigator/goalNavigator.js instead of a single interaction hint.
+    goal_driven: !!intent.goalDriven,
+    detector_key: intent.detectorKey || null,
     possible_failure: intent.homepageOnly
       ? 'The homepage may be behind a hard block or never finish loading.'
-      : 'The one-hop link for this feature may not exist on the homepage — the run then falls back to homepage evidence.',
+      : intent.goalDriven
+        ? 'The multi-step flow may hit an auth wall, a safety boundary (payment), or the step/time budget before the feature detector confirms arrival — the run then reports the deepest page reached.'
+        : 'The one-hop link for this feature may not exist on the homepage — the run then falls back to homepage evidence.',
   };
 
   return {
@@ -163,6 +217,12 @@ export function buildFeatureJourneyPlan({ discoveryReport, target, intent }) {
     ],
     feature_scoped: true,
     feature: target.feature,
-    feature_intent: { stepId: intent.stepId, homepageOnly: intent.homepageOnly, label: intent.label },
+    feature_intent: {
+      stepId: intent.stepId,
+      homepageOnly: intent.homepageOnly,
+      goalDriven: !!intent.goalDriven,
+      detectorKey: intent.detectorKey || null,
+      label: intent.label,
+    },
   };
 }

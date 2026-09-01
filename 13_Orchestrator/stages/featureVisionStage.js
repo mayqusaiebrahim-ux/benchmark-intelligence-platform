@@ -68,6 +68,8 @@ export function selectEvidence({ steps, target, intent }) {
         stepId: own.step_id,
         stepStatus: own.status,
         navBlocked: false,
+        targetStatus: own.goal ? own.goal.targetStatus : null,
+        interactionsPerformed: own.goal ? (own.goal.interactionsPerformed || []) : [],
       },
     };
   }
@@ -102,18 +104,30 @@ export function selectEvidence({ steps, target, intent }) {
   //      it is base_page evidence, never "direct", and featureStepFound stays
   //      false so Reasoning reports the navigation limitation honestly.
   if (ownOnDomain && own.status !== 'success') {
+    // Goal-driven navigation attaches a rich result: which safety boundary /
+    // budget stopped it, and the deepest page it did reach.
+    const g = own.goal || null;
+    const isAuth = g && g.targetStatus === 'blocked_auth_or_booking_reference';
+    const reason = g
+      ? `automated navigation to "${target.feature}" stopped at: ${g.targetStatus}` +
+        (g.blocker ? ` — ${g.blocker}` : '') +
+        (g.deepestUrl ? ` (deepest page reached: ${g.deepestUrl})` : '') +
+        (g.interactionsPerformed?.length ? `. Steps completed: ${g.interactionsPerformed.join('; ')}` : '')
+      : (own.error || 'the planned interaction for this step did not complete');
     return {
       evidence: {
         company: target.slug,
         url: own.page_url || target.url,
         feature: target.feature,
         screenshotPath: own.screenshot_path,
-        evidenceType: 'blocked_state',
+        evidenceType: isAuth ? 'blocked_auth_or_booking_reference' : 'blocked_state',
         relevance: 'base_page',
         stepId: own.step_id,
         stepStatus: own.status,
         navBlocked: true,
-        navBlockReason: own.error || 'the planned interaction for this step did not complete',
+        navBlockReason: reason,
+        targetStatus: g ? g.targetStatus : null,
+        deepestUrl: g ? g.deepestUrl : null,
       },
     };
   }
@@ -226,6 +240,9 @@ export const featureVisionStage = new Stage(
         featureStepFound: evidence.relevance === 'direct',
         navBlocked: !!evidence.navBlocked,
         navBlockReason: evidence.navBlockReason || null,
+        goalTargetStatus: evidence.targetStatus || null,
+        goalDeepestUrl: evidence.deepestUrl || null,
+        interactionsPerformed: evidence.interactionsPerformed || [],
         selectedStep: { step_id: evidence.stepId, status: evidence.stepStatus },
         evidence: { ...evidence, r2Key: evidenceKeys.screenshot || null },
         evidenceKeys,

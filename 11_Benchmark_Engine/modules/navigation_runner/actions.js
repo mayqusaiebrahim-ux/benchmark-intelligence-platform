@@ -12,6 +12,9 @@
  */
 
 import { logInfo } from '../../../shared/logger.mjs';
+import { runGoalNavigation, TARGET_STATUS } from '../goal_navigator/goalNavigator.js';
+import { playwrightAdapter } from '../goal_navigator/playwrightAdapter.js';
+import { buildTestProfile } from '../goal_navigator/syntheticData.js';
 
 // ─── Cookie / consent overlay handling ─────────────────────────────────────
 // Consent dialogs (OneTrust, Cookiebot, generic GDPR banners) frequently
@@ -248,16 +251,54 @@ async function performSearchAction(page, hint) {
  * clear reason rather than being attempted.
  */
 export async function performStepAction(page, step) {
-  const hint = STEP_INTERACTION_HINTS[step.id];
-  if (!hint) {
-    return { success: false, error: `No safe interaction strategy is defined for ${step.id}.`, action_taken: null };
-  }
-
   // Clear any blocking cookie/consent overlay BEFORE the planned action, so a
   // target that Playwright reports as clickable is actually reachable. This
   // step is generic and best-effort: no banner -> instant pass-through.
   const consent = await dismissConsentOverlay(page).catch((err) => ({ handled: false, method: null, detail: `consent handler error: ${err.message}` }));
   logInfo('Navigation Runner: consent overlay handling', { stepId: step.id, ...consent });
+
+  // ── Goal-driven multi-step navigation ──────────────────────────────────
+  // For transactional / deep features (Passenger Details, Fare Selection,
+  // Seat Selection, Payment, ...) one click is never enough. featureIntent.js
+  // flags the step goal_driven; here we hand the SAME page to the goal
+  // navigator, which autonomously completes safe prerequisite steps with
+  // synthetic data and stops when the feature detector confirms arrival (or a
+  // safety boundary / budget is hit). It never pays, authenticates, or adds a
+  // paid ancillary.
+  if (step.goal_driven && step.detector_key) {
+    logInfo('Navigation Runner: goal-driven navigation starting', { stepId: step.id, detectorKey: step.detector_key });
+    let goal;
+    try {
+      goal = await runGoalNavigation({
+        adapter: playwrightAdapter(page),
+        detectorKey: step.detector_key,
+        feature: step.title || step.detector_key,
+        profile: buildTestProfile(),
+        logger: { info: (m, x) => logInfo(m, x), warn: (m, x) => logInfo(m, x) },
+      });
+    } catch (err) {
+      goal = { targetStatus: TARGET_STATUS.BLOCKER, targetReached: false, blocker: `goal navigation threw: ${err.message}`, interactionsPerformed: [], classificationsSeen: [] };
+    }
+    logInfo('Navigation Runner: goal-driven navigation finished', {
+      stepId: step.id, targetStatus: goal.targetStatus, reached: goal.targetReached,
+      actions: goal.actionsTaken, deepestUrl: goal.deepestUrl,
+    });
+    const summary = goal.interactionsPerformed?.length
+      ? goal.interactionsPerformed.join(' → ')
+      : 'no safe action was available';
+    return {
+      success: !!goal.targetReached,
+      error: goal.targetReached ? null : (goal.blocker || `"${step.title}" was not reached (${goal.targetStatus})`),
+      action_taken: `Goal navigation (${goal.targetStatus}): ${summary}`,
+      consent,
+      goal,
+    };
+  }
+
+  const hint = STEP_INTERACTION_HINTS[step.id];
+  if (!hint) {
+    return { success: false, error: `No safe interaction strategy is defined for ${step.id}.`, action_taken: null, consent };
+  }
 
   if (hint.kind === 'observe') {
     // No interaction — the page as loaded (already re-baselined to

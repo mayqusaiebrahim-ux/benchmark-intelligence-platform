@@ -92,6 +92,7 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
     error: actionResult.error || null,
     recovered,
     consent: actionResult.consent || null,   // audit: was a cookie overlay handled?
+    goal: actionResult.goal || null,         // goal-driven navigation result (if any)
     ...evidence,
     execution_time_ms: Date.now() - startedAt,
   };
