@@ -131,9 +131,38 @@ export async function runGoalNavigation({
   let lastDecisionSig = null;
   let deepest = { url: null, headings: [] };
   let retriesThisAction = 0;
+  // Set right after an action; the NEXT observation flushes it as a
+  // goal_nav_action_result (so urlAfter / meaningfulDomChanged are real).
+  let pendingAction = null;
+
+  const log = (event, fields) => { try { logger.info?.(event, fields); } catch { /* logging must never break navigation */ } };
+
+  const flushPendingAction = (obsAfter) => {
+    if (!pendingAction) return;
+    const sigAfter = obsAfter ? obsSignature(obsAfter) : null;
+    log('goal_nav_action_result', {
+      targetFeature: feature,
+      actionType: pendingAction.actionType,
+      controlLabel: pendingAction.controlLabel || null,
+      success: pendingAction.success,
+      urlBefore: pendingAction.urlBefore || null,
+      urlAfter: obsAfter ? (obsAfter.url || null) : null,
+      meaningfulDomChanged: sigAfter != null ? sigAfter !== pendingAction.sigBefore : null,
+      validationErrors: pendingAction.validationErrors || [],
+    });
+    pendingAction = null;
+  };
 
   const finish = (targetStatus, extra = {}) => {
+    flushPendingAction(null);
     const reached = targetStatus === TARGET_STATUS.REACHED;
+    log('goal_nav_stop', {
+      targetFeature: feature,
+      status: targetStatus,
+      blocker: extra.blocker || null,
+      deepestPage: deepest.url,
+      actionsCompleted: actionsTaken,
+    });
     return {
       targetStatus,
       targetReached: reached,
@@ -169,8 +198,20 @@ export async function runGoalNavigation({
       }
       if (obs && obs.url) deepest = { url: obs.url, headings: obs.headings || [] };
 
+      flushPendingAction(obs);
+
       // B — target detector.
       const det = detectFeature(detectorKey, obs, { minConfidence: 'medium' });
+      const pageStates = scanAllDetectors(obs).map((h) => h.key);
+      log('goal_nav_observation', {
+        targetFeature: feature,
+        currentUrl: obs.url || null,
+        actionNumber: actionsTaken,
+        detectedPageState: pageStates.length ? pageStates.join(',') : 'unknown',
+        targetConfidence: det.confidence,
+        visibleRequiredFields: (obs.fields || []).map((f) => f.semantic).filter(Boolean),
+      });
+
       if (det.reached) {
         interactionsPerformed.push(`Detected "${feature}" (${det.confidence}: ${det.signals.join('; ')})`);
         classificationsSeen.add('TARGET_REACHED');
@@ -199,6 +240,20 @@ export async function runGoalNavigation({
         stallLoops = 0;
       }
       lastDecisionSig = decisionSig;
+
+      log('goal_nav_decision', {
+        targetFeature: feature,
+        actionType: decision.type,
+        semantic: decision.type === 'fill'
+          ? (decision.items || []).map((i) => i.semantic).join(',')
+          : (decision.semantic || null),
+        controlLabel: decision.name || null,
+        safetyClass: decision.type === 'fill'
+          ? 'SAFE_FORM_FILL'
+          : (decision.type === 'auth' ? 'AUTH_REQUIRED'
+            : decision.type === 'transaction' ? 'IRREVERSIBLE_TRANSACTION'
+              : classifyAction({ kind: 'click', name: decision.name }).classification),
+      });
 
       if (decision.type === 'auth') {
         classificationsSeen.add('AUTH_REQUIRED');
@@ -261,6 +316,18 @@ export async function runGoalNavigation({
 
       // F — bounded validation recovery.
       const errs = (typeof adapter.validationErrors === 'function') ? (await adapter.validationErrors().catch(() => [])) : [];
+
+      // Stage a goal_nav_action_result — the next observation flushes it with
+      // the real urlAfter / meaningfulDomChanged.
+      pendingAction = {
+        actionType: decision.type,
+        controlLabel: decision.name || null,
+        success: performed,
+        urlBefore: obs.url || null,
+        sigBefore: sig,
+        validationErrors: errs || [],
+      };
+
       if (errs && errs.length && retriesThisAction < L.maxRetriesPerAction) {
         retriesThisAction++;
         alreadyFilled.delete(filledKey); // allow a re-fill pass to satisfy the missing fields

@@ -272,7 +272,7 @@ export async function performStepAction(page, step) {
       goal = await runGoalNavigation({
         adapter: playwrightAdapter(page),
         detectorKey: step.detector_key,
-        feature: step.title || step.detector_key,
+        feature: step.feature_label || step.title || step.detector_key,
         profile: buildTestProfile(),
         logger: { info: (m, x) => logInfo(m, x), warn: (m, x) => logInfo(m, x) },
       });

@@ -194,6 +194,7 @@ export function buildFeatureJourneyPlan({ discoveryReport, target, intent }) {
     // goal_navigator/goalNavigator.js instead of a single interaction hint.
     goal_driven: !!intent.goalDriven,
     detector_key: intent.detectorKey || null,
+    feature_label: target.feature,
     possible_failure: intent.homepageOnly
       ? 'The homepage may be behind a hard block or never finish loading.'
       : intent.goalDriven

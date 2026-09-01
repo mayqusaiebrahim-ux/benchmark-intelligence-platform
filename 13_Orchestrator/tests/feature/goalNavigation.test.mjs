@@ -399,6 +399,45 @@ test('featureIntent: transactional features become goal-driven with a detector k
   assert.equal(plan.recommended_journey[0].detector_key, 'payment');
 });
 
+// ─── 9b. structured observability ───────────────────────────────────────
+test('observability: every run emits goal_nav_observation / _decision / _action_result / _stop', async () => {
+  const events = [];
+  const logger = { info: (event, fields) => events.push({ event, fields }), warn: () => {} };
+  const adapter = scriptedAdapter([
+    { url: 'https://air.com/', headings: ['book a flight'], bodyText: '', buttons: ['Search flights'],
+      fields: [{ label: 'From' }, { label: 'To' }, { label: 'Departure date' }], counts: {} },
+    { url: 'https://air.com/results', headings: ['select your flight'], bodyText: '08:00 11:30 nonstop duration',
+      buttons: ['Select this flight'], fields: [], counts: { flightCards: 3, priceTags: 3 } },
+  ]);
+  const r = await runGoalNavigation({ adapter, detectorKey: 'flight_results', feature: 'Flight Results', profile: PROFILE, logger });
+  assert.equal(r.targetStatus, TARGET_STATUS.REACHED);
+
+  const names = events.map((e) => e.event);
+  for (const required of ['goal_nav_observation', 'goal_nav_decision', 'goal_nav_action_result', 'goal_nav_stop']) {
+    assert.ok(names.includes(required), `missing ${required}`);
+  }
+  const obs = events.find((e) => e.event === 'goal_nav_observation').fields;
+  assert.ok('currentUrl' in obs && 'actionNumber' in obs && 'detectedPageState' in obs && 'targetConfidence' in obs && 'visibleRequiredFields' in obs);
+  const dec = events.find((e) => e.event === 'goal_nav_decision').fields;
+  assert.ok('actionType' in dec && 'safetyClass' in dec);
+  const res = events.find((e) => e.event === 'goal_nav_action_result').fields;
+  assert.ok('success' in res && 'urlBefore' in res && 'urlAfter' in res && 'meaningfulDomChanged' in res && 'validationErrors' in res);
+  const stop = events.find((e) => e.event === 'goal_nav_stop').fields;
+  assert.equal(stop.status, TARGET_STATUS.REACHED);
+  assert.equal(stop.deepestPage, 'https://air.com/results');
+  // a real URL change was recorded on the search-submit action
+  assert.ok(events.some((e) => e.event === 'goal_nav_action_result' && e.fields.urlBefore === 'https://air.com/' && e.fields.urlAfter === 'https://air.com/results' && e.fields.meaningfulDomChanged === true));
+});
+
+test('browserLauncher: missing-browser error is recognised; installed-chromium probe returns a path or null', async () => {
+  const { isMissingBrowserError, findInstalledChromium } = await import('../../../11_Benchmark_Engine/modules/browserLauncher.js');
+  assert.equal(isMissingBrowserError("browserType.launch: Executable doesn't exist at C:\\...\\chrome-headless-shell.exe"), true);
+  assert.equal(isMissingBrowserError('Please run the following command to download new browsers'), true);
+  assert.equal(isMissingBrowserError('net::ERR_CONNECTION_TIMED_OUT'), false);
+  const p = findInstalledChromium();
+  assert.ok(p === null || (typeof p === 'string' && /chrom/i.test(p)));
+});
+
 // ─── 10. evidence integrity for goal-driven runs ─────────────────────────
 test('evidence: a goal-driven target-reached step is direct feature evidence', () => {
   const t = createBenchmarkTarget({ company: 'Saudia', slug: 'saudia', url: 'https://www.saudia.com/', feature: 'Passenger Details', requestId: 'r1' });

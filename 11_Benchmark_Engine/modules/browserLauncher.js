@@ -33,6 +33,8 @@
 import { chromium } from 'playwright';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync, readdirSync } from 'fs';
+import { homedir, platform } from 'os';
 import { logInfo, logError } from '../../shared/logger.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -51,9 +53,66 @@ const MEMORY_OPTIMIZED_LAUNCH_ARGS = ['--disable-gpu', '--disable-dev-shm-usage'
 
 const BROWSERBASE_SESSIONS_URL = 'https://api.browserbase.com/v1/sessions';
 
+// Playwright's DEFAULT browser download roots per OS (used only as a
+// last-resort fallback when the env-driven resolution points at a Chromium
+// that was never installed — e.g. a stray PLAYWRIGHT_BROWSERS_PATH=0).
+function defaultMsPlaywrightRoots() {
+  const p = platform();
+  const home = homedir();
+  if (p === 'win32') return [join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'ms-playwright')];
+  if (p === 'darwin') return [join(home, 'Library', 'Caches', 'ms-playwright')];
+  return [join(home, '.cache', 'ms-playwright')];
+}
+
+/** True for the "browser was never downloaded" launch error. */
+export function isMissingBrowserError(message) {
+  return /Executable doesn'?t exist|Please run the following command/i.test(String(message || ''));
+}
+
+/** Newest installed Chromium (full or headless-shell) executable, or null. */
+export function findInstalledChromium() {
+  const exeNames = platform() === 'win32'
+    ? ['chrome.exe', 'chrome-headless-shell.exe']
+    : (platform() === 'darwin' ? ['Chromium.app/Contents/MacOS/Chromium', 'chrome-headless-shell'] : ['chrome', 'chrome-headless-shell']);
+  const subdirs = platform() === 'win32'
+    ? ['chrome-win64', 'chrome-win', 'chrome-headless-shell-win64']
+    : (platform() === 'darwin' ? ['chrome-mac', 'chrome-headless-shell-mac'] : ['chrome-linux', 'chrome-headless-shell-linux']);
+  for (const root of defaultMsPlaywrightRoots()) {
+    if (!existsSync(root)) continue;
+    let entries;
+    try { entries = readdirSync(root).filter((d) => /^chromium(_headless_shell)?-\d+$/.test(d)).sort().reverse(); }
+    catch { continue; }
+    for (const dir of entries) {
+      for (const sub of subdirs) {
+        for (const exe of exeNames) {
+          const candidate = join(root, dir, sub, exe);
+          if (existsSync(candidate)) return candidate;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 async function launchLocal(label) {
   logInfo('browser_provider', { provider: 'local', label });
-  const browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS });
+  let browser;
+  try {
+    browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS });
+  } catch (err) {
+    // Seen locally: a stray PLAYWRIGHT_BROWSERS_PATH=0 in the environment
+    // makes Playwright look for an in-package .local-browsers/ Chromium that
+    // was never installed, so launch() throws "Executable doesn't exist at
+    // …chrome-headless-shell.exe". Playwright's own chromium.executablePath()
+    // still resolves the real download location — retry once with it before
+    // giving up. Generic: no hardcoded path, no vendor-specific logic.
+    if (!isMissingBrowserError(err.message)) throw err;
+    const resolved = findInstalledChromium();
+    logError('browser_launch_retry_with_executable_path', err, { provider: 'local', label, resolved });
+    if (!resolved) throw err;
+    browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS, executablePath: resolved });
+    logInfo('browser_launch_recovered_via_default_path', { provider: 'local', label, executablePath: resolved });
+  }
   logInfo('browser_connected', { provider: 'local', label });
 
   return {
