@@ -171,9 +171,36 @@ export function checkReportGrounding(md, { hasReferrerMetadata = false } = {}) {
 
   // 3 — an absence / lack of a capability asserted as fact, without scoping
   //     it to the captured evidence. "X is not visible in the captured
-  //     viewport" is fine; "the site does not offer X" is not.
-  const ABSENCE = /\b(?:has|have)\s+no\b|\bdoes(?:\s+not|n['’]t)\s+(?:have|offer|provide|include|feature|support|display|show)\b|\bthere\s+(?:is|are)\s+no\b|\b(?:lacks|is\s+missing)\b|\bno\s+[a-z][a-z-]*\s+(?:is|are)\s+(?:present|available|offered|shown|provided)\b/i;
-  const SCOPED = /\b(?:visible|shown|appears?|seen|present)\s+(?:in|within|on)\b|\bcaptured\b|\bin\s+the\s+(?:captured\s+)?(?:viewport|screenshot|evidence|frame|view)\b|\babove[- ]the[- ]fold\b|\bin\s+frame\b|\bin\s+this\s+(?:view|screenshot|capture)\b|\bon\s+screen\b|\bon-screen\b/i;
+  //     viewport" / "this absence is scoped strictly to this one capture" are
+  //     fine; "the site does not offer X" / "Passenger Details is absent" are
+  //     not.
+  const ABSENCE = new RegExp([
+    '\\b(?:has|have)\\s+no\\b',
+    '\\bdoes(?:\\s+not|n[\'’]t)\\s+(?:have|offer|provide|include|feature|support|display|show)\\b',
+    '\\bthere\\s+(?:is|are)\\s+no\\b',
+    '\\b(?:lacks|is\\s+missing)\\b',
+    '\\b(?:is|are|was|were)\\s+absent\\b',
+    '\\bno\\s+[a-z][a-z-]*\\s+(?:is|are)\\s+(?:present|available|offered|shown|provided)\\b',
+  ].join('|'), 'i');
+
+  // Scoping phrases that make an absence claim legitimate — English variants
+  // seen in real grounded reports, incl. "scoped strictly to this one
+  // capture", "in this captured viewport", "in the observed state".
+  const SCOPED = new RegExp([
+    '\\b(?:visible|shown|appears?|seen|present|detected|observed|rendered)\\s+(?:in|within|on)\\b',
+    '\\bcaptured\\b',
+    '\\bin\\s+(?:the|this)\\s+(?:one\\s+|single\\s+|initial\\s+|captured\\s+|observed\\s+|rendered\\s+)*(?:viewport|screenshot|screen\\s*shot|capture|evidence|frame|view|state|page\\s+state|observation|render)\\b',
+    '\\bscoped\\s+(?:strictly\\s+|only\\s+|purely\\s+)?to\\s+(?:this|the)\\b',
+    '\\bthis\\s+(?:one\\s+|single\\s+)?(?:capture|screenshot|viewport|observation|page\\s+state)\\b',
+    '\\b(?:observed|captured|rendered|single|initial)\\s+(?:page\\s+)?state\\b',
+    '\\babove[- ]the[- ]fold\\b',
+    '\\bin\\s+frame\\b',
+    '\\bon[- ]screen\\b',
+    '\\bwithin\\s+this\\s+view\\b',
+    '\\bfrom\\s+(?:this|the)\\s+(?:single\\s+)?(?:capture|screenshot|viewport)\\b',
+    '\\bnot\\s+reached\\s+in\\s+this\\s+run\\b',
+  ].join('|'), 'i');
+
   // sentence-by-sentence so a scoping clause elsewhere can't mask it
   for (const sentence of text.split(/(?<=[.!?\n])\s+/)) {
     if (ABSENCE.test(sentence) && !SCOPED.test(sentence)) {

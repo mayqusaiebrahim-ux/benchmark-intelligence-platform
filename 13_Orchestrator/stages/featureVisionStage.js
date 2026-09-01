@@ -50,7 +50,13 @@ export function selectEvidence({ steps, target, intent }) {
 
   // 1 — the feature's own step.
   const own = withShots.find((s) => s.step_id === intent.stepId);
-  if (own && (own.page_url == null || sameRegistrableDomain(target.url, own.page_url))) {
+  const ownOnDomain = own && (own.page_url == null || sameRegistrableDomain(target.url, own.page_url));
+
+  // 1a — the feature's own step ACTUALLY SUCCEEDED: this is direct evidence
+  //      of the feature. A failed/skipped step whose planned interaction
+  //      never landed (e.g. a consent overlay blocked the click) must NOT be
+  //      labelled "direct feature_page" — see 1b.
+  if (ownOnDomain && own.status === 'success') {
     return {
       evidence: {
         company: target.slug,
@@ -61,6 +67,7 @@ export function selectEvidence({ steps, target, intent }) {
         relevance: 'direct',
         stepId: own.step_id,
         stepStatus: own.status,
+        navBlocked: false,
       },
     };
   }
@@ -83,9 +90,32 @@ export function selectEvidence({ steps, target, intent }) {
           relevance: 'base_page',
           stepId: base.step_id,
           stepStatus: base.status,
+          navBlocked: false,
         },
       };
     }
+  }
+
+  // 1b — the feature's own step reached the target domain but its interaction
+  //      did NOT succeed. The screenshot documents where navigation stopped
+  //      (a blocked / incomplete state), so it is still worth analysing — but
+  //      it is base_page evidence, never "direct", and featureStepFound stays
+  //      false so Reasoning reports the navigation limitation honestly.
+  if (ownOnDomain && own.status !== 'success') {
+    return {
+      evidence: {
+        company: target.slug,
+        url: own.page_url || target.url,
+        feature: target.feature,
+        screenshotPath: own.screenshot_path,
+        evidenceType: 'blocked_state',
+        relevance: 'base_page',
+        stepId: own.step_id,
+        stepStatus: own.status,
+        navBlocked: true,
+        navBlockReason: own.error || 'the planned interaction for this step did not complete',
+      },
+    };
   }
 
   // 3 — nothing acceptable. Do NOT analyse an unrelated screenshot.
@@ -194,6 +224,8 @@ export const featureVisionStage = new Stage(
         visionJsonPath: result.jsonPath,
         featureStepId: intent.stepId,
         featureStepFound: evidence.relevance === 'direct',
+        navBlocked: !!evidence.navBlocked,
+        navBlockReason: evidence.navBlockReason || null,
         selectedStep: { step_id: evidence.stepId, status: evidence.stepStatus },
         evidence: { ...evidence, r2Key: evidenceKeys.screenshot || null },
         evidenceKeys,

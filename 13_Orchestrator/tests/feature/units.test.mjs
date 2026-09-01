@@ -155,6 +155,57 @@ test('report grounding: unsupported acquisition / interaction / absence claims a
   assert.equal(checkReportGrounding('The user arrived from a Google ad.', { hasReferrerMetadata: true }).length, 0);
 });
 
+test('report grounding: correctly-scoped absence is accepted, global absence still rejected', () => {
+  // ACCEPTED — scoped to the one capture (the production false-positive)
+  assert.equal(checkReportGrounding(
+    'This absence is scoped strictly to this one capture and does not indicate that Emirates lacks a Passenger Details step.').length, 0);
+  assert.equal(checkReportGrounding('No Passenger Details step was visible in this captured viewport.').length, 0);
+  assert.equal(checkReportGrounding('The booking widget was not present in the observed state.').length, 0);
+  assert.equal(checkReportGrounding('A loyalty entry point is not visible in this screenshot.').length, 0);
+  assert.equal(checkReportGrounding('The Passenger Details surface was not reached in this run.').length, 0);
+  assert.equal(checkReportGrounding('Emirates has no visible search field in the captured viewport.').length, 0);
+
+  // STILL REJECTED — unscoped global absence claims
+  assert.ok(checkReportGrounding('Passenger Details is absent.').length > 0);
+  assert.ok(checkReportGrounding('The website does not provide fare alerts.').length > 0);
+  assert.ok(checkReportGrounding('Emirates has no loyalty tier for new customers.').length > 0);
+  assert.ok(checkReportGrounding('There is no dedicated Passenger Details page.').length > 0);
+});
+
+test('evidence selection: a failed non-homepage step is NOT direct feature evidence', () => {
+  const t = createBenchmarkTarget({ ...T, feature: 'Passenger Details' });
+  const intent = resolveFeatureIntent('Passenger Details'); // -> step_07_booking, not homepage-only
+  assert.equal(intent.homepageOnly, false);
+
+  const shotDir = mkdtempSync(join(tmpdir(), 'ev2-'));
+  const shot = join(shotDir, 's.png');
+  writeFileSync(shot, 'x');
+  try {
+    // the feature's step reached the target domain but its click FAILED
+    const blocked = selectEvidence({
+      steps: [{ step_id: 'step_07_booking', status: 'failed', error: 'OneTrust intercepts pointer events',
+        page_url: 'https://www.qatarairways.com/', screenshot_path: shot }],
+      target: t, intent,
+    });
+    assert.equal(blocked.evidence.relevance, 'base_page');       // never "direct"
+    assert.equal(blocked.evidence.evidenceType, 'blocked_state');
+    assert.equal(blocked.evidence.navBlocked, true);
+    assert.match(blocked.evidence.navBlockReason, /OneTrust|pointer events/i);
+
+    // a genuinely successful step IS direct
+    const ok = selectEvidence({
+      steps: [{ step_id: 'step_07_booking', status: 'success',
+        page_url: 'https://www.qatarairways.com/book', screenshot_path: shot }],
+      target: t, intent,
+    });
+    assert.equal(ok.evidence.relevance, 'direct');
+    assert.equal(ok.evidence.evidenceType, 'feature_page');
+    assert.equal(ok.evidence.navBlocked, false);
+  } finally {
+    rmSync(shotDir, { recursive: true, force: true });
+  }
+});
+
 test('completion gate: an ungrounded report or one with no stated limitations fails verification', () => {
   const t = createBenchmarkTarget(T);
   const dir = mkdtempSync(join(tmpdir(), 'grounding-'));

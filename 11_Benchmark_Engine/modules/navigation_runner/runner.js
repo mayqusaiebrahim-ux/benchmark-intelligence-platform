@@ -91,6 +91,7 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
     action_taken: actionResult.action_taken,
     error: actionResult.error || null,
     recovered,
+    consent: actionResult.consent || null,   // audit: was a cookie overlay handled?
     ...evidence,
     execution_time_ms: Date.now() - startedAt,
   };

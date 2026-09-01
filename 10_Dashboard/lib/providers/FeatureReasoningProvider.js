@@ -30,7 +30,7 @@ try {
 }
 
 function buildPrompt({ prompt, company, feature, target, previousOutput }) {
-  const { url, title, visionFindings, featureStepId, featureStepFound, selectedStep, evidence } = previousOutput || {};
+  const { url, title, visionFindings, featureStepId, featureStepFound, selectedStep, evidence, navBlocked, navBlockReason } = previousOutput || {};
   const lines = ['## Feature Benchmark Context', ''];
   lines.push(`THE PRODUCT UNDER ANALYSIS IS: ${company || '(unknown)'}`);
   lines.push(`Its official website domain: ${target?.benchmark_target_url || url || '(unknown)'}`);
@@ -42,6 +42,10 @@ function buildPrompt({ prompt, company, feature, target, previousOutput }) {
   lines.push(`Evidence shows the requested feature directly: ${featureStepFound ? 'yes' : 'no — the evidence below is the homepage / base page for this same company'}`);
   if (evidence) lines.push(`Evidence type: ${evidence.evidenceType} (relevance: ${evidence.relevance})`);
   if (selectedStep) lines.push(`Navigation status of the captured step: ${selectedStep.status}`);
+  if (navBlocked) {
+    lines.push('');
+    lines.push(`NAVIGATION LIMITATION: automated navigation to the "${feature}" surface did NOT complete (reason: ${navBlockReason || 'the planned interaction did not land'}). The screenshot shows where navigation stopped — most likely the homepage or an interstitial — NOT the requested feature. You MUST: set feature_found to false, set evidence_source to "NOT FOUND", and state plainly in the report that the "${feature}" surface could not be reached in this run. Describe only what the captured page shows. Do NOT infer what the "${feature}" surface looks like.`);
+  }
   if (url) lines.push(`URL captured: ${url}`);
   if (title) lines.push(`Page title: ${title}`);
   lines.push('');
