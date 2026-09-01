@@ -798,9 +798,15 @@ function firstName(u) {
   const n = (u && u.name) || '';
   return n.trim().split(/\s+/)[0] || null;
 }
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
 
 async function renderHome() {
-  setTitle('My Workspace');
+  setTitle('Workspace');
   setContent(`<div class="loading-state"><div class="spinner"></div><div>Loading…</div></div>`);
 
   const benchmarks = await getCurrentBenchmarks(true);
@@ -810,46 +816,42 @@ async function renderHome() {
   const completed = benchmarks.filter(b => b.status === 'complete').length;
   const fn = firstName(SESSION_USER);
 
-  const emptyWorkspace = total === 0;
+  const stat = (n, label) => `
+    <div class="ws-stat">
+      <span class="ws-stat-n">${n}</span>
+      <span class="ws-stat-l">${label}</span>
+    </div>`;
+
+  const emptyState = `
+    <div class="ws-empty">
+      <div class="ws-empty-art" aria-hidden="true">
+        <span class="ws-empty-card"></span><span class="ws-empty-card"></span><span class="ws-empty-card"></span>
+      </div>
+      <h3>No benchmarks yet</h3>
+      <p>Run your first benchmark and your research will appear here.</p>
+      <a href="#wizard" class="btn btn-primary">Create first benchmark</a>
+    </div>`;
 
   setContent(`
     <div class="ws">
-      <header class="ws-head">
-        <div>
-          <div class="ws-eyebrow">My Workspace</div>
-          <h1 class="ws-title">${fn ? `Welcome back, ${escapeHtml(fn)}` : 'Welcome back'}</h1>
-        </div>
-        <a href="#wizard" class="btn btn-primary ws-new">New Benchmark</a>
+      <header class="ws-hero">
+        <h1 class="ws-hero-title">${greeting()}${fn ? `, ${escapeHtml(fn)}` : ''}</h1>
+        <p class="ws-hero-sub">Your benchmark intelligence workspace</p>
+        <p class="ws-hero-copy">Run, review and compare digital experience benchmarks.</p>
       </header>
 
-      ${emptyWorkspace ? '' : `
-      <section class="ws-metrics" aria-label="Workspace summary">
-        <div class="ws-metric"><span class="ws-metric-n">${total}</span><span class="ws-metric-l">Benchmark${total === 1 ? '' : 's'}</span></div>
-        <div class="ws-metric"><span class="ws-metric-n">${running}</span><span class="ws-metric-l">Running</span></div>
-        <div class="ws-metric"><span class="ws-metric-n">${completed}</span><span class="ws-metric-l">Completed</span></div>
-      </section>`}
-
-      <section class="ws-quick">
-        <form class="home-quick" onsubmit="homeQuickStart(event)">
-          <input type="text" id="home-quick-input" class="home-quick-input" placeholder="Benchmark a feature — e.g. “Emirates payment flow”" autocomplete="off" aria-label="What do you want to benchmark?" />
-          <button type="submit" class="btn btn-primary btn-lg">Start<span aria-hidden="true"> →</span></button>
-        </form>
-        <div class="home-examples">
-          <span class="home-examples-label">Try</span>
-          ${HOME_EXAMPLES.map(f => `<button type="button" class="home-example" onclick="homeQuickPick('${f}')">${f}</button>`).join('')}
-        </div>
+      <section class="ws-stats" aria-label="Workspace overview">
+        ${stat(total, 'Total benchmarks')}
+        ${stat(completed, 'Completed')}
+        ${stat(running, 'Running')}
       </section>
 
       <section class="ws-recent">
         <div class="ws-recent-head">
           <h2>Recent benchmarks</h2>
-          ${benchmarks.length > recent.length ? `<a href="#benchmarks" class="btn-link">View all</a>` : ''}
+          ${benchmarks.length > recent.length ? `<a href="#benchmarks" class="ws-recent-all">View all<span aria-hidden="true"> →</span></a>` : ''}
         </div>
-        ${recent.length
-          ? cbListHtml(recent)
-          : `<div class="ws-recent-empty">
-               <p>No benchmarks yet. Name a feature above and run your first one — the report lands right here.</p>
-             </div>`}
+        ${recent.length ? cbListHtml(recent) : emptyState}
       </section>
     </div>
   `);
@@ -969,13 +971,19 @@ function wizardActionsHtml(primaryLabel, primaryFn) {
   return `
     <div class="wiz-actions">
       ${back}
-      <button class="btn btn-primary btn-lg" onclick="${primaryFn}()" ${_wizard.submitting ? 'disabled' : ''}>${primaryLabel}</button>
+      <button class="btn btn-primary" onclick="${primaryFn}()" ${_wizard.submitting ? 'disabled' : ''}>${primaryLabel}</button>
     </div>`;
 }
 
 function renderWizardStep() {
   const body = { 1: wizardStep1, 2: wizardStep2, 3: wizardStep3, 4: wizardStep4 }[_wizard.step]();
-  setContent(`<div class="wiz">${wizardProgressHtml()}<div class="wiz-step">${body}</div></div>`);
+  setContent(`
+    <div class="wiz">
+      <div class="wiz-panel">
+        ${wizardProgressHtml()}
+        <div class="wiz-step">${body}</div>
+      </div>
+    </div>`);
 }
 
 function wizardStepHeadHtml(question) {
@@ -1858,7 +1866,7 @@ function pointColumnHtml(title, points, cls) {
   const items = points.map(p => `
     <li class="pt">
       <div class="pt-head">${escapeHtml(clampText(p.heading, 110))}</div>
-      ${p.detail ? `<p class="pt-detail" data-full="${escapeAttr(p.detail)}">${escapeHtml(clampText(p.detail, 190))}</p>${p.detail.length > 190 ? '<button type="button" class="pt-more" onclick="this.previousElementSibling.textContent=this.previousElementSibling.dataset.full;this.remove()">Show more</button>' : ''}` : ''}
+      ${p.detail ? `<p class="pt-detail" data-full="${escapeAttr(p.detail)}">${escapeHtml(clampText(p.detail, 280))}</p>${p.detail.length > 280 ? '<button type="button" class="pt-more" onclick="this.previousElementSibling.textContent=this.previousElementSibling.dataset.full;this.remove()">Show more</button>' : ''}` : ''}
     </li>`).join('');
   return `
     <div class="report-col ${cls}">

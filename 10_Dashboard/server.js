@@ -127,6 +127,30 @@ function ownedRequestOr404(req, res, requestId) {
   return record;
 }
 
+// Local (non-R2) evidence fallback: the Navigation Runner writes per-step
+// screenshots to 03_Screenshots/<slug>/_navigation_runs/<runId>/ keyed by the
+// company slug + runId, not by requestId. When STORAGE_PROVIDER=local these
+// never reach R2 or the _evidence_cache, so the evidence endpoints look here
+// too — newest run wins. Read-only; slug comes from the owned request record.
+function localNavRunShots(slug) {
+  if (!slug || !/^[a-z0-9_-]+$/i.test(slug)) return [];
+  const base = join(PROJECT, '03_Screenshots', slug, '_navigation_runs');
+  if (!existsSync(base)) return [];
+  const runs = readdirSync(base, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort()          // runId is an ISO timestamp — lexical sort is chronological
+    .reverse();
+  for (const run of runs) {
+    const dir = join(base, run);
+    let files;
+    try { files = readdirSync(dir); } catch { continue; }
+    const pngs = files.filter((f) => /^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/i.test(f)).sort();
+    if (pngs.length) return pngs.map((f) => ({ filename: f, absPath: join(dir, f) }));
+  }
+  return [];
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function readJSON(relPath) {
   const full = join(PROJECT, relPath);
@@ -282,7 +306,8 @@ app.get('/api/evidence/:requestId', async (req, res) => {
   if (!/^[A-Za-z0-9._-]+$/.test(requestId)) {
     return res.status(400).json({ error: 'invalid request id' });
   }
-  if (!ownedRequestOr404(req, res, requestId)) return;
+  const ownedRec = ownedRequestOr404(req, res, requestId);
+  if (!ownedRec) return;
 
   const prefix = `screenshots/${requestId}/`;
   const names = new Set();
@@ -310,6 +335,12 @@ app.get('/api/evidence/:requestId', async (req, res) => {
     }
   }
 
+  // 3 — local Navigation Runner output (STORAGE_PROVIDER=local). Keyed by the
+  //     owned request's company slug, newest run.
+  if (names.size === 0) {
+    for (const s of localNavRunShots(ownedRec.items?.[0]?.slug)) names.add(s.filename);
+  }
+
   const isImage = (n) => /\.(png|jpe?g|webp)$/i.test(n);
   const screenshots = [...names].filter(isImage).sort().map((filename) => ({
     filename,
@@ -331,14 +362,18 @@ app.get('/api/evidence/:requestId/:filename', async (req, res) => {
   if (!/^[A-Za-z0-9._-]+$/.test(requestId) || !/^[A-Za-z0-9._-]+$/.test(filename)) {
     return res.status(400).json({ error: 'invalid evidence reference' });
   }
-  if (!ownedRequestOr404(req, res, requestId)) return;
+  const ownedRec = ownedRequestOr404(req, res, requestId);
+  if (!ownedRec) return;
   try {
     const found = await resolveEvidenceLocalPath({
       requestId, filename,
       cacheDir: join(PROJECT, '03_Screenshots', '_evidence_cache'),
     });
-    if (!found) return res.status(404).json({ error: 'evidence not found' });
-    return res.sendFile(found.path);
+    if (found) return res.sendFile(found.path);
+    // local Navigation Runner fallback (STORAGE_PROVIDER=local)
+    const navHit = localNavRunShots(ownedRec.items?.[0]?.slug).find((s) => s.filename === filename);
+    if (navHit) return res.sendFile(navHit.absPath);
+    return res.status(404).json({ error: 'evidence not found' });
   } catch (err) {
     logError('evidence fetch failed', { requestId, filename, error: err.message });
     return res.status(500).json({ error: 'could not load evidence' });
