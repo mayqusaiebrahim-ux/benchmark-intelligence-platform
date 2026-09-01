@@ -9,7 +9,8 @@
     "test:persistence": "node --experimental-test-module-mocks --test-isolation=process --test \"tests/persistence/*.test.mjs\"",
     "test:correctness": "node --experimental-test-module-mocks --test-isolation=process --test \"../13_Orchestrator/tests/feature/*.test.mjs\"",
     "test:auth": "node --experimental-test-module-mocks --test-isolation=process --test \"tests/auth/*.test.mjs\"",
-    "test": "npm run test:correctness && npm run test:persistence && npm run test:auth"
+    "test:reliability": "node --experimental-test-module-mocks --test-isolation=process --test \"tests/reliability/*.test.mjs\"",
+    "test": "npm run test:correctness && npm run test:persistence && npm run test:auth && npm run test:reliability"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

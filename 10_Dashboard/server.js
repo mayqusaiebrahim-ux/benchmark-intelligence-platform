@@ -11,7 +11,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
   listRequests, createRequest, setStage, cancelRequest, listFeatureBenchmarks,
-  listCurrentFeatureBenchmarks, getRequest,
+  listCurrentFeatureBenchmarks, getRequest, pipelineLockStatus,
   STAGES, BENCHMARK_TYPES, SCOPE_OPTIONS,
 } from './lib/requestsStore.js';
 import { authMiddleware, requireUser, getIdentity, authStatus, displaySnapshot, ownedBy } from './lib/auth.js';
@@ -658,6 +658,21 @@ app.patch('/api/requests/:id/items/:slug', (req, res) => {
   if (!ownedRequestOr404(req, res, req.params.id)) return;
   try {
     const stage = req.body?.stage;
+
+    // Duplicate-run protection: a "start"/"retry" (stage: 'preparing') is
+    // rejected while a pipeline for this requestId is already running. After a
+    // terminal state the lock is gone, so an explicit retry proceeds. A
+    // crashed run's lock self-expires (see requestsStore).
+    if (stage === 'preparing') {
+      const lk = pipelineLockStatus(PROJECT, req.params.id);
+      if (lk.locked) {
+        return res.status(409).json({
+          error: 'A benchmark run for this request is already in progress. Wait for it to finish or fail, then retry.',
+          running_since: lk.since,
+        });
+      }
+    }
+
     const request = setStage(PROJECT, req.params.id, req.params.slug, stage);
     res.json(request);
 

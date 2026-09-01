@@ -299,9 +299,59 @@ export function cancelRequest(projectRoot, requestId) {
 
   request.cancelled = true;
   request.status = 'cancelled';
+  delete request._pipeline_lock;   // a cancel frees any run lock
 
   writeRequests(projectRoot, data);
   return request;
+}
+
+// ─── Duplicate-run protection ─────────────────────────────────────────────
+// A persisted, request-scoped advisory lock so the SAME requestId can never
+// have two full pipelines (discovery -> Browserbase -> Vision -> ...) running
+// at once — a same-tick double-PATCH, a poll, or a second server instance all
+// hit the same JSON file. It is NOT a queue. It self-expires so a crashed /
+// killed run can be retried without manual cleanup. A benchmark takes minutes;
+// the window is generous.
+export const PIPELINE_LOCK_STALE_MS = 20 * 60 * 1000;
+
+/** Current lock state without mutating anything. */
+export function pipelineLockStatus(projectRoot, requestId) {
+  const request = readRequests(projectRoot).requests.find(r => r.id === requestId);
+  const lock = request && request._pipeline_lock;
+  if (!lock || !lock.at) return { locked: false };
+  const ageMs = Date.now() - new Date(lock.at).getTime();
+  if (!(ageMs < PIPELINE_LOCK_STALE_MS)) return { locked: false, stale: true, holder: lock.holder || null, since: lock.at };
+  return { locked: true, holder: lock.holder || null, since: lock.at, ageMs };
+}
+
+/**
+ * Atomically (read-modify-write on one JSON file, single-threaded) claim the
+ * pipeline lock for `requestId`. Returns { ok:true } or
+ * { ok:false, reason, holder?, since? }.
+ */
+export function tryAcquirePipelineLock(projectRoot, requestId, holder) {
+  const data = readRequests(projectRoot);
+  const request = data.requests.find(r => r.id === requestId);
+  if (!request) return { ok: false, reason: 'request-not-found' };
+  const lock = request._pipeline_lock;
+  if (lock && lock.at && (Date.now() - new Date(lock.at).getTime()) < PIPELINE_LOCK_STALE_MS) {
+    // Re-entrant: the same holder re-acquiring its own lock is a no-op success.
+    if (holder && lock.holder === holder) return { ok: true, reentrant: true };
+    return { ok: false, reason: 'in-progress', holder: lock.holder || null, since: lock.at };
+  }
+  request._pipeline_lock = { holder: holder || null, at: new Date().toISOString() };
+  writeRequests(projectRoot, data);
+  return { ok: true };
+}
+
+/** Release the lock — only the holder that took it may release it. */
+export function releasePipelineLock(projectRoot, requestId, holder) {
+  const data = readRequests(projectRoot);
+  const request = data.requests.find(r => r.id === requestId);
+  if (!request || !request._pipeline_lock) return;
+  if (holder && request._pipeline_lock.holder && request._pipeline_lock.holder !== holder) return;
+  delete request._pipeline_lock;
+  writeRequests(projectRoot, data);
 }
 
 // ─── Current vs. legacy classification ─────────────────────────────────────

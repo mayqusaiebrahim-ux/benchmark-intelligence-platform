@@ -17,6 +17,10 @@ let REQUESTS = [];
 export function setRequests(rs) { REQUESTS = JSON.parse(JSON.stringify(rs)); }
 export function getRequests() { return REQUESTS; }
 
+// duplicate-run lock (mocked) — a test can flip this to exercise the 409 path
+let _locked = false;
+export function setPipelineLocked(v) { _locked = !!v; }
+
 function withStatus(r) {
   return { ...r, status: r.status || (r.cancelled ? 'cancelled' : 'complete') };
 }
@@ -26,6 +30,9 @@ const requestsStoreMock = {
   STAGES: ['queued', 'preparing', 'running', 'completed', 'failed', 'feature_vision'],
   BENCHMARK_TYPES: ['Feature Benchmark', 'Complete Journey'],
   SCOPE_OPTIONS: ['UX/UI only', 'End-to-End Journey'],
+  pipelineLockStatus: () => (_locked ? { locked: true, since: '2026-09-01T00:00:00.000Z' } : { locked: false }),
+  tryAcquirePipelineLock: () => (_locked ? { ok: false, reason: 'in-progress', holder: 'x' } : { ok: true }),
+  releasePipelineLock: () => {},
   listRequests: () => REQUESTS.map(withStatus),
   getRequest: (_p, id) => REQUESTS.map(withStatus).find((r) => r.id === id) || null,
   listCurrentFeatureBenchmarks: () => REQUESTS

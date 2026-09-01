@@ -23,7 +23,7 @@
  */
 
 import { BenchmarkOrchestrator } from '../../13_Orchestrator/index.js';
-import { setStage } from './requestsStore.js';
+import { setStage, tryAcquirePipelineLock, releasePipelineLock } from './requestsStore.js';
 import { resolveOfficialUrl } from './companyUrls.js';
 import { flushStatePersistence, checkStorageHealth } from './storage/index.js';
 
@@ -155,6 +155,19 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
     return;
   }
 
+  // Persisted duplicate-run guard: the SAME requestId must never have two
+  // full pipelines (discovery -> Browserbase -> Vision -> ...) running at
+  // once. Survives a process restart and a second server instance (the
+  // in-memory runStatus Map does not); self-expires so a crashed run can be
+  // retried. Not a queue.
+  const lock = tryAcquirePipelineLock(projectRoot, requestId, jobId);
+  if (!lock.ok) {
+    console.log(`[benchmarkService] duplicate_run_prevented — requestId=${requestId} slug=${slug} reason=${lock.reason} holder=${lock.holder || '-'} since=${lock.since || '-'}`);
+    runStatus.set(jobId, 'completed');
+    return; // leave item.stage alone — the run that holds the lock owns it
+  }
+  const releaseLock = () => { try { releasePipelineLock(projectRoot, requestId, jobId); } catch { /* best effort */ } };
+
   console.log(`[benchmarkService] Running — company=${company} feature=${feature} requestId=${requestId}`);
   runStatus.set(jobId, 'running');
 
@@ -187,6 +200,7 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
   } catch (err) {
     console.log(`[benchmarkService] Could not set stage to 'running' for ${jobId} — aborting, this request does not exist: ${err.message}`);
     runStatus.set(jobId, 'completed');
+    releaseLock();
     return;
   }
 
@@ -379,7 +393,10 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
       } catch (setStageErr) {
         console.log(`[benchmarkService] Could not set stage to 'failed' for ${jobId}: ${setStageErr.message}`);
       }
-    });
+    })
+    // The pipeline is terminal (completed / failed / verification_failed):
+    // free the duplicate-run lock so an EXPLICIT retry can start a fresh run.
+    .finally(releaseLock);
 }
 
 /** Running | completed | undefined (never started) — in-process only, see comment above. */

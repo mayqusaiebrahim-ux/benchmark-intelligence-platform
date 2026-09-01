@@ -23,6 +23,88 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL = 'claude-opus-5';
 const MAX_TOKENS = 4000; // one concise report, not an 11-deliverable document
 
+// ─── Transient-failure retry policy (V1) ──────────────────────────────────
+// Anthropic returns overloaded_error / 5xx under load. By the time reasoning
+// runs, navigation + screenshot + Vision + R2 persistence have ALL already
+// succeeded — so a transient AI failure should retry HERE, inside the
+// provider, and never restart that expensive upstream work.
+//
+//   attempt 1: normal request
+//   retry 1  : ~2s   retry 2: ~5s   retry 3: ~10s   (all ± jitter)
+//   4 total attempts max · honours Retry-After if present.
+const MAX_ATTEMPTS = 4;
+// Overridable only for tests via ANTHROPIC_RETRY_BACKOFF_MS="a,b,c" — never
+// documented for production use.
+const BACKOFF_MS = (() => {
+  const raw = process.env.ANTHROPIC_RETRY_BACKOFF_MS;
+  if (raw) {
+    const parsed = raw.split(',').map((n) => Number(n.trim())).filter((n) => Number.isFinite(n) && n >= 0);
+    if (parsed.length) return parsed;
+  }
+  return [2000, 5000, 10000];
+})();
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504, 529]);
+const RETRYABLE_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EPIPE', 'EAI_AGAIN', 'ENOTFOUND', 'ERR_SOCKET_CONNECTION_TIMEOUT']);
+
+function errType(err) {
+  return (err && (err.error?.error?.type || err.error?.type || err.type)) || null;
+}
+
+/** True only for transient/retryable failures — never for deterministic ones. */
+export function isRetryableAnthropicError(err) {
+  if (!err) return false;
+  const status = typeof err.status === 'number' ? err.status : (typeof err.statusCode === 'number' ? err.statusCode : null);
+  const type = errType(err);
+
+  // Deterministic — do NOT retry: auth, invalid request, permission, 4xx.
+  if (type && /invalid_request|authentication|permission|not_found|request_too_large/i.test(type)) return false;
+  if (status !== null && status >= 400 && status < 500 && status !== 429) return false;
+
+  // Retryable.
+  if (type === 'overloaded_error' || type === 'api_error' || type === 'rate_limit_error') return true;
+  if (status !== null && RETRYABLE_STATUS.has(status)) return true;
+  if (RETRYABLE_CODES.has(err.code)) return true;
+  const name = err.name || err.constructor?.name || '';
+  if (/^APIConnectionError$|^APIConnectionTimeoutError$|^InternalServerError$/.test(name)) return true;
+  if (err.cause && err.cause !== err && isRetryableAnthropicError(err.cause)) return true;
+  return false;
+}
+
+function retryAfterMs(err) {
+  const h = err && err.headers;
+  let v;
+  try { v = h && (typeof h.get === 'function' ? h.get('retry-after') : (h['retry-after'] ?? h['Retry-After'])); } catch { v = undefined; }
+  if (v == null || v === '') return null;
+  const secs = Number(v);
+  if (Number.isFinite(secs)) return Math.max(0, Math.min(secs * 1000, 30000));
+  const when = Date.parse(v);
+  return Number.isFinite(when) ? Math.max(0, Math.min(when - Date.now(), 30000)) : null;
+}
+
+const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
+
+/**
+ * Runs one Anthropic streamed request; retries ONLY transient failures with
+ * bounded exponential backoff. Deterministic errors (and success) return/throw
+ * on the first attempt. `sleep` is injectable for tests.
+ */
+export async function callAnthropicWithRetry(makeRequest, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await makeRequest();
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= MAX_ATTEMPTS || !isRetryableAnthropicError(err)) throw err;
+      const reason = errType(err) || err.code || (typeof err.status === 'number' ? `HTTP ${err.status}` : null) || err.message || 'transient error';
+      const delayMs = retryAfterMs(err) ?? jitter(BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1]);
+      logInfo('anthropic_retry', { attempt, maxAttempts: MAX_ATTEMPTS, reason, delayMs });
+      await sleep(delayMs);
+    }
+  }
+  throw lastErr;
+}
+
 try {
   process.loadEnvFile(join(__dirname, '..', '..', '.env')); // 10_Dashboard/.env
 } catch {
@@ -88,13 +170,17 @@ export async function runFeatureReasoning({ prompt, company, feature, target, pr
   try {
     const augmentedPrompt = buildPrompt({ prompt, company, feature, target, previousOutput });
     const client = new Anthropic();
-    const stream = client.messages.stream({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      messages: [{ role: 'user', content: augmentedPrompt }],
-      output_config: { format: { type: 'json_schema', schema: FEATURE_REPORT_SCHEMA } },
-    });
-    const message = await stream.finalMessage();
+    // Transient overload / 5xx is retried inside this call — see
+    // callAnthropicWithRetry. Navigation / screenshot / Vision / R2 are NOT
+    // re-run: this is the only thing that repeats.
+    const message = await callAnthropicWithRetry(() =>
+      client.messages.stream({
+        model: MODEL,
+        max_tokens: MAX_TOKENS,
+        messages: [{ role: 'user', content: augmentedPrompt }],
+        output_config: { format: { type: 'json_schema', schema: FEATURE_REPORT_SCHEMA } },
+      }).finalMessage()
+    );
     logInfo('Anthropic request finished', { durationMs: Date.now() - anthropicStartedAt, stopReason: message.stop_reason });
 
     if (message.stop_reason === 'refusal') {
