@@ -30,6 +30,9 @@ export function makeTelemetry({ feature, detectorKey, startedAt = Date.now() } =
     start(extra = {}) {
       logInfo('agent_nav_start', { feature, detectorKey, ...extra });
     },
+    perf(phase, durationMs, extra = {}) {
+      logInfo('agent_nav_perf', { feature, phase, durationMs: Math.round(durationMs), elapsedMs: elapsed(), ...extra });
+    },
     step(action) {
       step += 1;
       logInfo('agent_nav_step', {

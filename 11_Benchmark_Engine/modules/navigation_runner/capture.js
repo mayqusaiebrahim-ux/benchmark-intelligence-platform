@@ -75,6 +75,19 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
     };
   }
 
+  // No live page and no override (e.g. agent crashed before making a page and
+  // no fallback browser) — write honest empty evidence, never throw.
+  if (!page) {
+    writeFileSync(htmlPath, '', 'utf8');
+    writeFileSync(metadataPath, JSON.stringify({
+      step_id: step.id, step_title: step.title, step_index: index, page_url: null,
+      action_taken: actionResult.action_taken, status: actionResult.success ? 'success' : 'failed',
+      error: actionResult.error || null, screenshot_path: null, html_snapshot_path: htmlPath,
+      captured_at: new Date().toISOString(), navigation_mode: 'agent (no page)',
+    }, null, 2) + '\n', 'utf8');
+    return { page_url: null, screenshot_path: null, html_snapshot_path: htmlPath, metadata_path: metadataPath };
+  }
+
   try {
     // Render Free (512MB) memory optimization: viewport-only capture
     // (fullPage: false, the default) instead of fullPage:true. A full-page

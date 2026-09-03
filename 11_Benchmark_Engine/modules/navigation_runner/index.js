@@ -11,6 +11,11 @@ import { executeStep } from './runner.js';
 import { writeRunManifest } from './capture.js';
 import { logInfo, logError } from '../../../shared/logger.mjs';
 import { launchBrowser } from '../browserLauncher.js';
+import { agentModeAvailable } from '../autonomous_navigator/autonomousNavigator.js';
+
+function navMode() {
+  return (process.env.NAVIGATION_MODE || 'agent').trim().toLowerCase() === 'heuristic' ? 'heuristic' : 'agent';
+}
 
 function slugify(name) {
   return String(name).toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -35,32 +40,48 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
   const startedAt = new Date().toISOString();
   const steps = [];
 
+  const plannedSteps = journeyPlan.recommended_journey || [];
+  // Agent-only run: every step is a goal_driven agent step AND agent mode is
+  // active. Stagehand then owns the ONE Browserbase session for the whole
+  // journey — the Navigation Runner must NOT pre-launch a second remote
+  // browser just to sit unused (and must not load the site twice).
+  const agentOnly = navMode() === 'agent' && agentModeAvailable()
+    && plannedSteps.length > 0 && plannedSteps.every((s) => s && s.goal_driven && s.detector_key);
+
   let browser;
   let session;
-  try {
-    logInfo('Navigation Runner: launching Chromium', { runId });
+  let page = null;
+
+  // Lazy browser acquisition — used for non-agent runs and for a heuristic
+  // fallback that needs a real page after an agent run could not start.
+  const ensureBrowser = async (reason) => {
+    if (page) return page;
+    logInfo('Navigation Runner: launching Chromium', { runId, reason: reason || 'journey navigation' });
     session = await launchBrowser('Navigation Runner');
     browser = session.browser;
     logInfo('Navigation Runner: browser created', { runId });
     browser.on('disconnected', () => logInfo('Navigation Runner: browser disconnected', { runId }));
-
-    const page = await browser.newPage();
-    logInfo('Navigation Runner: page created (default context)', { runId });
+    page = await browser.newPage();
     page.on('close', () => logInfo('Navigation Runner: page closed', { runId }));
-
     logInfo('Navigation Runner: navigating to starting URL', { url: journeyPlan.starting_url, runId });
     await page.goto(journeyPlan.starting_url, { waitUntil: 'load', timeout: 30000 });
-    try {
-      await page.waitForLoadState('networkidle', { timeout: 8000 });
-    } catch {
-      // Some pages never go fully idle — proceed with whatever rendered.
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch { /* some pages never idle */ }
+    return page;
+  };
+
+  try {
+    if (agentOnly) {
+      logInfo('Navigation Runner: agent-only run — Stagehand owns the single Browserbase session; skipping the outer browser launch', { runId, steps: plannedSteps.length });
+    } else {
+      await ensureBrowser('journey navigation');
     }
 
     let previousStepFailed = false;
-    for (let i = 0; i < (journeyPlan.recommended_journey || []).length; i++) {
-      const step = journeyPlan.recommended_journey[i];
+    for (let i = 0; i < plannedSteps.length; i++) {
+      const step = plannedSteps[i];
       const result = await executeStep({
         page,
+        ensureBrowser,
         step,
         index: i,
         journeyPlan,

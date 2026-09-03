@@ -261,10 +261,12 @@ async function performSearchAction(page, hint) {
  * clear reason rather than being attempted.
  */
 export async function performStepAction(page, step, ctx = {}) {
-  // Clear any blocking cookie/consent overlay BEFORE the planned action, so a
-  // target that Playwright reports as clickable is actually reachable. This
-  // step is generic and best-effort: no banner -> instant pass-through.
-  const consent = await dismissConsentOverlay(page).catch((err) => ({ handled: false, method: null, detail: `consent handler error: ${err.message}` }));
+  // Clear any blocking cookie/consent overlay BEFORE the planned action. In
+  // agent-only runs there is NO runner page (Stagehand owns the session) — the
+  // agent dismisses consent itself, so skip this.
+  const consent = page
+    ? await dismissConsentOverlay(page).catch((err) => ({ handled: false, method: null, detail: `consent handler error: ${err.message}` }))
+    : { handled: false, method: null, detail: 'no runner page (agent-only run) — the agent handles consent' };
   logInfo('Navigation Runner: consent overlay handling', { stepId: step.id, ...consent });
 
   // ── Goal-driven multi-step navigation ──────────────────────────────────
@@ -283,7 +285,7 @@ export async function performStepAction(page, step, ctx = {}) {
     if (navigationMode() === 'agent') {
       try {
         if (!agentModeAvailable()) throw new AgentNavUnavailableError('agent-mode credentials (Browserbase + LLM key) are not configured');
-        const startingUrl = (() => { try { return page.url(); } catch { return ctx.startingUrl || null; } })();
+        const startingUrl = (() => { try { return page && page.url(); } catch { return null; } })() || ctx.startingUrl || null;
         logInfo('Navigation Runner: autonomous agent navigation starting', { stepId: step.id, detectorKey: step.detector_key, startingUrl });
         const r = await runAutonomousNavigation({
           startingUrl,
@@ -316,11 +318,27 @@ export async function performStepAction(page, step, ctx = {}) {
     }
 
     logInfo('Navigation Runner: goal-driven navigation starting', { stepId: step.id, detectorKey: step.detector_key, mode: 'heuristic' });
+    // The heuristic navigator needs a real page. In an agent-only run none was
+    // launched — acquire one now (lazy) so the fallback still works.
+    let heuristicPage = page;
+    if (!heuristicPage && typeof ctx.ensureBrowser === 'function') {
+      try { heuristicPage = await ctx.ensureBrowser('heuristic fallback after agent could not run'); }
+      catch (e) { logError('Navigation Runner: could not launch a browser for the heuristic fallback', e, { stepId: step.id }); }
+    }
+    if (!heuristicPage) {
+      return {
+        success: false, terminal: true,
+        error: `"${feature}" was not reached — agent mode could not run and no browser is available for the heuristic fallback`,
+        action_taken: 'Autonomous agent unavailable; heuristic fallback had no browser',
+        consent,
+        goal: { targetStatus: TARGET_STATUS.BLOCKER, targetReached: false, blocker: 'agent unavailable and no fallback browser', interactionsPerformed: [], classificationsSeen: [] },
+      };
+    }
     let goal;
     try {
       const goalLogger = { info: (m, x) => logInfo(m, x), warn: (m, x) => logInfo(m, x) };
       goal = await runGoalNavigation({
-        adapter: playwrightAdapter(page, { logger: goalLogger }),
+        adapter: playwrightAdapter(heuristicPage, { logger: goalLogger }),
         detectorKey: step.detector_key,
         feature: step.feature_label || step.title || step.detector_key,
         profile: buildTestProfile(),

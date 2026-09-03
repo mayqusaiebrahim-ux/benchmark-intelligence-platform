@@ -16,9 +16,15 @@ import { logInfo, logError } from '../../../shared/logger.mjs';
  * outcome, and never throws: every failure mode resolves to a result object
  * with status 'success' | 'failed' | 'skipped' so the run can continue.
  */
-export async function executeStep({ page, step, index, journeyPlan, companySlug, runId, previousStepFailed }) {
+export async function executeStep({ page, ensureBrowser, step, index, journeyPlan, companySlug, runId, previousStepFailed }) {
   const startedAt = Date.now();
   logInfo('Navigation Runner: step starting', { stepId: step.id, index, runId });
+
+  // Agent-mode goal_driven steps run entirely inside the autonomous navigator's
+  // own Stagehand/Browserbase session — no runner page is launched or used, and
+  // there is no re-baseline navigation. If the agent path has to fall back to
+  // the heuristic navigator, it lazily acquires a page via ensureBrowser().
+  const agentGoalStep = !page && step.goal_driven && step.detector_key;
 
   if (step.depends_on_previous && previousStepFailed) {
     const actionResult = {
@@ -39,7 +45,7 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
     };
   }
 
-  if (!step.depends_on_previous) {
+  if (!step.depends_on_previous && page && !agentGoalStep) {
     try {
       await safeGoto(page, journeyPlan.starting_url);
     } catch (err) {
@@ -65,7 +71,10 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
 
   let actionResult;
   try {
-    actionResult = await performStepAction(page, step, { companySlug, company: companySlug, startingUrl: journeyPlan.starting_url });
+    actionResult = await performStepAction(page, step, {
+      companySlug, company: companySlug, startingUrl: journeyPlan.starting_url,
+      ensureBrowser, // heuristic fallback lazily acquires a page through this
+    });
   } catch (err) {
     // Intentional swallow, unchanged — see the header comment: one bad
     // step must never abort the whole journey. Logged, not rethrown.
@@ -86,7 +95,15 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
     recovered = !!actionResult.recovered;
   }
 
-  const evidence = await captureStepEvidence(page, { companySlug, runId, index, step, actionResult });
+  // For an agent-only step the evidence comes from actionResult.evidenceOverride
+  // (the agent's own session). Only if that is absent (agent could not run AND
+  // the heuristic fallback navigated a lazily-launched page) do we need a live
+  // page to screenshot.
+  let evidencePage = page;
+  if (!evidencePage && !actionResult.evidenceOverride && typeof ensureBrowser === 'function') {
+    try { evidencePage = await ensureBrowser('evidence capture'); } catch { /* screenshot will be skipped */ }
+  }
+  const evidence = await captureStepEvidence(evidencePage, { companySlug, runId, index, step, actionResult });
 
   const status = actionResult.success ? 'success' : 'failed';
   logInfo('Navigation Runner: step finished', { stepId: step.id, index, runId, status, recovered, durationMs: Date.now() - startedAt });
