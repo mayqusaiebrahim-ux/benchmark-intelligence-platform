@@ -63,35 +63,102 @@ export function browserbaseSessionTimeoutMs() {
   return (Number.isFinite(secs) && secs > 0 ? secs : 900) * 1000;
 }
 
+// ─── Stagehand v3.7.3 SUPPORTED CONFIGURATION ────────────────────────────
+// We pass `signal` to agent.execute() for our hard runtime budget. Stagehand
+// rejects experimental execute options (signal / callbacks / excludeTools / …)
+// unless BOTH `disableAPI: true` AND `experimental: true` are set on the
+// constructor (validateExperimentalFeatures.js → ExperimentalNotConfiguredError,
+// which was the exact production failure). In that mode Stagehand's agent
+// orchestration runs LOCALLY in our Node process while the browser still runs
+// remotely on Browserbase — and there is NO Stagehand API client, so no second
+// session and no `model: "auto"` (auto is API-only; v3.js throws otherwise).
+export const STAGEHAND_DISABLE_API = true;
+export const STAGEHAND_EXPERIMENTAL = true;
+
+// Provider → env var that must hold the key (subset of Stagehand's
+// providerEnvVarMap — the providers we support here).
+const PROVIDER_KEY_ENV = {
+  openai: ['OPENAI_API_KEY'],
+  anthropic: ['ANTHROPIC_API_KEY'],
+  google: ['GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY'],
+};
+
+function firstEnv(names) {
+  for (const n of names) if (process.env[n]) return n;
+  return null;
+}
+
 /**
- * LLM configuration for the agent.
- *  - env=BROWSERBASE (API mode): default to model "auto" — the Stagehand API
- *    picks a working model and uses ITS key, so a retired model id or a missing
- *    provider key can't kill the run. Overridable via AGENT_NAV_MODEL.
- *  - env=LOCAL: needs a concrete model + a provider key in the environment.
+ * Concrete agent model + provider. NEVER "auto" (invalid with
+ * disableAPI/experimental). Honours AGENT_NAV_MODEL, else a provider whose key
+ * is present. `openai/gpt-4.1-mini` is Stagehand v3.7.3's own DEFAULT_MODEL_NAME
+ * and is in its modelToAgentProviderMap for DOM agent mode.
  */
 export function detectAgentLlm() {
   const explicit = process.env.AGENT_NAV_MODEL;
-  const useBrowserbase = agentUsesBrowserbase();
-  if (useBrowserbase) return { provider: 'auto', model: explicit || 'auto', apiManaged: !explicit };
-  if (process.env.ANTHROPIC_API_KEY) return { provider: 'anthropic', model: explicit || 'anthropic/claude-sonnet-4-5-20250929' };
-  if (process.env.OPENAI_API_KEY) return { provider: 'openai', model: explicit || 'openai/gpt-4.1-mini' };
-  if (process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY) return { provider: 'google', model: explicit || 'google/gemini-2.5-flash' };
+  if (explicit) {
+    // "auto" is surfaced (not silently swapped) so validateAgentConfiguration
+    // rejects it with a clear reason — it is invalid with disableAPI:true.
+    if (explicit === 'auto') return { provider: 'auto', model: 'auto', keyEnv: null };
+    const provider = explicit.includes('/') ? explicit.split('/')[0] : 'openai';
+    return { provider, model: explicit, keyEnv: firstEnv(PROVIDER_KEY_ENV[provider] || []) };
+  }
+  if (process.env.OPENAI_API_KEY) return { provider: 'openai', model: 'openai/gpt-4.1-mini', keyEnv: 'OPENAI_API_KEY' };
+  if (process.env.ANTHROPIC_API_KEY) return { provider: 'anthropic', model: 'anthropic/claude-3-7-sonnet-latest', keyEnv: 'ANTHROPIC_API_KEY' };
+  const g = firstEnv(PROVIDER_KEY_ENV.google);
+  if (g) return { provider: 'google', model: 'google/gemini-2.5-flash', keyEnv: g };
   return null;
 }
 
 function agentUsesBrowserbase() {
-  // Mirrors browserLauncher.js: needs the API key + browserbase provider;
-  // projectId is passed through when present but is not required here.
+  // Mirrors browserLauncher.js: needs the API key + browserbase provider.
   return !!process.env.BROWSERBASE_API_KEY
     && (process.env.BROWSER_PROVIDER || 'local').toLowerCase() === 'browserbase';
 }
 
+/**
+ * Programmatic pre-flight: is the Stagehand agent configuration SUPPORTED and
+ * runnable in this environment? Runs BEFORE any Browserbase session is opened.
+ * @returns {{ ok, reason?, agentProvider?, agentModel?, disableAPI, experimental, agentMode?, browser? }}
+ */
+export function validateAgentConfiguration() {
+  const base = { disableAPI: STAGEHAND_DISABLE_API, experimental: STAGEHAND_EXPERIMENTAL };
+  const browserbase = agentUsesBrowserbase();
+  const local = (process.env.BROWSER_PROVIDER || 'local').toLowerCase() === 'local';
+  if (!browserbase && !local) {
+    return { ...base, ok: false, reason: `BROWSER_PROVIDER="${process.env.BROWSER_PROVIDER}" is not a supported agent browser (need "browserbase" or "local")` };
+  }
+  if (browserbase && !process.env.BROWSERBASE_API_KEY) {
+    return { ...base, ok: false, reason: 'BROWSER_PROVIDER=browserbase but BROWSERBASE_API_KEY is not set' };
+  }
+  const llm = detectAgentLlm();
+  if (!llm) {
+    return { ...base, ok: false, reason: `no agent LLM key — set one of ${Object.values(PROVIDER_KEY_ENV).flat().join(' / ')} (needed because disableAPI:true runs the model locally)` };
+  }
+  if (llm.model === 'auto') {
+    return { ...base, ok: false, reason: 'model "auto" is only valid with the Stagehand API (disableAPI:false); this integration runs disableAPI:true — set AGENT_NAV_MODEL to a concrete "provider/model"' };
+  }
+  if (!llm.keyEnv) {
+    return { ...base, ok: false, reason: `model "${llm.model}" needs a ${llm.provider} key in one of ${(PROVIDER_KEY_ENV[llm.provider] || ['?']).join(' / ')}` };
+  }
+  // The ONLY execute options this integration passes are: instruction, maxSteps,
+  // variables (not experimental-gated), signal + callbacks.onStepFinish
+  // (experimental-gated — covered by experimental:true). Never excludeTools,
+  // output, messages, stream, or streaming-only callbacks.
+  return {
+    ...base,
+    ok: true,
+    agentProvider: llm.provider,
+    agentModel: llm.model,
+    agentMode: 'dom',
+    browser: browserbase ? 'browserbase' : 'local',
+    keyEnv: llm.keyEnv,
+  };
+}
+
 /** Whether agent-mode CAN run in this environment. */
 export function agentModeAvailable() {
-  if (agentUsesBrowserbase()) return true; // API mode manages the model itself
-  // LOCAL mode needs a provider key
-  return !!detectAgentLlm() && (process.env.BROWSER_PROVIDER || 'local').toLowerCase() === 'local';
+  return validateAgentConfiguration().ok;
 }
 
 /** Compute + sanity-check the effective limits. Never returns a budget < MIN. */
@@ -129,25 +196,48 @@ export function resolveEffectiveLimits(limits = {}) {
   };
 }
 
+/**
+ * The Stagehand constructor options this integration uses. Pure — exported so
+ * a test can prove we pass the SUPPORTED combination (disableAPI:true +
+ * experimental:true, a concrete non-"auto" model) and nothing that
+ * validateExperimentalFeatures.js would reject.
+ */
+export function buildStagehandConstructorOptions() {
+  const llm = detectAgentLlm();
+  const useBrowserbase = agentUsesBrowserbase();
+  const sessionSecs = Math.round(browserbaseSessionTimeoutMs() / 1000);
+  return {
+    env: useBrowserbase ? 'BROWSERBASE' : 'LOCAL',
+    apiKey: process.env.BROWSERBASE_API_KEY || undefined,
+    projectId: process.env.BROWSERBASE_PROJECT_ID || undefined,
+    browserbaseSessionCreateParams: useBrowserbase
+      ? { ...(process.env.BROWSERBASE_PROJECT_ID ? { projectId: process.env.BROWSERBASE_PROJECT_ID } : {}), timeout: sessionSecs }
+      : undefined,
+    model: (llm && llm.model) || 'openai/gpt-4.1-mini',
+    disableAPI: STAGEHAND_DISABLE_API,       // true  — SUPPORTED path for `signal`
+    experimental: STAGEHAND_EXPERIMENTAL,    // true  — SUPPORTED path for `signal` / callbacks
+    verbose: 0,
+    disablePino: true,
+    selfHeal: true,
+  };
+}
+
+/** The agent.execute() options this integration passes. Pure — exported for tests. */
+export function buildAgentExecuteOptionShape() {
+  // Presence only — real instruction/variables/signal/callbacks filled at call time.
+  return { instruction: true, maxSteps: true, variables: true, signal: true, callbacks: { onStepFinish: true } };
+}
+
 async function defaultStagehandFactory({ logger }) {
   const mod = await import('@browserbasehq/stagehand');
   const Stagehand = mod.Stagehand || mod.V3 || (mod.default && (mod.default.Stagehand || mod.default.V3));
   if (!Stagehand) throw new AgentNavUnavailableError('@browserbasehq/stagehand did not export Stagehand/V3');
-  const llm = detectAgentLlm();
-  const useBrowserbase = agentUsesBrowserbase();
-  const sessionSecs = Math.round(browserbaseSessionTimeoutMs() / 1000);
+  // disableAPI:true + experimental:true — SUPPORTED path. Browser stays remote
+  // on Browserbase; Stagehand's agent loop + model calls run locally (a
+  // concrete model + provider key, resolved by Stagehand from the env).
   return new Stagehand({
-    env: useBrowserbase ? 'BROWSERBASE' : 'LOCAL',
-    apiKey: process.env.BROWSERBASE_API_KEY,
-    projectId: process.env.BROWSERBASE_PROJECT_ID,
-    browserbaseSessionCreateParams: useBrowserbase
-      ? { projectId: process.env.BROWSERBASE_PROJECT_ID, timeout: sessionSecs }
-      : undefined,
-    model: llm ? llm.model : 'openai/gpt-4.1-mini',
+    ...buildStagehandConstructorOptions(),
     systemPrompt: buildSystemPrompt(),
-    verbose: 0,
-    disablePino: true,
-    selfHeal: true,
     logger: (line) => { try { logger?.('stagehand', { level: line.level, message: scrub(line.message) }); } catch { /* ignore */ } },
   });
 }
@@ -170,6 +260,21 @@ export async function runAutonomousNavigation({
 } = {}) {
   if (!detectorKey) throw new AgentNavUnavailableError('runAutonomousNavigation requires a detectorKey');
 
+  // ── PRE-FLIGHT: reject an unsupported Stagehand configuration BEFORE any
+  //    Browserbase session is opened. Never waste a remote session to
+  //    discover an SDK config error.
+  const cfg = validateAgentConfiguration();
+  if (!cfg.ok) throw new AgentNavUnavailableError(`Stagehand agent configuration is not usable: ${cfg.reason}`);
+  logInfo('agent_nav_config', {
+    feature,
+    agentProvider: cfg.agentProvider,
+    agentModel: cfg.agentModel,
+    stagehandDisableAPI: cfg.disableAPI,
+    stagehandExperimental: cfg.experimental,
+    agentMode: cfg.agentMode,
+    browser: cfg.browser,
+  });
+
   const eff = resolveEffectiveLimits(limits);
   for (const w of eff.warnings) logWarn('agent_nav_budget_adjusted', { feature, detail: w });
 
@@ -188,9 +293,8 @@ export async function runAutonomousNavigation({
   let agentStartedAt = null;
 
   const llm = detectAgentLlm();
-  if (!llm) throw new AgentNavUnavailableError('no agent LLM configuration (needs Browserbase API mode, or a provider key for LOCAL mode)');
-
   const perf = (phase, t0, extra) => tel.perf(phase, Date.now() - t0, extra);
+  let agentStepCount = 0;
 
   let sh;
   const controller = new AbortController();
@@ -231,7 +335,8 @@ export async function runAutonomousNavigation({
 
   try {
     tel.start({
-      startingUrl, provider: llm.provider,
+      startingUrl, provider: cfg.agentProvider, model: cfg.agentModel,
+      stagehandDisableAPI: cfg.disableAPI, stagehandExperimental: cfg.experimental,
       agentMaxMs: eff.agentMaxMs,
       agentMaxSteps: eff.maxSteps,
       evidenceReserveMs: eff.evidenceReserveMs,
@@ -275,6 +380,25 @@ export async function runAutonomousNavigation({
     const variables = toAgentVariables(profile);
     const agent = sh.agent({ systemPrompt: buildSystemPrompt() });
     perf('agent_create', t0);
+    tel.agentReady({ model: cfg.agentModel, provider: cfg.agentProvider });
+
+    // Real-time proof that the agent took browser actions. onStepFinish is an
+    // AI-SDK step callback (allowed with experimental:true) — it fires after
+    // every LLM step with the tool calls made that step.
+    const onStepFinish = (stepInfo) => {
+      try {
+        const calls = (stepInfo && (stepInfo.toolCalls || stepInfo.toolResults)) || [];
+        for (const c of Array.isArray(calls) ? calls : []) {
+          const actionType = c && (c.toolName || c.type || 'step');
+          agentStepCount += 1;
+          tel.action({ stepNumber: agentStepCount, actionType: scrub(actionType), currentUrl: safeUrl(page) });
+        }
+        if (!Array.isArray(calls) || calls.length === 0) {
+          agentStepCount += 1;
+          tel.action({ stepNumber: agentStepCount, actionType: 'think', currentUrl: safeUrl(page) });
+        }
+      } catch { /* telemetry must never break the run */ }
+    };
 
     // Watchdog: independent verification + safety, parallel to the agent.
     watchdog = setInterval(async () => {
@@ -322,12 +446,17 @@ export async function runAutonomousNavigation({
     let execResult;
     const execT0 = Date.now();
     try {
+      // Options passed: instruction + maxSteps + variables (not experimental-
+      // gated) + signal + callbacks.onStepFinish (experimental-gated — covered
+      // by experimental:true on the constructor). NO excludeTools / output /
+      // messages / stream — safety is enforced by SAFETY_INIT_SCRIPT + the
+      // watchdog, not by removing tools.
       execResult = await agent.execute({
         instruction,
         maxSteps: eff.maxSteps,
         variables,
         signal: controller.signal,
-        excludeTools: ['search'],
+        callbacks: { onStepFinish },
       });
     } catch (err) {
       execResult = { _error: err };
@@ -341,6 +470,15 @@ export async function runAutonomousNavigation({
     if (execResult && Array.isArray(execResult.actions)) {
       for (const a of execResult.actions.slice(0, 60)) {
         interactionsPerformed.push(scrub(a.type ? `${a.type}${a.instruction ? `: ${a.instruction}` : ''}` : JSON.stringify(a)));
+      }
+      // Fallback proof: if onStepFinish never fired but the result carries
+      // actions, emit them post-hoc so a run always shows agent_nav_action
+      // when the agent actually did something.
+      if (agentStepCount === 0 && execResult.actions.length) {
+        for (const a of execResult.actions.slice(0, 60)) {
+          agentStepCount += 1;
+          tel.action({ stepNumber: agentStepCount, actionType: scrub(a.type || 'action'), currentUrl: a.pageUrl || safeUrl(page) });
+        }
       }
     }
     if (execResult && execResult.message) interactionsPerformed.push(`Agent: ${scrub(execResult.message)}`);
@@ -384,6 +522,8 @@ export async function runAutonomousNavigation({
     const term = await evidence.captureTerminal(page, status);
     const res = finish(status, reason, finalVerify);
     res.effectiveLimits = eff;
+    res.agentActionsEmitted = agentStepCount;
+    res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
     res.evidence = evidence.result().terminal;
     res.milestones = evidence.result().milestones;
     if (term) {
@@ -397,6 +537,8 @@ export async function runAutonomousNavigation({
     try { const p = pageOf(sh); if (p) { const t = await evidence.captureTerminal(p, 'crash'); if (t) over = { screenshotPath: t.path, pageUrl: t.url, pageTitle: t.title, pageHtml: t.html }; } } catch { /* ignore */ }
     const res = finish(TARGET_STATUS.BLOCKER, `agent navigation crashed: ${scrub(err.message)}`, watchdogVerify);
     res.effectiveLimits = eff;
+    res.agentActionsEmitted = agentStepCount;
+    res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
     res.evidence = evidence.result().terminal;
     if (over) res.evidenceOverride = over;
     return res;

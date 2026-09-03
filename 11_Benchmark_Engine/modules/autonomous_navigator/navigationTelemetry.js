@@ -33,19 +33,20 @@ export function makeTelemetry({ feature, detectorKey, startedAt = Date.now() } =
     perf(phase, durationMs, extra = {}) {
       logInfo('agent_nav_perf', { feature, phase, durationMs: Math.round(durationMs), elapsedMs: elapsed(), ...extra });
     },
-    step(action) {
-      step += 1;
-      logInfo('agent_nav_step', {
-        feature, stepNumber: step,
-        currentUrl: capUrl(action.url),
-        actionType: action.type || null,
-        control: action.control ? scrub(action.control) : null,
+    agentReady(extra = {}) {
+      logInfo('agent_nav_agent_ready', { feature, elapsedMs: elapsed(), ...extra });
+    },
+    // A real browser action (or LLM reasoning step) the agent took. NO synthetic
+    // field values — actionType is a tool name, currentUrl is a real URL.
+    action(a = {}) {
+      step = Math.max(step, a.stepNumber || step + 1);
+      logInfo('agent_nav_action', {
+        feature,
+        stepNumber: a.stepNumber || step,
+        actionType: a.actionType ? scrub(a.actionType) : null,
+        currentUrl: capUrl(a.currentUrl),
         elapsedMs: elapsed(),
       });
-      return step;
-    },
-    action(a) {
-      logInfo('agent_nav_action', { feature, stepNumber: step, actionType: a.type || null, control: a.control ? scrub(a.control) : null, elapsedMs: elapsed() });
     },
     state(s) {
       logInfo('agent_nav_state', {

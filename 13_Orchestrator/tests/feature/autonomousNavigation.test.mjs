@@ -29,6 +29,8 @@ const NAV = '../../../11_Benchmark_Engine/modules/autonomous_navigator/autonomou
 const {
   runAutonomousNavigation, agentModeAvailable, detectAgentLlm, resolveEffectiveLimits,
   browserbaseSessionTimeoutMs, AgentNavUnavailableError, TARGET_STATUS, DEFAULT_AGENT_LIMITS,
+  validateAgentConfiguration, buildStagehandConstructorOptions, buildAgentExecuteOptionShape,
+  STAGEHAND_DISABLE_API, STAGEHAND_EXPERIMENTAL,
 } = await import(NAV);
 const { SAFETY_INIT_SCRIPT, safetyProbe } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/safetyPolicy.js');
 const { scrub } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/navigationTelemetry.js');
@@ -328,4 +330,104 @@ test('agent-mode availability + LLM detection', () => {
   assert.equal(typeof agentModeAvailable(), 'boolean');
   assert.ok(detectAgentLlm());
   assert.ok(browserbaseSessionTimeoutMs() >= 60000);
+});
+
+// ═══ 8. Stagehand configuration mode (the exact production failure) ══════
+
+test('we build the SUPPORTED Stagehand combination — disableAPI:true + experimental:true, concrete model', () => {
+  assert.equal(STAGEHAND_DISABLE_API, true);
+  assert.equal(STAGEHAND_EXPERIMENTAL, true);
+  const opts = buildStagehandConstructorOptions();
+  assert.equal(opts.disableAPI, true, 'disableAPI must be true so agent.execute() may take a signal');
+  assert.equal(opts.experimental, true, 'experimental must be true so agent.execute() may take a signal');
+  assert.notEqual(opts.model, 'auto', '"auto" is invalid with disableAPI/experimental');
+  assert.match(opts.model, /^[a-z]+\//, 'a concrete "provider/model" id');
+});
+
+test('the exact production failure combo (disableAPI:false + signal/excludeTools) is NOT what we send', () => {
+  const opts = buildStagehandConstructorOptions();
+  // production error was: env=BROWSERBASE, disableAPI:false, agent.execute({ signal, excludeTools })
+  assert.ok(!(opts.disableAPI === false), 'never disableAPI:false while passing experimental execute options');
+  const exShape = buildAgentExecuteOptionShape();
+  assert.ok(!('excludeTools' in exShape), 'excludeTools is NOT passed (safety is code-enforced, not tool-restricted)');
+  assert.ok(!('output' in exShape) && !('messages' in exShape) && !('stream' in exShape));
+  assert.equal(exShape.signal, true, 'signal IS passed (hard runtime budget)');
+});
+
+test('the running navigator calls agent.execute() with signal + callbacks and WITHOUT excludeTools', async () => {
+  const { sh, state } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'done', actions: [], completed: false } });
+  await runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 400 }), stagehandFactory: async () => sh });
+  const e = state.execOpts;
+  assert.ok(e && e.signal && typeof e.signal === 'object', 'AbortSignal passed');
+  assert.ok(e.callbacks && typeof e.callbacks.onStepFinish === 'function', 'onStepFinish callback passed');
+  assert.equal('excludeTools' in e, false, 'NO excludeTools');
+  assert.equal('output' in e, false);
+  assert.equal('stream' in e, false);
+  assert.ok(e.variables && typeof e.variables === 'object', 'synthetic variables passed');
+});
+
+test('validateAgentConfiguration rejects unsupported / incomplete configs BEFORE opening a session', async (t) => {
+  const LLM_KEYS = ['AGENT_NAV_MODEL', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY'];
+  const saved = Object.fromEntries([...LLM_KEYS, 'BROWSER_PROVIDER'].map((k) => [k, process.env[k]]));
+  t.after(() => { for (const [k, v] of Object.entries(saved)) { if (v == null) delete process.env[k]; else process.env[k] = v; } });
+
+  process.env.BROWSER_PROVIDER = 'weird';
+  assert.equal(validateAgentConfiguration().ok, false);
+  assert.match(validateAgentConfiguration().reason, /not a supported agent browser/);
+
+  process.env.BROWSER_PROVIDER = 'local';
+  process.env.AGENT_NAV_MODEL = 'auto';
+  assert.equal(validateAgentConfiguration().ok, false);
+  assert.match(validateAgentConfiguration().reason, /"auto" is only valid with the Stagehand API/);
+
+  for (const k of LLM_KEYS) delete process.env[k];
+  assert.equal(validateAgentConfiguration().ok, false);
+  assert.match(validateAgentConfiguration().reason, /no agent LLM key/);
+
+  process.env.ANTHROPIC_API_KEY = 'x';
+  const ok = validateAgentConfiguration();
+  assert.equal(ok.ok, true);
+  assert.equal(ok.disableAPI, true);
+  assert.equal(ok.experimental, true);
+  assert.notEqual(ok.agentModel, 'auto');
+
+  // a bad config makes runAutonomousNavigation throw BEFORE calling the factory
+  process.env.BROWSER_PROVIDER = 'weird';
+  let factoryCalls = 0;
+  await assert.rejects(
+    () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', stagehandFactory: async () => { factoryCalls += 1; return fakeStagehand().sh; } }),
+    (e) => e instanceof AgentNavUnavailableError && /configuration is not usable/.test(e.message),
+  );
+  assert.equal(factoryCalls, 0, 'no Stagehand session was opened for an invalid config');
+});
+
+test('agent_nav_config + agent_nav_agent_ready + agent_nav_action are emitted; onStepFinish drives actions', async () => {
+  const { sh } = fakeStagehand({
+    pageCfg: { snapshot: HOME_SNAPSHOT },
+    agentResult: async (opts) => {
+      // simulate two real agent steps
+      await opts.callbacks.onStepFinish({ toolCalls: [{ toolName: 'goto' }] });
+      await opts.callbacks.onStepFinish({ toolCalls: [{ toolName: 'act' }] });
+      return { message: 'done', actions: [{ type: 'goto' }, { type: 'act' }], completed: false };
+    },
+  });
+  const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 500 }), stagehandFactory: async () => sh }));
+  const names = events.map((e) => e.message);
+  assert.ok(names.includes('agent_nav_config'), 'agent_nav_config emitted');
+  assert.ok(names.includes('agent_nav_agent_ready'), 'agent_nav_agent_ready emitted');
+  const actions = events.filter((e) => e.message === 'agent_nav_action');
+  assert.ok(actions.length >= 2, `agent_nav_action emitted per step (got ${actions.length})`);
+  assert.deepEqual(actions.map((a) => a.actionType).slice(0, 2), ['goto', 'act']);
+  assert.ok(actions.every((a) => typeof a.stepNumber === 'number' && a.stepNumber >= 1));
+  const cfg = events.find((e) => e.message === 'agent_nav_config');
+  assert.equal(cfg.stagehandDisableAPI, true);
+  assert.equal(cfg.stagehandExperimental, true);
+  assert.notEqual(cfg.agentModel, 'auto');
+});
+
+test('agent_nav_action still emitted post-hoc from execResult.actions if onStepFinish never fired', async () => {
+  const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'done', actions: [{ type: 'goto', pageUrl: 'https://air.com/x' }, { type: 'fillForm' }], completed: false } });
+  const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 400 }), stagehandFactory: async () => sh }));
+  const actions = events.filter((e) => e.message === 'agent_nav_action');
+  assert.ok(actions.length >= 2);
 });
