@@ -46,15 +46,27 @@ const TARGET_STATUS = {
 };
 export { TARGET_STATUS };
 
-// A deep transactional journey (search → results → fare → passenger details …)
-// needs real navigation time. Anything below this is treated as a misconfig.
+// A deep multi-step journey needs real navigation time. Below this = misconfig.
 const MIN_DEEP_BUDGET_MS = 120 * 1000;
 
+// Coarse, safe intent label per Stagehand tool (for agent_nav_action telemetry).
+const INTENT_BY_TOOL = {
+  act: 'perform a semantic action', fillForm: 'fill form fields', click: 'click at a screen location',
+  type: 'type at a screen location', fillFormVision: 'fill fields visually', dragAndDrop: 'drag and drop',
+  clickAndHold: 'click and hold', ariaTree: 'read the accessibility tree', extract: 'extract page data',
+  goto: 'navigate to a URL', scroll: 'scroll the page', keys: 'press keys', navback: 'go back',
+  screenshot: 'look at the page', think: 'reason about the next step', wait: 'wait for the page', done: 'finish',
+};
+
 export const DEFAULT_AGENT_LIMITS = Object.freeze({
-  maxSteps: 40,               // deep booking journeys need room; still bounded
+  maxSteps: 40,               // deep multi-step journeys need room; still bounded
   maxMs: 7 * 60 * 1000,       // 420_000 — usable AGENT budget, from agentStartedAt
   evidenceReserveMs: 25 * 1000,
   probeIntervalMs: 6000,
+  // Universal stuck detector: if the generic page-state fingerprint is
+  // unchanged across this many consecutive watchdog ticks WHILE the agent is
+  // still taking actions, abort (production once wasted 43 actions on one state).
+  maxStuckTicks: 4,
 });
 
 /** ms the underlying Browserbase session is allowed to live (default 15 min). */
@@ -88,26 +100,39 @@ function firstEnv(names) {
   return null;
 }
 
+// Models Stagehand v3.7.3 marks HYBRID-capable (DOM + coordinate/visual tools).
+// Verbatim from node_modules/@browserbasehq/stagehand/…/types/private/agent.js
+// HYBRID_CAPABLE_MODEL_PATTERNS. A model id containing one of these gets both
+// the DOM toolset AND the visual/coordinate toolset in hybrid mode.
+const HYBRID_CAPABLE_PATTERNS = ['gemini-3', 'claude', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6'];
+const isHybridCapable = (model) => HYBRID_CAPABLE_PATTERNS.some((p) => String(model || '').includes(p));
+
 /**
- * Concrete agent model + provider. NEVER "auto" (invalid with
- * disableAPI/experimental). Honours AGENT_NAV_MODEL, else a provider whose key
- * is present. `openai/gpt-4.1-mini` is Stagehand v3.7.3's own DEFAULT_MODEL_NAME
- * and is in its modelToAgentProviderMap for DOM agent mode.
+ * Concrete agent model + provider + interaction mode. NEVER "auto" (invalid
+ * with disableAPI/experimental). Prefers a HYBRID-capable model (so the agent
+ * can fall back from DOM to visual/coordinate interaction on custom widgets).
+ * Honours AGENT_NAV_MODEL. `anthropic/claude-sonnet-4-6` is in Stagehand
+ * v3.7.3's own model list and is hybrid-capable (id contains "claude").
  */
 export function detectAgentLlm() {
   const explicit = process.env.AGENT_NAV_MODEL;
+  let base;
   if (explicit) {
-    // "auto" is surfaced (not silently swapped) so validateAgentConfiguration
-    // rejects it with a clear reason — it is invalid with disableAPI:true.
-    if (explicit === 'auto') return { provider: 'auto', model: 'auto', keyEnv: null };
+    if (explicit === 'auto') return { provider: 'auto', model: 'auto', keyEnv: null, agentMode: 'dom', hybridCapable: false };
     const provider = explicit.includes('/') ? explicit.split('/')[0] : 'openai';
-    return { provider, model: explicit, keyEnv: firstEnv(PROVIDER_KEY_ENV[provider] || []) };
+    base = { provider, model: explicit, keyEnv: firstEnv(PROVIDER_KEY_ENV[provider] || []) };
+  } else if (process.env.ANTHROPIC_API_KEY) {
+    base = { provider: 'anthropic', model: 'anthropic/claude-sonnet-4-6', keyEnv: 'ANTHROPIC_API_KEY' };
+  } else if (firstEnv(PROVIDER_KEY_ENV.google)) {
+    base = { provider: 'google', model: 'google/gemini-3-pro-preview', keyEnv: firstEnv(PROVIDER_KEY_ENV.google) };
+  } else if (process.env.OPENAI_API_KEY) {
+    // no OpenAI model in the hybrid list that we can assume access to → DOM mode.
+    base = { provider: 'openai', model: 'openai/gpt-4.1-mini', keyEnv: 'OPENAI_API_KEY' };
+  } else {
+    return null;
   }
-  if (process.env.OPENAI_API_KEY) return { provider: 'openai', model: 'openai/gpt-4.1-mini', keyEnv: 'OPENAI_API_KEY' };
-  if (process.env.ANTHROPIC_API_KEY) return { provider: 'anthropic', model: 'anthropic/claude-3-7-sonnet-latest', keyEnv: 'ANTHROPIC_API_KEY' };
-  const g = firstEnv(PROVIDER_KEY_ENV.google);
-  if (g) return { provider: 'google', model: 'google/gemini-2.5-flash', keyEnv: g };
-  return null;
+  const hybridCapable = isHybridCapable(base.model);
+  return { ...base, hybridCapable, agentMode: hybridCapable ? 'hybrid' : 'dom' };
 }
 
 function agentUsesBrowserbase() {
@@ -150,7 +175,8 @@ export function validateAgentConfiguration() {
     ok: true,
     agentProvider: llm.provider,
     agentModel: llm.model,
-    agentMode: 'dom',
+    agentMode: llm.agentMode || 'dom',            // 'hybrid' (DOM + visual) or 'dom'
+    hybridCapable: !!llm.hybridCapable,
     browser: browserbase ? 'browserbase' : 'local',
     keyEnv: llm.keyEnv,
   };
@@ -189,6 +215,7 @@ export function resolveEffectiveLimits(limits = {}) {
   return {
     maxSteps: L.maxSteps,
     probeIntervalMs: L.probeIntervalMs,
+    maxStuckTicks: Number.isFinite(L.maxStuckTicks) ? L.maxStuckTicks : DEFAULT_AGENT_LIMITS.maxStuckTicks,
     agentMaxMs,
     evidenceReserveMs,
     browserbaseSessionTimeoutMs: sessionMs,
@@ -222,6 +249,12 @@ export function buildStagehandConstructorOptions() {
   };
 }
 
+/** The agent() config this integration passes (mode is dynamic). Pure — for tests. */
+export function buildAgentConfig() {
+  const llm = detectAgentLlm();
+  return { mode: (llm && llm.agentMode) || 'dom', model: (llm && llm.model) || undefined };
+}
+
 /** The agent.execute() options this integration passes. Pure — exported for tests. */
 export function buildAgentExecuteOptionShape() {
   // Presence only — real instruction/variables/signal/callbacks filled at call time.
@@ -246,19 +279,22 @@ async function defaultStagehandFactory({ logger }) {
  * @param {object} args
  * @param {string} args.startingUrl
  * @param {string} args.company
- * @param {string} args.feature        user-facing label ("Passenger Details")
- * @param {string} args.detectorKey    featureDetectors key ("passenger_details")
+ * @param {string} args.feature        user-facing label (any website / any feature)
+ * @param {string} [args.detectorKey]  a goal_navigator/featureDetectors key when
+ *                                     the feature is one of the known set; null
+ *                                     for an arbitrary feature (generic verifier)
  * @param {object} [args.profile]
  * @param {object} [args.limits]
  * @param {Function} [args.stagehandFactory]  test seam
  */
 export async function runAutonomousNavigation({
-  startingUrl, company, feature, detectorKey,
+  startingUrl, company, feature, detectorKey = null,
   profile = buildTestProfile(),
   limits = {},
   stagehandFactory = defaultStagehandFactory,
 } = {}) {
-  if (!detectorKey) throw new AgentNavUnavailableError('runAutonomousNavigation requires a detectorKey');
+  if (!feature) throw new AgentNavUnavailableError('runAutonomousNavigation requires a feature label');
+  const verifierTarget = detectorKey || feature; // safetyProbe / genericVerify key off this
 
   // ── PRE-FLIGHT: reject an unsupported Stagehand configuration BEFORE any
   //    Browserbase session is opened. Never waste a remote session to
@@ -325,7 +361,10 @@ export async function runAutonomousNavigation({
       interactionsPerformed,
       classificationsSeen: [...classificationsSeen],
       blocker: status === TARGET_STATUS.REACHED ? null : (reason || `"${feature}" was not reached (${status})`),
-      detector: v && v.reached ? { key: detectorKey, confidence: v.confidence, signals: v.signals } : null,
+      detector: v && v.reached ? { key: detectorKey || null, method: v.method || null, confidence: v.confidence, signals: v.signals } : null,
+      agentMode: cfg.agentMode,
+      verifierMethod: (v && v.method) || null,
+      agentActionsEmitted: agentStepCount,
       safetyBlocks,
       evidence: null,
     };
@@ -376,34 +415,46 @@ export async function runAutonomousNavigation({
 
     // ── phase: agent_create ────────────────────────────────────────────
     t0 = Date.now();
-    const instruction = buildAgentInstruction({ company, feature, detectorKey, startingUrl });
+    const instruction = buildAgentInstruction({ company, feature, startingUrl });
     const variables = toAgentVariables(profile);
-    const agent = sh.agent({ systemPrompt: buildSystemPrompt() });
+    // mode: 'hybrid' (DOM + visual/coordinate tools) when the model supports it,
+    // else 'dom'. Stagehand v3.7.3 filterTools() gives hybrid BOTH toolsets.
+    const agent = sh.agent({ systemPrompt: buildSystemPrompt(), mode: cfg.agentMode, model: cfg.agentModel });
     perf('agent_create', t0);
-    tel.agentReady({ model: cfg.agentModel, provider: cfg.agentProvider });
+    tel.agentReady({ model: cfg.agentModel, provider: cfg.agentProvider, mode: cfg.agentMode });
 
-    // Real-time proof that the agent took browser actions. onStepFinish is an
-    // AI-SDK step callback (allowed with experimental:true) — it fires after
-    // every LLM step with the tool calls made that step.
+    // One agent_nav_action per LLM step, showing mode + a coarse intent (no
+    // synthetic values). onStepFinish is an AI-SDK step callback (allowed with
+    // experimental:true).
     const onStepFinish = (stepInfo) => {
       try {
-        const calls = (stepInfo && (stepInfo.toolCalls || stepInfo.toolResults)) || [];
-        for (const c of Array.isArray(calls) ? calls : []) {
-          const actionType = c && (c.toolName || c.type || 'step');
-          agentStepCount += 1;
-          tel.action({ stepNumber: agentStepCount, actionType: scrub(actionType), currentUrl: safeUrl(page) });
-        }
-        if (!Array.isArray(calls) || calls.length === 0) {
-          agentStepCount += 1;
-          tel.action({ stepNumber: agentStepCount, actionType: 'think', currentUrl: safeUrl(page) });
-        }
+        agentStepCount += 1;
+        const calls = (stepInfo && stepInfo.toolCalls) || [];
+        const first = Array.isArray(calls) && calls[0];
+        const toolName = (first && (first.toolName || first.type)) || 'think';
+        const dom = new Set(['act', 'fillForm', 'ariaTree', 'extract', 'goto', 'scroll', 'keys', 'navback', 'screenshot', 'think', 'wait', 'done']);
+        const interactionMode = toolName === 'think' || toolName === 'wait' || toolName === 'done'
+          ? cfg.agentMode
+          : (dom.has(toolName) ? 'dom' : 'hybrid');
+        tel.action({
+          stepNumber: agentStepCount,
+          mode: interactionMode,
+          actionType: scrub(toolName),
+          intent: scrub(INTENT_BY_TOOL[toolName] || toolName),
+          toolCount: Array.isArray(calls) ? calls.length : 0,
+          currentUrl: safeUrl(page),
+        });
       } catch { /* telemetry must never break the run */ }
     };
 
-    // Watchdog: independent verification + safety, parallel to the agent.
+    // Watchdog: independent verification + safety + UNIVERSAL STUCK DETECTION,
+    // parallel to the agent.
+    let stuckFingerprint = null;
+    let stuckTicks = 0;
+    let stuckStepAtStart = 0;
     watchdog = setInterval(async () => {
       try {
-        const v = await verifyTarget(page, detectorKey);
+        const v = await verifyTarget(page, detectorKey, { featureLabel: feature });
         watchdogVerify = v;
         deepestUrl = v.url || deepestUrl;
         tel.state(v);
@@ -412,7 +463,7 @@ export async function runAutonomousNavigation({
         const domBlocks = await drainDomSafetyBlocks(page);
         for (const b of domBlocks) { safetyBlocks.push({ ...b, source: 'dom' }); tel.safetyBlock(b.why, 'dom'); }
 
-        const probe = safetyProbe(v.observation, detectorKey);
+        const probe = safetyProbe(v.observation, verifierTarget);
         if (probe.violation) {
           safetyBlocks.push({ why: probe.reason, source: 'probe', at: v.url });
           tel.safetyBlock(probe.reason, 'probe');
@@ -420,11 +471,27 @@ export async function runAutonomousNavigation({
           return;
         }
         if (v.reached) {
-          abortRun(TARGET_STATUS.REACHED, `target verified: ${v.signals.join('; ')}`);
+          abortRun(TARGET_STATUS.REACHED, `target verified (${v.method}): ${v.signals.join('; ')}`);
           return;
         }
-        const sig = v.detectedStates.join('|');
-        if (sig && sig !== lastStateSig) { lastStateSig = sig; await evidence.milestone(page, sig.split(':')[0] || 'state'); }
+
+        // ── UNIVERSAL STUCK DETECTOR — generic page-state fingerprint. ────
+        if (v.fingerprint && v.fingerprint === stuckFingerprint) {
+          stuckTicks += 1;
+          if (stuckTicks === 1) stuckStepAtStart = agentStepCount;
+          const actionsSinceStuck = agentStepCount - stuckStepAtStart;
+          if (stuckTicks >= eff.maxStuckTicks && actionsSinceStuck >= 3) {
+            tel.stuck({ ticks: stuckTicks, actionsSinceStuck, url: v.url, pageKind: v.pageKind, fingerprint: v.fingerprint });
+            const others = (v.detectedStates || []).slice(0, 3).join(', ');
+            abortRun(TARGET_STATUS.BLOCKER, `the page state did not change after ${actionsSinceStuck} agent actions across ${stuckTicks} checks — the agent could not operate a control on "${v.pageKind || 'this'}" page (${v.url})${others ? `; page shows: ${others}` : ''}`);
+            return;
+          }
+        } else {
+          stuckFingerprint = v.fingerprint;
+          stuckTicks = 0;
+          const sig = v.detectedStates.join('|');
+          if (sig && sig !== lastStateSig) { lastStateSig = sig; await evidence.milestone(page, sig.split(':')[0] || 'state'); }
+        }
 
         // Evidence-reserve early stop — measured from AGENT start, not run start.
         if (agentStartedAt && Date.now() - agentStartedAt >= eff.agentMaxMs - eff.evidenceReserveMs) {
@@ -484,7 +551,7 @@ export async function runAutonomousNavigation({
     if (execResult && execResult.message) interactionsPerformed.push(`Agent: ${scrub(execResult.message)}`);
     if (execResult && execResult._error) interactionsPerformed.push(`Agent error: ${scrub(execResult._error.message)}`);
 
-    const finalVerify = await verifyTarget(page, detectorKey);
+    const finalVerify = await verifyTarget(page, detectorKey, { featureLabel: feature });
     deepestUrl = finalVerify.url || deepestUrl;
     tel.targetCheck(finalVerify);
     const gate = acceptCompletion(finalVerify, execResult && execResult.completed);
@@ -523,7 +590,7 @@ export async function runAutonomousNavigation({
     const res = finish(status, reason, finalVerify);
     res.effectiveLimits = eff;
     res.agentActionsEmitted = agentStepCount;
-    res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
+    res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, mode: cfg.agentMode, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
     res.evidence = evidence.result().terminal;
     res.milestones = evidence.result().milestones;
     if (term) {
@@ -538,7 +605,7 @@ export async function runAutonomousNavigation({
     const res = finish(TARGET_STATUS.BLOCKER, `agent navigation crashed: ${scrub(err.message)}`, watchdogVerify);
     res.effectiveLimits = eff;
     res.agentActionsEmitted = agentStepCount;
-    res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
+    res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, mode: cfg.agentMode, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
     res.evidence = evidence.result().terminal;
     if (over) res.evidenceOverride = over;
     return res;

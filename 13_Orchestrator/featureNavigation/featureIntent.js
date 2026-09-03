@@ -62,14 +62,6 @@ function mapFeatureToDetectorKey(feature) {
 }
 export { mapFeatureToDetectorKey };
 
-// Detectors the goal-driven multi-step navigator is allowed to drive toward.
-// (flight_search is intentionally NOT here — it is reachable in one hop and
-// the existing single-step search interaction already covers it.)
-const GOAL_DRIVEN_DETECTORS = new Set([
-  'flight_results', 'fare_selection', 'passenger_details', 'seat_selection',
-  'ancillaries', 'payment', 'checkin', 'manage_booking', 'signin',
-]);
-
 // Features that are, by nature, examined on the landing page itself — no
 // second navigation hop. "Burger menu", "notifications", "profile entry"
 // etc. all live on / are reachable from the homepage chrome.
@@ -111,32 +103,35 @@ export function resolveFeatureIntent(feature) {
     };
   }
 
+  // ANY non-homepage feature is a navigation TARGET the universal agent drives
+  // toward. The route emerges from the live website — `detectorKey` (when the
+  // feature is one of the known set) is used only for independent verification,
+  // never to define the journey. A `stepId` (when a keyword matched) is kept
+  // only for the Dashboard's existing progress labels.
+  const genericDescription =
+    `From the company homepage, autonomously navigate this website's own public flow — search, choose options, fill multi-step forms with synthetic test data, continue past interstitials, skip optional extras — until the "${f}" experience is on screen, then STOP and capture it. Never sign in, submit payment, or complete anything irreversible.`;
+
   if (stepId) {
-    const goalDriven = !!detectorKey && GOAL_DRIVEN_DETECTORS.has(detectorKey);
     return {
       stepId,
       homepageOnly: false,
-      goalDriven,
-      detectorKey,
-      label: `${f} (${stepId}${goalDriven ? ', goal-driven' : ''})`,
-      description: goalDriven
-        ? `From the company homepage, autonomously complete every SAFE prerequisite step (search with synthetic test data, pick a flight/fare, fill synthetic passenger details, skip optional extras) needed to reach the "${f}" surface, then STOP and capture it. Never submit payment, authenticate, or add a paid ancillary.`
-        : `From the company homepage, take at most one safe hop to the "${f}" surface (${stepId}) and capture it. Do not walk the rest of the journey.`,
+      goalDriven: true,
+      detectorKey: detectorKey || null,
+      label: `${f} (${stepId}, agent-driven)`,
+      description: genericDescription,
       note: null,
     };
   }
 
-  // Unmapped custom feature — examine the homepage and let Reasoning report
-  // honestly that the specific feature could not be located, rather than
-  // guessing a journey step or walking the whole journey.
+  // Unmapped custom feature (any website, any flow) — still a navigation target.
   return {
-    stepId: 'step_01_entry',
-    homepageOnly: true,
-    goalDriven: false,
+    stepId: 'step_07_booking', // arbitrary machine label for Dashboard progress; not a route
+    homepageOnly: false,
+    goalDriven: true,
     detectorKey: null,
-    label: `Homepage (custom feature: ${f})`,
-    description: `"${f}" does not map to a known journey step. Examine the company homepage only and report honestly whether the feature is visible there.`,
-    note: `custom feature "${f}" — no journey step matched; examined on the homepage`,
+    label: `${f} (agent-driven, generic target)`,
+    description: genericDescription,
+    note: `custom feature "${f}" — no known detector; arrival is verified generically`,
   };
 }
 

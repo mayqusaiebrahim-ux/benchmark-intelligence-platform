@@ -1,80 +1,79 @@
 /**
  * autonomous_navigator/agentInstructions — the ONE high-level objective handed
- * to the browser agent. The target feature is dynamic; everything else is a
- * fixed policy. The agent decides HOW to navigate; our code decides the task,
- * the safety limits, the synthetic data, and whether the target was reached.
+ * to a UNIVERSAL web agent. NOTHING here is airline / travel / e-commerce
+ * specific: the target feature is dynamic, and the route to it must emerge from
+ * whatever the live website shows. Our code owns the task, the safety limits,
+ * the synthetic data, the budget, and independent verification; the agent owns
+ * the navigation strategy and the choice of interaction method (DOM vs visual).
  */
-import { alternateRouteHint } from './safeSyntheticProfile.js';
 
-// Human-readable description of what "reaching" each target means — helps the
-// agent know when to call `done`, but our targetVerifier is the real judge.
-const TARGET_BRIEF = {
-  passenger_details: 'the passenger / traveller details form (first name, last name, title, date of birth, contact details fields)',
-  payment: 'the payment page where you choose a payment method / see card and billing fields and an order total — DO NOT enter card details or submit payment',
-  seat_selection: 'the seat map / seat selection screen (aircraft cabin grid, selectable seat numbers)',
-  fare_selection: 'the fare / branded-fare selection screen (Economy Lite / Classic / Flex style bundles with included-baggage comparisons)',
-  flight_results: 'the flight results list (multiple flight options with departure/arrival times and prices, each with a Select action)',
-  flight_search: 'the flight search / booking widget with origin, destination, dates and passengers ready to search',
-  ancillaries: 'the optional extras / ancillaries screen (extra baggage, meals, insurance) — skip everything, do not add paid extras',
-  checkin: 'the online check-in entry screen (booking reference + last name lookup) — do NOT enter a real reference',
-  manage_booking: 'the manage-booking / retrieve-trip entry screen — do NOT enter a real reference',
-  signin: 'the sign-in / member login screen — do NOT sign in',
-  loyalty: 'the loyalty programme page (tiers, earning/redeeming miles)',
-};
+// Short, generic hints for a handful of common target words — used only to help
+// the agent recognise "am I there yet"; our targetVerifier is the real judge.
+// Keyed by lowercase substring of the requested feature. NOT a route.
+const TARGET_HINT = [
+  [['passenger', 'traveller', 'traveler', 'guest details', 'contact details'], 'a form asking for a person\'s details (first name, last name, title, date of birth, contact info)'],
+  [['payment', 'billing', 'pay '], 'a page showing payment methods / card & billing fields / an order total — REACH it, do NOT enter card details or submit payment'],
+  [['checkout'], 'the checkout page (order summary, delivery/billing, a place-order area) — REACH it, do NOT place the order'],
+  [['cart', 'basket', 'bag'], 'the shopping cart / basket view listing the items to be purchased'],
+  [['seat'], 'a seat map / seat picker (a grid of selectable seats)'],
+  [['fare', 'bundle', 'plan selection', 'tier'], 'a screen comparing options / bundles / tiers with a choose/select action per option'],
+  [['results', 'listing', 'search results'], 'a results list with multiple options and a select/view action each'],
+  [['sign up', 'signup', 'register', 'create account', 'account creation', 'get started', 'join'], 'the account-creation / sign-up form — REACH it, do NOT submit real credentials or complete registration'],
+  [['sign in', 'signin', 'log in', 'login'], 'the sign-in / login form — REACH it, do NOT log in'],
+  [['pricing', 'plans'], 'the pricing / plans page listing tiers and prices'],
+  [['quote', 'estimate'], 'a quote / estimate form or the resulting quote'],
+  [['booking', 'reservation', 'appointment'], 'the booking / reservation / appointment step where dates, people, and details are entered'],
+  [['manage', 'my account', 'dashboard', 'profile'], 'the account / management surface (may require sign-in — if so, stop and report that)'],
+];
+
+function targetHint(feature) {
+  const t = String(feature || '').toLowerCase();
+  for (const [keys, hint] of TARGET_HINT) if (keys.some((k) => t.includes(k))) return hint;
+  return `the "${feature}" experience — a distinct page or step whose purpose clearly matches that name`;
+}
 
 export function buildSystemPrompt() {
   return [
-    'You are a senior UX benchmark researcher navigating a real airline website in a browser.',
-    'Your ONLY job is to reach a specific target experience in the public booking journey so it can be screenshotted and analysed.',
-    'You navigate like a careful human researcher: read the page, click the right controls, fill forms with the provided synthetic test values, wait for pages to load, and keep going across multiple pages until you reach the target.',
+    'You are a senior UX researcher navigating ANY public website in a real browser to reach a specific target experience so it can be screenshotted and analysed. The website could be a store, a travel site, a bank, a SaaS product, an insurance or healthcare site — anything. Do not assume a domain.',
     '',
-    'HARD SAFETY RULES — these are also enforced in code, but you must respect them:',
-    '- NEVER sign in, create an account, or enter a password / OTP / verification code.',
-    '- NEVER enter a real or made-up booking reference, PNR, e-ticket number, or loyalty/frequent-flyer number.',
-    '- NEVER enter card number, CVV, expiry, or any payment credential.',
-    '- NEVER click "Pay", "Pay now", "Purchase", "Confirm and pay", "Complete booking", "Issue ticket", or anything that completes a paid transaction.',
-    '- NEVER redeem miles/points.',
-    '- If the target is the payment page: REACH it (see the payment methods / card fields / total) and then STOP. Do not fill or submit anything there.',
-    '- Only use the synthetic values provided as variables. Do not invent personal data.',
+    'HOW YOU WORK, every step:',
+    '1. PERCEIVE — read the current page: its headings, forms and fields, buttons, links, dialogs, visible text, and the screenshot.',
+    '2. DECIDE the next concrete milestone that moves you toward the target (e.g. "fill and submit this search form", "add an item to the cart", "choose a plan", "open the checkout", "continue past this step").',
+    '3. ACT using the best method:',
+    '   - Prefer semantic DOM actions (act / fillForm by accessible label or role).',
+    '   - If a control is a custom widget (fancy dropdown, autocomplete, calendar, slider, canvas, clickable div) OR a DOM action just failed OR the page did not change, SWITCH to a visual/coordinate interaction (click/type at the element you can see in the screenshot).',
+    '   - Use scroll, keyboard keys, wait, and go-back as needed.',
+    '4. VERIFY the effect: did the URL, the visible state, a field value, a selected option, a dialog, or the screenshot actually change? If nothing observably changed, the action FAILED — try a DIFFERENT method, do not repeat the same one.',
+    '5. Keep going across as many pages as needed until the target is on screen.',
     '',
-    'NAVIGATION GUIDANCE:',
-    '- Use the public "Book a flight" journey. Fill origin, destination, dates and passenger count, then search.',
-    '- On flight results, pick any reasonable flight (e.g. the first non-stop). On fare selection, pick the cheapest / most basic fare unless it forces a paid add-on.',
-    '- Skip all optional extras ("No thanks", "Skip", "Continue without"). Do not add paid seats or bags unless a step cannot be skipped and a free option exists.',
-    '- Dismiss cookie/consent banners and close marketing pop-ups.',
-    '- Do NOT stop just because the target is not on the current page — your job is to FIND and REACH it. Keep progressing through the flow.',
-    '- If a widget is stubborn (autocomplete, calendar), try a different interaction: click a suggestion, use the keyboard, reopen the field, pick another valid future date, or choose an alternate route.',
-    `- Alternate origin/destination pairs you may use if a route is unavailable: ${alternateRouteHint()}.`,
-    '- When you believe you have reached the target, take a screenshot, then call done with a short explanation of why you think this is the target.',
+    'RULES:',
+    '- Fill forms only with the synthetic test values provided as variables. Never invent personal data.',
+    '- NEVER: sign in, create/submit an account, enter a password / OTP / verification code, enter a card number / CVV / expiry, redeem points, or click anything that completes a purchase, places an order, sends money, confirms an irreversible booking, deletes, or publishes.',
+    '- If the target IS a payment / checkout / sign-up / booking page: REACH it (see the fields / summary) and then STOP — do not fill secrets or submit.',
+    '- Dismiss cookie/consent banners and close marketing pop-ups as your first move.',
+    '- Do not stop just because the target is not on the current page — your job is to FIND and REACH it. But if you get genuinely stuck (a control cannot be operated by any method, or the flow requires signing in / a real account / a real reference), stop and explain exactly what blocked you.',
+    '- Do not repeat an identical failed action. Escalate the method instead.',
+    '',
+    'When the target experience is visibly on screen: take a screenshot and call done with a one-line explanation of why this is the target.',
   ].join('\n');
 }
 
 /**
  * @param {object} args
  * @param {string} args.company
- * @param {string} args.feature   the user-facing feature label ("Passenger Details")
- * @param {string} args.detectorKey
+ * @param {string} args.feature      the user-facing feature label
+ * @param {string} [args.detectorKey]
  * @param {string} args.startingUrl
  */
-export function buildAgentInstruction({ company, feature, detectorKey, startingUrl }) {
-  const brief = TARGET_BRIEF[detectorKey] || `the "${feature}" experience`;
+export function buildAgentInstruction({ company, feature, startingUrl }) {
   return [
-    `Website: ${company} — ${startingUrl}`,
+    `Website: ${company || 'this company'} — ${startingUrl}`,
     `TARGET EXPERIENCE TO REACH: ${feature}.`,
-    `Concretely, that means: ${brief}.`,
+    `You will know you are there when you see: ${targetHint(feature)}.`,
     '',
-    'Start from the current page (the homepage is already open). Work through the public booking journey using the synthetic variables provided.',
-    detectorKey === 'payment'
-      ? 'Complete every reversible prerequisite (search, flight, fare, passenger details with synthetic data, skip extras) until the PAYMENT page is visible, then STOP without entering or submitting anything.'
-      : detectorKey === 'seat_selection'
-        ? 'Progress through search, results, fare and passenger details as needed until the SEAT MAP is visible.'
-        : detectorKey === 'passenger_details'
-          ? 'Progress through search, flight results and fare selection until the PASSENGER DETAILS form is visible.'
-          : 'Progress through the booking journey until the target experience is visible.',
-    '',
-    'Do not sign in, do not pay, do not use a real booking reference. Use only the provided synthetic values.',
-    'When the target is visible: screenshot it and call done.',
+    'The homepage is already open. Work through the site\'s own public flow using the synthetic variables provided — search, choose options, add to cart, fill multi-step forms, continue past interstitials, skip optional extras — whatever this particular site requires to get to the target.',
+    'Do not sign in, do not pay, do not submit anything irreversible. When the target is visible, screenshot it and call done.',
   ].join('\n');
 }
 
-export { TARGET_BRIEF };
+export { targetHint };

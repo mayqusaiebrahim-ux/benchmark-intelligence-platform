@@ -43,8 +43,19 @@ export function makeTelemetry({ feature, detectorKey, startedAt = Date.now() } =
       logInfo('agent_nav_action', {
         feature,
         stepNumber: a.stepNumber || step,
+        mode: a.mode || null,                    // 'dom' | 'hybrid' | 'cua'
         actionType: a.actionType ? scrub(a.actionType) : null,
+        intent: a.intent ? scrub(a.intent) : null,
+        toolCount: typeof a.toolCount === 'number' ? a.toolCount : undefined,
         currentUrl: capUrl(a.currentUrl),
+        elapsedMs: elapsed(),
+      });
+    },
+    stuck(x = {}) {
+      logWarn('agent_nav_stuck', {
+        feature, stepNumber: step,
+        ticks: x.ticks, actionsSinceStuck: x.actionsSinceStuck,
+        currentUrl: capUrl(x.url), pageKind: x.pageKind || null,
         elapsedMs: elapsed(),
       });
     },

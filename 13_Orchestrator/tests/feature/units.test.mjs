@@ -61,11 +61,20 @@ test('feature navigation: Homepage → 1 homepage step, never the generic journe
   });
   assert.equal(payPlan.recommended_journey.length, 1);
 
-  // an unmapped custom feature → homepage-only, with a note (not a guess)
+  // an unmapped custom feature is now a GENERIC agent-driven navigation target
+  // (universal web navigation) — not homepage-only, no known detector, arrival
+  // verified generically.
   const custom = resolveFeatureIntent('Refund flow');
-  assert.equal(custom.stepId, 'step_01_entry');
-  assert.equal(custom.homepageOnly, true);
-  assert.match(custom.note, /custom feature/i);
+  assert.equal(custom.homepageOnly, false);
+  assert.equal(custom.goalDriven, true);
+  assert.equal(custom.detectorKey, null);
+  assert.match(custom.note, /custom feature|verified generically/i);
+
+  // a mapped non-homepage feature is agent-driven with a known detector for verification
+  const pay = resolveFeatureIntent('Payment');
+  assert.equal(pay.goalDriven, true);
+  assert.equal(pay.detectorKey, 'payment');
+  assert.equal(pay.homepageOnly, false);
 });
 
 test('feature navigation: buildFeatureJourneyPlan ignores an off-domain resolved_url', () => {

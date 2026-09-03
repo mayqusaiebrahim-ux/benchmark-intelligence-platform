@@ -46,7 +46,7 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
   // journey — the Navigation Runner must NOT pre-launch a second remote
   // browser just to sit unused (and must not load the site twice).
   const agentOnly = navMode() === 'agent' && agentModeAvailable()
-    && plannedSteps.length > 0 && plannedSteps.every((s) => s && s.goal_driven && s.detector_key);
+    && plannedSteps.length > 0 && plannedSteps.every((s) => s && s.goal_driven);
 
   let browser;
   let session;

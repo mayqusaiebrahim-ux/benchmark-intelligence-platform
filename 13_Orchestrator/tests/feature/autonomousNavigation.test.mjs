@@ -93,9 +93,14 @@ const HOME_SNAPSHOT = { headings: ['book a flight'], bodyText: 'welcome', fields
 
 function captureEvents(prefix, fn) {
   const events = [];
-  const orig = process.stdout.write.bind(process.stdout);
-  process.stdout.write = (chunk, ...a) => { const s = String(chunk); if (s.includes(prefix)) { try { events.push(JSON.parse(s)); } catch { /* skip */ } } return orig(chunk, ...a); };
-  return Promise.resolve(fn()).finally(() => { process.stdout.write = orig; }).then(() => events);
+  const grab = (chunk) => { const s = String(chunk); for (const line of s.split('\n')) { if (line.includes(prefix)) { try { events.push(JSON.parse(line)); } catch { /* skip */ } } } };
+  const oOut = process.stdout.write.bind(process.stdout);
+  const oErr = process.stderr.write.bind(process.stderr);   // logWarn -> console.warn -> stderr
+  process.stdout.write = (c, ...a) => { grab(c); return oOut(c, ...a); };
+  process.stderr.write = (c, ...a) => { grab(c); return oErr(c, ...a); };
+  return Promise.resolve(fn())
+    .finally(() => { process.stdout.write = oOut; process.stderr.write = oErr; })
+    .then(() => events);
 }
 
 // ═══ 1. deterministic safety ═══════════════════════════════════════════
@@ -312,11 +317,16 @@ test('telemetry scrub() redacts synthetic values and %vars%', () => {
   assert.doesNotMatch(scrub('clicked Search flights'), /‹redacted›/);
 });
 
-test('agent variables carry descriptions and only synthetic values', () => {
+test('agent variables are GENERIC (person/contact/address/search) and only synthetic values', () => {
   const vars = toAgentVariables(buildTestProfile());
-  assert.equal(vars.originCode.value, 'JED');
+  // generic person/contact fields exist and are usable on any site
+  for (const k of ['firstName', 'lastName', 'email', 'phone', 'city', 'country', 'postalCode', 'quantity', 'searchTerm']) {
+    assert.ok(vars[k] && typeof vars[k].value === 'string' && vars[k].description.length > 3, `variable ${k}`);
+  }
   assert.match(vars.email.value, /@example\.com$/);
-  for (const v of Object.values(vars)) { assert.equal(typeof v.value, 'string'); assert.ok(v.description.length > 3); }
+  // no domain-specific variable names
+  assert.ok(!('originCode' in vars) && !('destinationCode' in vars) && !('cabin' in vars) && !('passengerName' in vars));
+  for (const v of Object.values(vars)) { assert.equal(typeof v.value, 'string'); }
 });
 
 test('agent_nav_start / agent_nav_stop are emitted', async () => {
@@ -430,4 +440,106 @@ test('agent_nav_action still emitted post-hoc from execResult.actions if onStepF
   const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 400 }), stagehandFactory: async () => sh }));
   const actions = events.filter((e) => e.message === 'agent_nav_action');
   assert.ok(actions.length >= 2);
+});
+
+// ═══ 9. UNIVERSAL HYBRID AGENT (any site, any feature) ══════════════════
+const { buildAgentConfig } = await import(NAV);
+const { genericVerify, pageKind, pageStateFingerprint } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/genericVerifier.js');
+const { verifyTarget: verifyT } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/targetVerifier.js');
+
+test('hybrid mode: a "claude" model gets mode:"hybrid"; an openai-only env gets mode:"dom"', async (t) => {
+  const saved = { a: process.env.ANTHROPIC_API_KEY, o: process.env.OPENAI_API_KEY, m: process.env.AGENT_NAV_MODEL };
+  t.after(() => { for (const [k, v] of [['ANTHROPIC_API_KEY', saved.a], ['OPENAI_API_KEY', saved.o], ['AGENT_NAV_MODEL', saved.m]]) { if (v == null) delete process.env[k]; else process.env[k] = v; } });
+  delete process.env.AGENT_NAV_MODEL;
+  process.env.ANTHROPIC_API_KEY = 'x'; delete process.env.OPENAI_API_KEY;
+  let llm = detectAgentLlm();
+  assert.match(llm.model, /claude/);
+  assert.equal(llm.agentMode, 'hybrid');
+  assert.equal(buildAgentConfig().mode, 'hybrid');
+  assert.equal(validateAgentConfiguration().agentMode, 'hybrid');
+  delete process.env.ANTHROPIC_API_KEY; process.env.OPENAI_API_KEY = 'x';
+  assert.equal(detectAgentLlm().agentMode, 'dom');
+  process.env.AGENT_NAV_MODEL = 'anthropic/claude-sonnet-4-6';
+  assert.equal(detectAgentLlm().agentMode, 'hybrid');
+});
+
+test('the running navigator passes mode + model to sh.agent()', async () => {
+  const seen = {};
+  const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'x', actions: [], completed: false } });
+  sh.agent = (c) => { Object.assign(seen, c); return { execute: async () => ({ message: 'x', actions: [], completed: false }) }; };
+  await runAutonomousNavigation({ startingUrl: 'https://x.com/', feature: 'Checkout', detectorKey: null, limits: T({ maxMs: 300 }), stagehandFactory: async () => sh });
+  assert.ok(seen.mode === 'hybrid' || seen.mode === 'dom');
+  assert.ok(typeof seen.model === 'string' && seen.model.length > 0);
+});
+
+test('generic page-state fingerprint: stable for the same page, changes on any material change', () => {
+  const a = { url: 'https://x.com/p', headings: ['pricing'], fields: [{ semantic: 'email' }], controls: [{ name: 'continue' }], bodyText: 'choose a plan', counts: {} };
+  assert.equal(pageStateFingerprint(a), pageStateFingerprint({ ...a }));
+  assert.notEqual(pageStateFingerprint(a), pageStateFingerprint({ ...a, headings: ['checkout'] }));
+  assert.notEqual(pageStateFingerprint(a), pageStateFingerprint({ ...a, url: 'https://x.com/p?step=2' }));
+});
+
+test('universal stuck detector: unchanged fingerprint + ongoing actions -> agent_nav_stuck + BLOCKER', async () => {
+  const frozen = fakePage({ snapshot: HOME_SNAPSHOT });
+  const { sh } = fakeStagehand({
+    page: frozen,
+    agentResult: async (opts) => {
+      const iv = setInterval(() => { try { opts.callbacks.onStepFinish({ toolCalls: [{ toolName: 'act' }] }); } catch { /* */ } }, 20);
+      await new Promise((res) => opts.signal.addEventListener('abort', () => { clearInterval(iv); res(); }));
+      return { message: 'aborted', actions: [], completed: false, _error: Object.assign(new Error('aborted'), { name: 'AbortError' }) };
+    },
+  });
+  const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({
+    startingUrl: 'https://x.com/', feature: 'Checkout', detectorKey: null,
+    limits: T({ maxMs: 60000, probeIntervalMs: 40, maxStuckTicks: 3 }),
+    stagehandFactory: async () => sh,
+  }));
+  assert.ok(events.some((e) => e.message === 'agent_nav_stuck'), 'agent_nav_stuck emitted');
+  const stop = events.find((e) => e.message === 'agent_nav_stop');
+  assert.equal(stop.status, TARGET_STATUS.BLOCKER);
+  assert.match(stop.stopReason, /did not change|could not operate/i);
+});
+
+test('generic verifier recognises unrelated site categories (no domain code)', () => {
+  const checkout = { url: 'https://shop.example/checkout', headings: ['Checkout', 'Order summary'], bodyText: 'delivery address payment method place order subtotal', fields: [{ semantic: 'first_name' }, { semantic: 'last_name' }, { semantic: 'address_line1' }, { semantic: 'postal_code' }], controls: [{ name: 'place order' }], counts: {} };
+  assert.equal(genericVerify(checkout, 'Checkout').reached, true);
+  assert.equal(pageKind(checkout), 'checkout');
+  const signup = { url: 'https://app.example/signup', headings: ['Create your account'], bodyText: 'start your free trial no credit card required', fields: [{ semantic: 'email' }, { semantic: 'full_name' }, { semantic: 'password' }], controls: [{ name: 'sign up' }], counts: {} };
+  assert.equal(genericVerify(signup, 'Sign up').reached, true);
+  assert.equal(pageKind(signup), 'signup');
+  const cart = { url: 'https://shop.example/cart', headings: ['Your basket'], bodyText: 'subtotal proceed to checkout 2 items', fields: [], controls: [{ name: 'proceed to checkout' }], counts: {} };
+  assert.equal(genericVerify(cart, 'Cart').reached, true);
+  assert.equal(genericVerify({ url: 'https://x.com/', headings: ['welcome'], bodyText: 'the best products', fields: [], controls: [{ name: 'shop now' }], counts: {} }, 'Checkout').reached, false);
+});
+
+test('verifyTarget routes: known feature -> detector; unknown feature -> generic', async () => {
+  const paxPage = fakePage({ snapshot: { headings: ['passenger details'], fields: [{ semantic: 'first_name' }, { semantic: 'last_name' }, { semantic: 'date_of_birth' }], controls: [], bodyText: '', counts: {} } });
+  assert.equal((await verifyT(paxPage, 'passenger_details', { featureLabel: 'Passenger Details' })).method, 'feature-detector');
+  const checkoutPage = fakePage({ snapshot: { url: 'https://s.example/checkout', headings: ['Checkout'], bodyText: 'order summary delivery address place order', fields: [{ semantic: 'address_line1' }, { semantic: 'postal_code' }, { semantic: 'first_name' }, { semantic: 'email' }], controls: [{ name: 'place order' }], counts: {} } });
+  const gv = await verifyT(checkoutPage, null, { featureLabel: 'Checkout' });
+  assert.equal(gv.method, 'generic');
+  assert.equal(gv.reached, true);
+});
+
+test('safetyProbe is domain-free', () => {
+  const cardPay = { fields: [{ semantic: 'card_number', context: 'form' }], controls: [{ name: 'Pay now' }], bodyText: '' };
+  assert.equal(safetyProbe(cardPay, 'Seat Selection').violation, true);
+  assert.equal(safetyProbe(cardPay, 'Payment').violation, false);
+  assert.equal(safetyProbe(cardPay, 'Checkout').violation, false);
+  assert.equal(safetyProbe({ fields: [], controls: [], bodyText: 'enter the 6-digit code we texted you (2fa)' }, 'Checkout').violation, true);
+  const wall = { fields: [{ semantic: 'password', context: 'auth' }], controls: [{ name: 'sign in' }], bodyText: 'sign in to continue' };
+  assert.equal(safetyProbe(wall, 'Pricing').violation, true);
+  assert.equal(safetyProbe(wall, 'Sign in').violation, false);
+});
+
+test('NO company / airline / hostname-specific code in the autonomous_navigator path', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const dir = fileURLToPath(new URL('../../../11_Benchmark_Engine/modules/autonomous_navigator/', import.meta.url));
+  const BANNED = /\b(etihad|emirates|qatarairways|saudia|singaporeair|lufthansa)\b|airline adapter|company adapter/i;
+  for (const f of readdirSync(dir).filter((n) => n.endsWith('.js'))) {
+    const src = readFileSync(dir + f, 'utf8');
+    assert.ok(!BANNED.test(src), `${f} has a company/airline reference`);
+    assert.ok(!/if\s*\([^)]*\.(hostname|host)\s*===/.test(src), `${f} branches on a hostname`);
+  }
 });

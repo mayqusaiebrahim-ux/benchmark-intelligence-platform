@@ -24,7 +24,7 @@ export async function executeStep({ page, ensureBrowser, step, index, journeyPla
   // own Stagehand/Browserbase session — no runner page is launched or used, and
   // there is no re-baseline navigation. If the agent path has to fall back to
   // the heuristic navigator, it lazily acquires a page via ensureBrowser().
-  const agentGoalStep = !page && step.goal_driven && step.detector_key;
+  const agentGoalStep = !page && step.goal_driven;
 
   if (step.depends_on_previous && previousStepFailed) {
     const actionResult = {

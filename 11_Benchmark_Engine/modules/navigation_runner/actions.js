@@ -279,7 +279,7 @@ export async function performStepAction(page, step, ctx = {}) {
   // enforces safety, budget, synthetic data, and INDEPENDENT target
   // verification. FALLBACK (NAVIGATION_MODE=heuristic, or agent creds absent /
   // agent crash): the legacy heuristic GoalNavigator on this same page.
-  if (step.goal_driven && step.detector_key) {
+  if (step.goal_driven) {
     const feature = step.feature_label || step.title || step.detector_key;
 
     if (navigationMode() === 'agent') {

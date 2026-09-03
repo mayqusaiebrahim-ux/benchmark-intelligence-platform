@@ -122,14 +122,20 @@ export async function drainDomSafetyBlocks(page) {
   }
 }
 
-const PAYMENT_DETECTORS = new Set(['payment']);
+// Target keywords for which reaching a payment / login page IS the goal, so
+// their fields being on screen is not a violation. Domain-free — matched on
+// the requested feature label, not a hardcoded detector.
+const isPaymentTarget = (t) => /(payment|billing|checkout|pay )/i.test(String(t || ''));
+const isAuthTarget = (t) => /(sign ?in|log ?in|login|sign ?up|register|create account|account creation)/i.test(String(t || ''));
 
 /**
  * safetyProbe — is the CURRENT page a state we must not let the agent act in?
- * `observation` is a normalizeObservation() result; `targetKey` is the requested
- * detector. Returns { violation:boolean, reason?:string }.
+ * Domain-free: card/CVV fields + a transaction control, an OTP challenge, or a
+ * hard auth wall — none of which the agent may operate unless that IS the
+ * requested target. `target` is the requested feature label (or detector key).
+ * Returns { violation:boolean, reason?:string }.
  */
-export function safetyProbe(observation, targetKey) {
+export function safetyProbe(observation, target) {
   const o = observation || {};
   const fields = o.fields || [];
   const controls = o.controls || (o.buttons || []).map((n) => ({ name: n, context: 'other' }));
@@ -138,26 +144,24 @@ export function safetyProbe(observation, targetKey) {
   const hasCardField = fields.some((f) => /^card_/.test(f.semantic || ''));
   const hasPasswordField = fields.some((f) => f.semantic === 'password');
   const hasPayButton = controls.some((c) => SAFETY.TRANSACTION_RE.test(c.name || ''));
-  const hasOtpCopy = /\b(one[- ]time (code|password|pin)|verification code|enter the code we sent|otp)\b/i.test(body);
+  const hasOtpCopy = /\b(one[- ]time (code|password|pin)|verification code|enter the code we sent|2fa|otp)\b/i.test(body);
 
-  // A card field + a Pay button, when the target is NOT the payment page,
-  // means the agent has gone past the safe line.
-  if (hasCardField && hasPayButton && !PAYMENT_DETECTORS.has(targetKey)) {
-    return { violation: true, reason: 'card fields + a payment-submit control are present and the target is not the payment page' };
+  // Card field + a transaction-submit control, when the target is NOT a
+  // payment/checkout page → the agent went past the safe line.
+  if (hasCardField && hasPayButton && !isPaymentTarget(target)) {
+    return { violation: true, reason: 'card fields + a transaction-submit control are present and the target is not a payment/checkout page' };
   }
-  // For a payment-page target: card fields present is FINE (that's the target),
-  // but a bank/3-D-Secure OTP challenge is never allowed.
+  // An OTP / 2FA challenge is never allowed — not even for a payment target.
   if (hasOtpCopy) {
-    return { violation: true, reason: 'a one-time-code / OTP challenge is on screen' };
+    return { violation: true, reason: 'a one-time-code / OTP / 2FA challenge is on screen' };
   }
-  // A dedicated sign-in wall (password field + no booking form to fall back on)
-  // when the target isn't sign-in.
-  if (hasPasswordField && targetKey !== 'signin') {
-    const bookingUsable = fields.some((f) => f.semantic === 'origin' || f.semantic === 'destination')
-      || fields.some((f) => /^(first_name|last_name)$/.test(f.semantic || ''))
-      || controls.some((c) => /\b(continue|next|search|proceed)\b/i.test(c.name || ''));
+  // A hard auth wall (a visible password field in an auth/modal surface, and
+  // nothing else on the page is actionable) when the target is not auth.
+  if (hasPasswordField && !isAuthTarget(target)) {
+    const otherActionable = fields.some((f) => f.semantic && !/^(password|otp)$/.test(f.semantic))
+      || controls.some((c) => /\b(continue|next|search|proceed|add|checkout|book|get started)\b/i.test(c.name || ''));
     const authSurface = fields.some((f) => f.semantic === 'password' && (f.context === 'auth' || f.context === 'modal'));
-    if (authSurface && !bookingUsable) {
+    if (authSurface && !otherActionable) {
       return { violation: true, reason: 'a sign-in wall is blocking the journey and the target is not sign-in' };
     }
   }
