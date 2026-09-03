@@ -8,7 +8,7 @@
  * that isn't yet part of the full 11-deliverable structure).
  */
 
-import { mkdirSync, writeFileSync } from 'fs';
+import { mkdirSync, writeFileSync, copyFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { logInfo, logError } from '../../../shared/logger.mjs';
@@ -40,6 +40,41 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
   const metadataPath = join(dataDir, 'metadata.json');
 
   let screenshotSaved = false;
+
+  // Agent-mode (autonomous_navigator) drives its OWN Browserbase session, so
+  // the `page` passed here is not where navigation happened. The autonomous
+  // navigator already captured the real evidence from its session and hands
+  // it back via actionResult.evidenceOverride — use that verbatim.
+  const override = actionResult && actionResult.evidenceOverride;
+  if (override && override.screenshotPath && existsSync(override.screenshotPath)) {
+    try {
+      copyFileSync(override.screenshotPath, screenshotPath);
+      screenshotSaved = true;
+      logInfo('Navigation Runner: evidence screenshot taken from agent session', { screenshotPath, stepId: step.id });
+    } catch (err) {
+      logError('Navigation Runner: could not copy agent evidence screenshot', err, { stepId: step.id });
+    }
+    writeFileSync(htmlPath, override.pageHtml || '', 'utf8');
+    const metadata = {
+      step_id: step.id, step_title: step.title, step_index: index,
+      page_url: override.pageUrl || null,
+      action_taken: actionResult.action_taken,
+      status: actionResult.success ? 'success' : 'failed',
+      error: actionResult.error || null,
+      screenshot_path: screenshotSaved ? screenshotPath : null,
+      html_snapshot_path: htmlPath,
+      captured_at: new Date().toISOString(),
+      navigation_mode: 'agent',
+    };
+    writeFileSync(metadataPath, JSON.stringify(metadata, null, 2) + '\n', 'utf8');
+    return {
+      page_url: override.pageUrl || null,
+      screenshot_path: screenshotSaved ? screenshotPath : null,
+      html_snapshot_path: htmlPath,
+      metadata_path: metadataPath,
+    };
+  }
+
   try {
     // Render Free (512MB) memory optimization: viewport-only capture
     // (fullPage: false, the default) instead of fullPage:true. A full-page

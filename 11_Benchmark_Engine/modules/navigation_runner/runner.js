@@ -65,7 +65,7 @@ export async function executeStep({ page, step, index, journeyPlan, companySlug,
 
   let actionResult;
   try {
-    actionResult = await performStepAction(page, step);
+    actionResult = await performStepAction(page, step, { companySlug, company: companySlug, startingUrl: journeyPlan.starting_url });
   } catch (err) {
     // Intentional swallow, unchanged — see the header comment: one bad
     // step must never abort the whole journey. Logged, not rethrown.

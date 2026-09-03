@@ -11,10 +11,20 @@
  * a step's keyword set accidentally brushes up against one.
  */
 
-import { logInfo } from '../../../shared/logger.mjs';
+import { logInfo, logError } from '../../../shared/logger.mjs';
 import { runGoalNavigation, TARGET_STATUS } from '../goal_navigator/goalNavigator.js';
 import { playwrightAdapter } from '../goal_navigator/playwrightAdapter.js';
 import { buildTestProfile } from '../goal_navigator/syntheticData.js';
+import { runAutonomousNavigation, agentModeAvailable, AgentNavUnavailableError } from '../autonomous_navigator/autonomousNavigator.js';
+
+// NAVIGATION_MODE: 'agent' (default — autonomous browser agent) or 'heuristic'
+// (the legacy GoalNavigator). Agent mode falls back to heuristic automatically
+// when credentials are absent or the agent run throws before producing a
+// classified result. Not exposed in the dashboard.
+function navigationMode() {
+  const m = (process.env.NAVIGATION_MODE || 'agent').trim().toLowerCase();
+  return m === 'heuristic' ? 'heuristic' : 'agent';
+}
 
 // ─── Cookie / consent overlay handling ─────────────────────────────────────
 // Consent dialogs (OneTrust, Cookiebot, generic GDPR banners) frequently
@@ -250,7 +260,7 @@ async function performSearchAction(page, hint) {
  * (e.g. anything requiring login or payment completion) fail cleanly with a
  * clear reason rather than being attempted.
  */
-export async function performStepAction(page, step) {
+export async function performStepAction(page, step, ctx = {}) {
   // Clear any blocking cookie/consent overlay BEFORE the planned action, so a
   // target that Playwright reports as clickable is actually reachable. This
   // step is generic and best-effort: no banner -> instant pass-through.
@@ -260,13 +270,52 @@ export async function performStepAction(page, step) {
   // ── Goal-driven multi-step navigation ──────────────────────────────────
   // For transactional / deep features (Passenger Details, Fare Selection,
   // Seat Selection, Payment, ...) one click is never enough. featureIntent.js
-  // flags the step goal_driven; here we hand the SAME page to the goal
-  // navigator, which autonomously completes safe prerequisite steps with
-  // synthetic data and stops when the feature detector confirms arrival (or a
-  // safety boundary / budget is hit). It never pays, authenticates, or adds a
-  // paid ancillary.
+  // flags the step goal_driven.
+  //
+  // PRIMARY (NAVIGATION_MODE=agent, default): an autonomous browser agent
+  // (Stagehand) drives its own session and decides every action; our code
+  // enforces safety, budget, synthetic data, and INDEPENDENT target
+  // verification. FALLBACK (NAVIGATION_MODE=heuristic, or agent creds absent /
+  // agent crash): the legacy heuristic GoalNavigator on this same page.
   if (step.goal_driven && step.detector_key) {
-    logInfo('Navigation Runner: goal-driven navigation starting', { stepId: step.id, detectorKey: step.detector_key });
+    const feature = step.feature_label || step.title || step.detector_key;
+
+    if (navigationMode() === 'agent') {
+      try {
+        if (!agentModeAvailable()) throw new AgentNavUnavailableError('agent-mode credentials (Browserbase + LLM key) are not configured');
+        const startingUrl = (() => { try { return page.url(); } catch { return ctx.startingUrl || null; } })();
+        logInfo('Navigation Runner: autonomous agent navigation starting', { stepId: step.id, detectorKey: step.detector_key, startingUrl });
+        const r = await runAutonomousNavigation({
+          startingUrl,
+          company: ctx.company || ctx.companySlug || step.feature_label || 'company',
+          feature,
+          detectorKey: step.detector_key,
+          profile: buildTestProfile(),
+        });
+        logInfo('Navigation Runner: autonomous agent navigation finished', {
+          stepId: step.id, targetStatus: r.targetStatus, reached: r.targetReached,
+          confidence: r.confidence, deepestUrl: r.deepestUrl, safetyBlocks: r.safetyBlocks?.length || 0,
+        });
+        return {
+          success: !!r.targetReached,
+          terminal: true,
+          error: r.targetReached ? null : (r.blocker || `"${feature}" was not reached (${r.targetStatus})`),
+          action_taken: `Autonomous agent (${r.targetStatus}): ${(r.interactionsPerformed || []).slice(-1)[0] || 'no actions recorded'}`,
+          consent,
+          goal: r,
+          evidenceOverride: r.evidenceOverride || null,
+        };
+      } catch (err) {
+        if (err instanceof AgentNavUnavailableError) {
+          logInfo('Navigation Runner: agent mode unavailable — using heuristic navigator', { stepId: step.id, reason: err.message });
+        } else {
+          logError('Navigation Runner: agent navigation threw before a classified result — using heuristic navigator', err, { stepId: step.id });
+        }
+        // fall through to the heuristic navigator below
+      }
+    }
+
+    logInfo('Navigation Runner: goal-driven navigation starting', { stepId: step.id, detectorKey: step.detector_key, mode: 'heuristic' });
     let goal;
     try {
       const goalLogger = { info: (m, x) => logInfo(m, x), warn: (m, x) => logInfo(m, x) };
