@@ -602,6 +602,68 @@ test('verifyTarget routes: known feature -> detector; unknown feature -> generic
   assert.equal(gv.reached, true);
 });
 
+// ── the airline detector set must not veto a correctly-reached page on a
+//    non-airline site. featureIntent maps domain-neutral feature words onto
+//    airline detector keys, so verification has to survive that.
+const { mapFeatureToDetectorKey } = await import('../../featureNavigation/featureIntent.js');
+const { detectFeature: rawDetect } = await import('../../../11_Benchmark_Engine/modules/goal_navigator/featureDetectors.js');
+
+test('featureIntent really does map generic labels onto airline detector keys', () => {
+  // If these ever stop matching, the fallback below is guarding nothing.
+  assert.equal(mapFeatureToDetectorKey('Checkout'), 'payment');
+  assert.equal(mapFeatureToDetectorKey('Search results'), 'flight_results');
+});
+
+test('store Checkout (detectorKey "payment") verifies via generic-fallback, not a false negative', async () => {
+  const obs = {
+    url: 'https://shop.example/checkout',
+    headings: ['Checkout', 'Order summary'],
+    bodyText: 'delivery address place order subtotal 2 items shipping method',
+    fields: [{ semantic: 'first_name' }, { semantic: 'last_name' }, { semantic: 'address_line1' }, { semantic: 'postal_code' }],
+    controls: [{ name: 'place order' }], counts: {},
+  };
+  // the airline payment detector alone does NOT confirm this page — that is the
+  // whole bug: navigation succeeded, verification said "not reached".
+  assert.equal(rawDetect('payment', obs).reached, false);
+  const page = fakePage({ url: obs.url, snapshot: obs });
+  const v = await verifyTarget(page, 'payment', { featureLabel: 'Checkout' });
+  assert.equal(v.reached, true);
+  assert.equal(v.method, 'generic-fallback');
+});
+
+test('store Search results (detectorKey "flight_results") verifies via generic-fallback', async () => {
+  const page = fakePage({
+    url: 'https://shop.example/search?q=lamp',
+    snapshot: {
+      url: 'https://shop.example/search?q=lamp',
+      headings: ['Search results'],
+      bodyText: 'showing 24 results for "lamp" sort by relevance',
+      fields: [], controls: [{ name: 'view product' }, { name: 'add to bag' }, { name: 'choose options' }],
+      counts: { priceTags: 24 },
+    },
+  });
+  const v = await verifyTarget(page, 'flight_results', { featureLabel: 'Search results' });
+  assert.equal(v.reached, true);
+  assert.equal(v.method, 'generic-fallback');
+});
+
+test('a detector hit still wins — airline Passenger Details stays feature-detector', async () => {
+  const page = fakePage({ snapshot: { headings: ['passenger details'], fields: [{ semantic: 'first_name' }, { semantic: 'last_name' }, { semantic: 'date_of_birth' }], controls: [], bodyText: '', counts: {} } });
+  const v = await verifyTarget(page, 'passenger_details', { featureLabel: 'Passenger Details' });
+  assert.equal(v.reached, true);
+  assert.equal(v.method, 'feature-detector');
+});
+
+test('the fallback introduces NO false positive — a homepage asked for Checkout is still not reached', async () => {
+  const home = fakePage({
+    url: 'https://shop.example/',
+    snapshot: { url: 'https://shop.example/', headings: ['Welcome'], bodyText: 'the best products, delivered', fields: [], controls: [{ name: 'shop now' }], counts: {} },
+  });
+  const v = await verifyTarget(home, 'payment', { featureLabel: 'Checkout' });
+  assert.equal(v.reached, false);
+  assert.equal(v.method, 'feature-detector');
+});
+
 test('safetyProbe is domain-free', () => {
   const cardPay = { fields: [{ semantic: 'card_number', context: 'form' }], controls: [{ name: 'Pay now' }], bodyText: '' };
   assert.equal(safetyProbe(cardPay, 'Seat Selection').violation, true);

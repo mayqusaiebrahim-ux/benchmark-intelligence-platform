@@ -29,15 +29,32 @@ export async function verifyTarget(page, detectorKey, { minConfidence = 'medium'
     return { reached: false, confidence: 'none', confidenceRank: 0, signals: [], detectedStates: [], url: safeUrl(page), error: err.message, observation: null, method: 'error' };
   }
 
+  const runGeneric = () => {
+    const g = genericVerify(observation, featureLabel || detectorKey || '');
+    return { reached: CONF_RANK[g.confidence] >= CONF_RANK[minConfidence], confidence: g.confidence, signals: g.signals, detectorKey: detectorKey || null, known: false };
+  };
+
   const known = detectorKey && FEATURE_DETECTORS[detectorKey];
   let det;
   let method;
   if (known) {
     det = detectFeature(detectorKey, observation, { minConfidence });
     method = 'feature-detector';
+    // GENERIC FALLBACK — featureIntent maps common, domain-neutral words onto
+    // the airline detector set ("Checkout"/"Payment" -> payment, "Search
+    // results" -> flight_results). On a store, a SaaS app or a public form
+    // those detectors demand signals that cannot exist (flight cards,
+    // departure/arrival times), so a page the agent had correctly REACHED
+    // verified as not reached. When the known detector does not confirm, ask
+    // the domain-free verifier too. It may only turn a negative into a
+    // positive — a detector hit always wins — so precision on the known
+    // airline set is unchanged.
+    if (!det.reached) {
+      const g = runGeneric();
+      if (g.reached) { det = g; method = 'generic-fallback'; }
+    }
   } else {
-    const g = genericVerify(observation, featureLabel || detectorKey || '');
-    det = { reached: CONF_RANK[g.confidence] >= CONF_RANK[minConfidence], confidence: g.confidence, signals: g.signals, detectorKey: detectorKey || null, known: false };
+    det = runGeneric();
     method = 'generic';
   }
 
