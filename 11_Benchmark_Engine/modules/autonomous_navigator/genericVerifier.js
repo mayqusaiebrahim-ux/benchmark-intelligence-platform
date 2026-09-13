@@ -55,6 +55,11 @@ export function pageKind(observation) {
   return 'unknown';
 }
 
+// Kinds that identify a page on their own. "form" is deliberately NOT here:
+// pageKind() falls back to "form" for any page with 4+ fields, so it says
+// "this page has inputs", not "this page is the requested experience".
+const SPECIFIC_KINDS = new Set(['login', 'signup', 'cart', 'checkout', 'payment', 'confirmation', 'results']);
+
 // Which page kinds satisfy which feature intent.
 const FEATURE_KIND_HINTS = [
   [/(sign ?in|log ?in|login)/, ['login']],
@@ -101,7 +106,27 @@ export function genericVerify(observation, featureLabel) {
   }
 
   const confidence = score >= 5 ? 'high' : score >= 3 ? 'medium' : score >= 1 ? 'low' : 'none';
-  return { reached: confidence === 'high' || confidence === 'medium', confidence, signals, kind };
+
+  // ── ANTI-FALSE-POSITIVE GATE ─────────────────────────────────────────
+  // "form" is the catch-all kind: pageKind() returns it for ANY page with 4+
+  // fields, so a homepage carrying a booking widget looks like "form" — and a
+  // feature label such as "Passenger Details" asks for "form". Score alone
+  // then declares the homepage reached with zero navigation (observed live on
+  // a live public homepage: 51 fields, no heading match, "reached").
+  //
+  // So a score is only allowed to mean REACHED when it rests on something
+  // that actually identifies THIS experience:
+  //   - the page's own kind is a SPECIFIC one (checkout, login, cart, ...), or
+  //   - the feature's words appear in the headings or the URL path.
+  // A generic "form" plus a field count is never enough on its own.
+  const lexicalMatch = inHeading.length > 0 || inUrl.length > 0;
+  const specificKind = wantKinds.includes(kind) && SPECIFIC_KINDS.has(kind);
+  const identified = lexicalMatch || specificKind;
+  const scoreReached = confidence === 'high' || confidence === 'medium';
+  if (scoreReached && !identified) {
+    signals.push(`not accepted: only a generic "${kind}" page — "${featureLabel}" does not appear in the headings or URL`);
+  }
+  return { reached: scoreReached && identified, confidence, signals, kind, identified, lexicalMatch };
 }
 
 /** Generic fingerprint of the page state — for the universal stuck detector. */

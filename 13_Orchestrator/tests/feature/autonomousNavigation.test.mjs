@@ -654,6 +654,46 @@ test('a detector hit still wins — airline Passenger Details stays feature-dete
   assert.equal(v.method, 'feature-detector');
 });
 
+// REGRESSION — observed live on etihad.com 2026-09-13: the generic fallback
+// declared the HOMEPAGE to be "Passenger Details" after ZERO agent actions,
+// because pageKind() calls any page with 4+ fields a "form" and the label
+// "Passenger Details" asks for a "form". A homepage must never be evidence
+// that a deeper feature was reached.
+test('REGRESSION: a real homepage with a big booking widget is NOT "Passenger Details"', async () => {
+  const etihadHome = {
+    url: 'https://www.etihad.com/en-ae/',
+    headings: [
+      'fly to the red sea', 'new destination', 'flights from riyadh',
+      'life’s better as a guest', 'personalised benefits', 'reduced tier criteria',
+    ],
+    bodyText: 'book flights manage and check-in online explore destinations etihad guest',
+    // the real homepage carried 51 fields (search widget, newsletter, filters)
+    fields: Array.from({ length: 51 }, (_, i) => ({ semantic: `field_${i}`, visible: true })),
+    controls: [{ name: 'search flights' }], counts: {},
+  };
+  assert.equal(genericVerify(etihadHome, 'Passenger Details').reached, false);
+  assert.equal(pageKind(etihadHome), 'form', 'precondition: a field-heavy homepage still looks like a "form"');
+
+  const page = fakePage({ url: etihadHome.url, snapshot: etihadHome });
+  const v = await verifyTarget(page, 'passenger_details', { featureLabel: 'Passenger Details' });
+  assert.equal(v.reached, false, 'the homepage must never verify as Passenger Details');
+});
+
+test('a generic "form" kind alone never proves the target — headings or URL must say so', () => {
+  const anyForm = {
+    url: 'https://example.com/',
+    headings: ['Welcome'],
+    bodyText: 'get started today',
+    fields: [{ semantic: 'a' }, { semantic: 'b' }, { semantic: 'c' }, { semantic: 'd' }, { semantic: 'e' }],
+    controls: [], counts: {},
+  };
+  assert.equal(genericVerify(anyForm, 'Passenger Details').reached, false);
+  assert.equal(genericVerify(anyForm, 'Booking').reached, false);
+  // …but the SAME page becomes valid evidence once it identifies itself
+  const named = { ...anyForm, url: 'https://example.com/booking/passenger-details', headings: ['Passenger details'] };
+  assert.equal(genericVerify(named, 'Passenger Details').reached, true);
+});
+
 test('the fallback introduces NO false positive — a homepage asked for Checkout is still not reached', async () => {
   const home = fakePage({
     url: 'https://shop.example/',

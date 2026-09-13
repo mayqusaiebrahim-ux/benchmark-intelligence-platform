@@ -31,7 +31,18 @@ export async function verifyTarget(page, detectorKey, { minConfidence = 'medium'
 
   const runGeneric = () => {
     const g = genericVerify(observation, featureLabel || detectorKey || '');
-    return { reached: CONF_RANK[g.confidence] >= CONF_RANK[minConfidence], confidence: g.confidence, signals: g.signals, detectorKey: detectorKey || null, known: false };
+    // BOTH gates must hold. g.reached carries genericVerifier's own
+    // anti-false-positive check (is this page actually identifiable as the
+    // requested experience, or just "a page with inputs"?). Deriving reached
+    // from the confidence RANK alone ignored that veto and let a homepage with
+    // a booking widget verify as "Passenger Details" with zero navigation.
+    return {
+      reached: g.reached && CONF_RANK[g.confidence] >= CONF_RANK[minConfidence],
+      confidence: g.confidence,
+      signals: g.signals,
+      detectorKey: detectorKey || null,
+      known: false,
+    };
   };
 
   const known = detectorKey && FEATURE_DETECTORS[detectorKey];
