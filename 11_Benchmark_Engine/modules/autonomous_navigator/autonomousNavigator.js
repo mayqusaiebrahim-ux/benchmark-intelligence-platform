@@ -166,6 +166,9 @@ export function validateAgentConfiguration() {
   if (!llm.keyEnv) {
     return { ...base, ok: false, reason: `model "${llm.model}" needs a ${llm.provider} key in one of ${(PROVIDER_KEY_ENV[llm.provider] || ['?']).join(' / ')}` };
   }
+  if (process.env.AGENT_NAV_REQUIRE_HYBRID === 'true' && (llm.agentMode || 'dom') !== 'hybrid') {
+    return { ...base, ok: false, reason: `AGENT_NAV_REQUIRE_HYBRID=true but the resolved model "${llm.model}" is DOM-only (not hybrid-capable) — set ANTHROPIC_API_KEY, a hybrid-capable AGENT_NAV_MODEL, or unset AGENT_NAV_REQUIRE_HYBRID` };
+  }
   // The ONLY execute options this integration passes are: instruction, maxSteps,
   // variables (not experimental-gated), signal + callbacks.onStepFinish
   // (experimental-gated — covered by experimental:true). Never excludeTools,
@@ -310,6 +313,14 @@ export async function runAutonomousNavigation({
     agentMode: cfg.agentMode,
     browser: cfg.browser,
   });
+  if (cfg.agentMode !== 'hybrid') {
+    logWarn('agent_nav_mode_degraded', {
+      feature,
+      agentModel: cfg.agentModel,
+      agentMode: cfg.agentMode,
+      detail: 'running DOM-only: no hybrid-capable model resolved (set ANTHROPIC_API_KEY or AGENT_NAV_MODEL). Complex custom widgets are likely to fail.',
+    });
+  }
 
   const eff = resolveEffectiveLimits(limits);
   for (const w of eff.warnings) logWarn('agent_nav_budget_adjusted', { feature, detail: w });
@@ -584,6 +595,10 @@ export async function runAutonomousNavigation({
     } else {
       status = TARGET_STATUS.MAX_STEPS;
       reason = `agent used its ${eff.maxSteps} step budget without reaching "${feature}"`;
+    }
+
+    if (status !== TARGET_STATUS.REACHED && cfg.agentMode !== 'hybrid') {
+      reason = `${reason} (navigation ran DOM-only, not hybrid — custom widgets may be unoperable)`;
     }
 
     const term = await evidence.captureTerminal(page, status);

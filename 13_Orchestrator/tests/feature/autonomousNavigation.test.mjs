@@ -207,6 +207,87 @@ test('effective limits are logged at agent_nav_start', async () => {
   assert.ok(events.some((e) => e.message === 'agent_nav_perf' && (e.phase === 'agent_execute' || e.phase === 'agent_execute_start')));
 });
 
+// ═══ 4. DOM-only degradation is loud, not silent ═══════════════════════
+// Forces detectAgentLlm() to fall through to openai/gpt-4.1-mini (agentMode
+// 'dom') by hiding every hybrid-capable provider key, keeping only OPENAI_API_KEY.
+function withDomOnlyEnv(fn) {
+  const keys = ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AGENT_NAV_MODEL', 'AGENT_NAV_REQUIRE_HYBRID'];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  for (const k of keys) delete process.env[k];
+  process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'test-openai-key';
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+    });
+}
+
+test('DOM-only degradation emits a loud agent_nav_mode_degraded warning', async () => {
+  await withDomOnlyEnv(async () => {
+    assert.equal(detectAgentLlm().agentMode, 'dom', 'precondition: env resolves to DOM-only');
+    const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'done', actions: [], completed: false } });
+    const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 300 }), stagehandFactory: async () => sh }));
+    const degraded = events.find((e) => e.message === 'agent_nav_mode_degraded');
+    assert.ok(degraded, 'agent_nav_mode_degraded emitted');
+    assert.equal(degraded.agentMode, 'dom');
+    assert.equal(degraded.agentModel, 'openai/gpt-4.1-mini');
+    assert.match(degraded.detail, /DOM-only/);
+    // validateAgentConfiguration still returns ok:true by default — no behaviour change.
+    assert.equal(validateAgentConfiguration().ok, true);
+  });
+});
+
+test('hybrid mode emits NO agent_nav_mode_degraded warning', async () => {
+  assert.equal(detectAgentLlm().agentMode, 'hybrid', 'precondition: default test env resolves to hybrid (ANTHROPIC_API_KEY set)');
+  const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'done', actions: [], completed: false } });
+  const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 300 }), stagehandFactory: async () => sh }));
+  assert.equal(events.some((e) => e.message === 'agent_nav_mode_degraded'), false);
+});
+
+test('a DOM-only run that does not reach the target reports it in the blocker text', async () => {
+  await withDomOnlyEnv(async () => {
+    const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'done', actions: [], completed: false } });
+    const r = await runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 300 }), stagehandFactory: async () => sh });
+    assert.equal(r.targetReached, false);
+    assert.match(r.blocker, /navigation ran DOM-only, not hybrid — custom widgets may be unoperable/);
+  });
+});
+
+test('a REACHED run never carries the DOM-only suffix, even in DOM mode', async () => {
+  await withDomOnlyEnv(async () => {
+    const paxPage = fakePage({ snapshot: PAX_SNAPSHOT, url: 'https://air.com/booking/passengers' });
+    const { sh } = fakeStagehand({ page: paxPage, agentResult: { message: 'done', actions: [{ type: 'goto' }, { type: 'fillForm' }], completed: true } });
+    const r = await runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Passenger Details', detectorKey: 'passenger_details', limits: T({ maxMs: 800 }), stagehandFactory: async () => sh });
+    assert.equal(r.targetStatus, TARGET_STATUS.REACHED);
+    assert.equal(r.blocker, null);
+  });
+});
+
+test('AGENT_NAV_REQUIRE_HYBRID=true fails pre-flight when only a DOM-only model resolves', async () => {
+  await withDomOnlyEnv(async () => {
+    process.env.AGENT_NAV_REQUIRE_HYBRID = 'true';
+    const cfg = validateAgentConfiguration();
+    assert.equal(cfg.ok, false);
+    assert.match(cfg.reason, /AGENT_NAV_REQUIRE_HYBRID/);
+    assert.match(cfg.reason, /DOM-only/);
+    await assert.rejects(
+      () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 300 }), stagehandFactory: async () => { throw new Error('must not open a session'); } }),
+      AgentNavUnavailableError,
+    );
+  });
+});
+
+test('AGENT_NAV_REQUIRE_HYBRID=true passes pre-flight when a hybrid model resolves', () => {
+  const saved = process.env.AGENT_NAV_REQUIRE_HYBRID;
+  process.env.AGENT_NAV_REQUIRE_HYBRID = 'true';
+  try {
+    assert.equal(detectAgentLlm().agentMode, 'hybrid');
+    assert.equal(validateAgentConfiguration().ok, true);
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_NAV_REQUIRE_HYBRID; else process.env.AGENT_NAV_REQUIRE_HYBRID = saved;
+  }
+});
+
 test('an abort-shaped error we did NOT cause is a BLOCKER, not max_time_exceeded', async () => {
   const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentThrows: new Error('The operation was aborted by the Stagehand API') });
   const r = await runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 300 }), stagehandFactory: async () => sh });
