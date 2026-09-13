@@ -723,6 +723,15 @@ const CB_STATUS = {
 function cbStatus(s) { return CB_STATUS[s] || { label: s || '—', cls: 'badge-gray' }; }
 
 // Plain-language, one-line progress for a running item — never a raw stage id.
+// A failed run shows its stage label by default, but when the server marked the
+// message as written FOR the user (an account/quota stop, storage unavailable)
+// that sentence is far more useful than "Could not capture this experience" —
+// it says what happened and what to do, and stops people retrying for nothing.
+function failureText(item) {
+  if (item && item.user_facing_message && item.execution_message) return item.execution_message;
+  return STAGE_LABELS[(item && item.stage)] || 'Could not complete this benchmark';
+}
+
 function cbStageLabel(stage) { return STAGE_LABELS[stage] || 'Working…'; }
 
 function fmtDate(d) {
@@ -1258,7 +1267,7 @@ function activityFailedHtml(b) {
       <div class="act-row-main">
         <div class="act-row-company">${b.company}</div>
         <div class="act-row-feature">${b.feature}</div>
-        <div class="act-row-note act-row-note-error">${STAGE_LABELS[item.stage] || 'Could not complete this benchmark'}</div>
+        <div class="act-row-note act-row-note-error">${failureText(item)}</div>
       </div>
       <button class="btn-link act-row-action" onclick="retryBenchmark('${b.request_id}','${item.slug || ''}')">Retry</button>
     </div>`;
