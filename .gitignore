@@ -41,6 +41,14 @@ Thumbs.db
 03_Screenshots/Mindtrip/
 03_Screenshots/*.png
 
+# Any company slug under 03_Screenshots (not just the named ones above) —
+# generated screenshots, Vision-analysis JSON, and navigation-run output,
+# at any nesting depth. `**` matches zero or more directories, so this also
+# covers files directly under 03_Screenshots/, e.g. <slug>_..._vision.json.
+03_Screenshots/**/*.png
+03_Screenshots/**/*_vision.json
+03_Screenshots/**/_navigation_runs/
+
 # Feature Benchmark proof-of-concept / verification scripts — not part of
 # the deployed application.
 10_Dashboard/poc/
