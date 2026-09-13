@@ -380,6 +380,41 @@ async function bootClerk(pk) {
   return true;
 }
 
+// Dark-theme contrast fixes for the Clerk sign-in / sign-up widget.
+// Layout, spacing, the orange CTA and branding are unchanged — only the
+// low-contrast foreground colours (social button labels, input text /
+// placeholder, divider and "Last used" badge) are corrected, via Clerk's
+// own appearance.elements API rather than global CSS.
+const CLERK_APPEARANCE = {
+  variables: { colorPrimary: '#f59e0b', colorBackground: '#17181c', colorText: '#e7e7ea' },
+  elements: {
+    // Social login buttons: keep the subtle dark fill/border, make the label light.
+    socialButtonsBlockButton: {
+      color: '#f3f4f6',
+      backgroundColor: 'rgba(255, 255, 255, 0.04)',
+      borderColor: 'rgba(255, 255, 255, 0.16)',
+      '&:hover': { color: '#ffffff', backgroundColor: 'rgba(255, 255, 255, 0.08)' },
+      '&:focus': { color: '#ffffff' },
+      '&:disabled, &[disabled]': { color: 'rgba(243, 244, 246, 0.5)' },
+    },
+    socialButtonsBlockButtonText: { color: 'inherit' },
+    socialButtonsProviderIcon: { opacity: 1 },
+    // "Last used" badge on the social button.
+    socialButtonsBlockButton__badge: { color: '#c9cbd1', backgroundColor: 'rgba(255, 255, 255, 0.1)' },
+    badge: { color: '#c9cbd1' },
+    // Email input sits on a white field — text must be dark, placeholder medium gray.
+    formFieldInput: {
+      color: '#1f2937',
+      backgroundColor: '#ffffff',
+      '&::placeholder': { color: '#6b7280', opacity: 1 },
+      '&:focus': { color: '#111827' },
+      '&:disabled, &[disabled]': { color: '#6b7280', backgroundColor: '#e5e7eb', '&::placeholder': { color: '#9ca3af' } },
+    },
+    dividerText: { color: '#a9abb3' },
+    dividerLine: { backgroundColor: 'rgba(255, 255, 255, 0.14)' },
+  },
+};
+
 function renderSignIn() {
   document.body.classList.add('auth-gate');
   const nav = document.getElementById('topnav');
@@ -398,7 +433,7 @@ function renderSignIn() {
       </div>
     </div>`;
   window.Clerk.mountSignIn(document.getElementById('clerk-signin'), {
-    appearance: { variables: { colorPrimary: '#f59e0b', colorBackground: '#17181c', colorText: '#e7e7ea' } },
+    appearance: CLERK_APPEARANCE,
   });
 }
 
