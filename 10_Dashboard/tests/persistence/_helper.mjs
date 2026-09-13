@@ -74,14 +74,14 @@ export function installProviderMocks({
     },
   };
   const m1 = mock.module(REGISTRY, {
-    exports: {
+    namedExports: {
       getNavigationProvider: () => nav, getVisionProvider: () => vision,
       getReasoningProvider: () => ({}), getScreenshotProvider: () => ({}),
       getReportProvider: () => ({}), getEmbeddingsProvider: () => ({}),
     },
   });
   const m2 = mock.module(REASONING_PROVIDER, {
-    exports: {
+    namedExports: {
       async runFeatureReasoning(args) {
         rec.reasoning.push(args);
         return { status: 'completed', data: { analyzed_company: analyzedCompany, feature_found: true, evidence_source: 'OBSERVED', summary_markdown: summary, evidence_limitations: evidenceLimitations } };

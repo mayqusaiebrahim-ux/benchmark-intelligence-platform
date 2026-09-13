@@ -107,7 +107,7 @@ export function installMocks({
   };
 
   const m1 = mock.module(REGISTRY, {
-    exports: {
+    namedExports: {
       getNavigationProvider: () => nav,
       getVisionProvider: () => vision,
       getReasoningProvider: () => { throw new Error('getReasoningProvider not used by feature pipeline'); },
@@ -118,7 +118,7 @@ export function installMocks({
   });
 
   const m2 = mock.module(REASONING_PROVIDER, {
-    exports: {
+    namedExports: {
       async runFeatureReasoning(args) {
         rec.reasoning.push(args);
         if (reasoningStatus !== 'completed') return { status: 'failed', error: 'mock reasoning failure' };

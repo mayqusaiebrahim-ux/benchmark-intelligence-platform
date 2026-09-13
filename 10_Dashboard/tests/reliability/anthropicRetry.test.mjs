@@ -62,7 +62,7 @@ function fakeAnthropic(script) {
 
 async function withProvider(script, fn) {
   const { FakeAnthropic, state } = fakeAnthropic(script);
-  const m = mock.module(SDK, { exports: { default: FakeAnthropic, Anthropic: FakeAnthropic } });
+  const m = mock.module(SDK, { defaultExport: FakeAnthropic, namedExports: { Anthropic: FakeAnthropic } });
   try {
     const mod = await import(`${PROVIDER}?bust=${Math.random()}`);
     return await fn(mod, state);
@@ -157,11 +157,11 @@ test('a flaky reasoning call does NOT re-run navigation or Vision', async (t) =>
   const vision = { async describe() { rec.describe++; const p = join(shotDir, 'vision.json'); writeFileSync(p, '{"findings":{}}'); return { success: true, findings: { page_type: 'homepage' }, jsonPath: p, timing: {} }; } };
 
   const { FakeAnthropic, state } = fakeAnthropic([OVERLOADED, 'ok']);
-  const m1 = mock.module(REGISTRY, { exports: {
+  const m1 = mock.module(REGISTRY, { namedExports: {
     getNavigationProvider: () => nav, getVisionProvider: () => vision,
     getReasoningProvider: () => ({}), getScreenshotProvider: () => ({}), getReportProvider: () => ({}), getEmbeddingsProvider: () => ({}),
   } });
-  const m2 = mock.module(SDK, { exports: { default: FakeAnthropic, Anthropic: FakeAnthropic } });
+  const m2 = mock.module(SDK, { defaultExport: FakeAnthropic, namedExports: { Anthropic: FakeAnthropic } });
   t.after(() => { m1.restore(); m2.restore(); rmSync(cwd, { recursive: true, force: true }); rmSync(shotDir, { recursive: true, force: true }); });
 
   const pipe = await import(`${PIPELINE}?bust=${Math.random()}`);

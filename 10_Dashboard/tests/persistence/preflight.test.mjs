@@ -31,7 +31,7 @@ const ORCH = pathToFileURL(join(HERE, '..', '..', '..', '13_Orchestrator', 'inde
 function mockOrchestrator() {
   const calls = [];
   const m = mock.module(ORCH, {
-    exports: {
+    namedExports: {
       BenchmarkOrchestrator: class {
         async runBenchmark(input) {
           calls.push(input);

@@ -81,7 +81,7 @@ test('cancelRequest frees the lock', async () => {
 test('startBenchmark bails (no orchestrator call) when the lock is already held', async (t) => {
   const calls = [];
   const m = mock.module(pathToFileURL(join(HERE, '..', '..', '..', '13_Orchestrator', 'index.js')).href, {
-    exports: { BenchmarkOrchestrator: class { async runBenchmark(i) { calls.push(i); return { status: 'succeeded', result: { verification_status: 'passed' } }; } } },
+    namedExports: { BenchmarkOrchestrator: class { async runBenchmark(i) { calls.push(i); return { status: 'succeeded', result: { verification_status: 'passed' } }; } } },
   });
   t.after(() => m.restore());
   const store = await import(LIB('requestsStore.js'));

@@ -108,10 +108,10 @@ const authMock = {
 let _app = null;
 export async function getApp() {
   if (_app) return _app;
-  mock.module(LIB('auth.js'), { exports: authMock });
-  mock.module(LIB('requestsStore.js'), { exports: requestsStoreMock });
+  mock.module(LIB('auth.js'), { namedExports: authMock });
+  mock.module(LIB('requestsStore.js'), { namedExports: requestsStoreMock });
   mock.module(LIB('benchmarkService.js'), {
-    exports: { startBenchmark: (args) => { startBenchmarkCalls.push(args); }, getRunStatus: () => null },
+    namedExports: { startBenchmark: (args) => { startBenchmarkCalls.push(args); }, getRunStatus: () => null },
   });
   const mod = await import('../../server.js');
   _app = mod.app;
