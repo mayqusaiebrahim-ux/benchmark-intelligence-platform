@@ -29,6 +29,33 @@ import { flushStatePersistence, checkStorageHealth } from './storage/index.js';
 
 const orchestrator = new BenchmarkOrchestrator();
 
+/**
+ * A run can fail because an external ACCOUNT ran out — remote-browser minutes,
+ * model credits, a provider rate limit. That is not "the website could not be
+ * captured": nothing is wrong with the site, the target or the engine, and no
+ * amount of retrying will help until the account is topped up. Retrying also
+ * costs nothing but time, so the UI must say what actually happened.
+ *
+ * Deliberately provider-agnostic — matched on what the error SAYS, not on which
+ * vendor produced it, so a new provider is covered without a code change.
+ *
+ * @param {string} message raw provider/stage error (stays in the server log)
+ * @returns {string|null} plain-language text safe to show a user, or null
+ */
+export function capacityFailureMessage(message) {
+  const m = String(message || '');
+  if (/\b402\b|payment required|browser minutes|minutes limit|out of minutes/i.test(m)) {
+    return 'Benchmark runs are paused: the remote browser service has no minutes left on its plan. Nothing is wrong with the website — top the plan up and run this again.';
+  }
+  if (/credit balance is too low|insufficient (credit|funds|balance)|billing|quota (exceeded|exhausted)|\binsufficient_quota\b/i.test(m)) {
+    return 'Benchmark runs are paused: the AI provider account is out of credit. Nothing is wrong with the website — add credit and run this again.';
+  }
+  if (/\b429\b|rate limit|too many requests/i.test(m)) {
+    return 'The AI provider is rate-limiting this account right now. Wait a few minutes and run this again.';
+  }
+  return null;
+}
+
 // In-memory only, per Phase 1 scope — lost on server restart, same as
 // activeHomepageRun already is for the Homepage Benchmark flow. Keyed by
 // `${requestId}:${slug}` so the same competitor within the same request
@@ -347,11 +374,15 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
           : (stageId === 'navigation' || stageId === 'screenshot' || stageId === 'vision') ? 'runtime_failed'
           : 'failed'; // unclassified — e.g. a synchronous validation error before any stage ran
         console.log(`[benchmarkService] Completed with an error (stage=${stageId || 'unclassified'}) — company=${company} requestId=${requestId} — ${message}`);
+        // An account/quota failure is not a failure of the website or the
+        // engine — say so plainly instead of "could not capture".
+        const capacity = capacityFailureMessage(message);
         try {
           setStage(projectRoot, requestId, slug, dashboardStage, {
             completed_at: finishedAt,
             execution_status: 'failed',
-            execution_message: message,
+            execution_message: capacity || message,
+            user_facing_message: !!capacity,
             failed_stage: stageId || null,
           });
         } catch (err) {
@@ -383,11 +414,13 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
       }
 
       console.log(`[benchmarkService] Completed with an unexpected error — company=${company} requestId=${requestId} — ${err.message}`);
+      const capacityUnexpected = capacityFailureMessage(err.message);
       try {
         setStage(projectRoot, requestId, slug, 'failed', {
           completed_at: new Date().toISOString(),
           execution_status: 'failed',
-          execution_message: err.message || 'Unexpected error running the benchmark',
+          execution_message: capacityUnexpected || err.message || 'Unexpected error running the benchmark',
+          user_facing_message: !!capacityUnexpected,
           failed_stage: lastProgressStage,
         });
       } catch (setStageErr) {

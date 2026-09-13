@@ -286,6 +286,9 @@ export function setStage(projectRoot, requestId, slug, stage, meta = {}) {
   if (meta.execution_status !== undefined) item.execution_status = meta.execution_status;
   if (meta.execution_message !== undefined) item.execution_message = meta.execution_message;
   if (meta.failed_stage !== undefined) item.failed_stage = meta.failed_stage;
+  // true when execution_message was written FOR the user (plain language, no
+  // stack, no provider internals) and may therefore be shown in the UI.
+  if (meta.user_facing_message !== undefined) item.user_facing_message = !!meta.user_facing_message;
   request.status = computeBatchStatus(request);
 
   writeRequests(projectRoot, data);
@@ -406,6 +409,7 @@ export function listCurrentFeatureBenchmarks(projectRoot) {
           updated_at: i.updated_at || null,
           execution_status: i.execution_status || null,
           execution_message: i.execution_message || null,
+          user_facing_message: !!i.user_facing_message,
           failed_stage: i.failed_stage || null,
         })),
         has_report: hasReport,
