@@ -111,10 +111,22 @@ function writeRequests(projectRoot, data) {
   persistStateBytes(Buffer.from(json, 'utf8'));             // -> R2 (tracked; no-op when STORAGE_PROVIDER=local)
 }
 
-function computeBatchStatus(request) {
+// Item-level terminal-failure stages — the same vocabulary the dashboard
+// itself groups "Needs attention" by (10_Dashboard/public/app.js's own
+// FAILURE_STAGES); kept as a separate copy here since this module has no
+// shared-constants path into public/app.js.
+const FAILURE_STAGES = new Set(['failed', 'runtime_failed', 'reasoning_failed', 'verification_failed']);
+
+export function computeBatchStatus(request) {
   if (request.cancelled) return 'cancelled';
   const items = request.items;
   if (items.length > 0 && items.every(i => i.stage === 'completed')) return 'complete';
+  // All remaining work reached a terminal state (completed or a failure
+  // stage) and at least one item did not succeed — the batch is DONE, not
+  // still running. Previously a request whose only/last item permanently
+  // failed stayed status:"in_progress" forever (no terminal failed branch
+  // existed), even though nothing was running and nothing would retry it.
+  if (items.length > 0 && items.every(i => i.stage === 'completed' || FAILURE_STAGES.has(i.stage))) return 'failed';
   if (items.some(i => i.stage !== 'queued')) return 'in_progress';
   return 'queued';
 }
