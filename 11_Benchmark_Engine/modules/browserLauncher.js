@@ -53,6 +53,32 @@ const MEMORY_OPTIMIZED_LAUNCH_ARGS = ['--disable-gpu', '--disable-dev-shm-usage'
 
 const BROWSERBASE_SESSIONS_URL = 'https://api.browserbase.com/v1/sessions';
 
+// ─── Global browser concurrency gate ──────────────────────────────────────
+// Render's memory is constrained (this is the whole reason BROWSER_PROVIDER
+// exists — see the module docstring). launchBrowser() is already the ONE
+// chokepoint both discovery/index.js and navigation_runner/index.js acquire
+// a session from, so gating here — rather than adding a second system —
+// caps how many Chromium sessions (local OR Browserbase-CDP) this process
+// ever has open at once, for both providers, with zero change to either
+// caller. Default 1; overridable for environments with more headroom.
+const MAX_CONCURRENT_BROWSERS = Math.max(1, Number(process.env.MAX_CONCURRENT_BROWSERS) || 1);
+let activeBrowserSlots = 0;
+const browserSlotWaiters = [];
+
+function acquireBrowserSlot() {
+  if (activeBrowserSlots < MAX_CONCURRENT_BROWSERS) {
+    activeBrowserSlots++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => browserSlotWaiters.push(resolve));
+}
+
+function releaseBrowserSlot() {
+  const next = browserSlotWaiters.shift();
+  if (next) { next(); return; } // hand the slot directly to the next waiter
+  activeBrowserSlots = Math.max(0, activeBrowserSlots - 1);
+}
+
 // Playwright's DEFAULT browser download roots per OS (used only as a
 // last-resort fallback when the env-driven resolution points at a Chromium
 // that was never installed — e.g. a stray PLAYWRIGHT_BROWSERS_PATH=0).
@@ -212,7 +238,37 @@ async function launchBrowserbase(label) {
  */
 export async function launchBrowser(label) {
   const provider = (process.env.BROWSER_PROVIDER || 'local').trim().toLowerCase();
-  if (provider === 'browserbase') return launchBrowserbase(label);
-  if (provider === 'local') return launchLocal(label);
-  throw new Error(`Unknown BROWSER_PROVIDER "${process.env.BROWSER_PROVIDER}". Expected "local" or "browserbase".`);
+  if (provider !== 'browserbase' && provider !== 'local') {
+    throw new Error(`Unknown BROWSER_PROVIDER "${process.env.BROWSER_PROVIDER}". Expected "local" or "browserbase".`);
+  }
+
+  await acquireBrowserSlot();
+  logInfo('browser_slot_acquired', { provider, label, active: activeBrowserSlots, max: MAX_CONCURRENT_BROWSERS, waiting: browserSlotWaiters.length });
+
+  let session;
+  try {
+    session = provider === 'browserbase' ? await launchBrowserbase(label) : await launchLocal(label);
+  } catch (err) {
+    releaseBrowserSlot();
+    throw err;
+  }
+
+  // Wrap close() so the slot is always freed — success or failure — without
+  // changing the {browser, close} shape either caller already depends on.
+  const rawClose = session.close;
+  let released = false;
+  const releaseOnce = () => {
+    if (released) return;
+    released = true;
+    releaseBrowserSlot();
+    logInfo('browser_slot_released', { provider, label });
+  };
+  session.close = async () => {
+    try { await rawClose(); } finally { releaseOnce(); }
+  };
+  // Safety net: if the browser disconnects without close() ever being
+  // called (a crash, a killed remote session), the slot must not leak.
+  try { session.browser?.once?.('disconnected', releaseOnce); } catch { /* ignore */ }
+
+  return session;
 }
