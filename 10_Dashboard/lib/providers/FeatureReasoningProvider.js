@@ -18,6 +18,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { FEATURE_REPORT_SCHEMA, FEATURE_REPORT_EVIDENCE_SOURCES } from '../../../12_Provider_Layer/capabilities/reasoning/featureReportSchema.js';
 import { logInfo, logError } from '../../../shared/logger.mjs';
+import { runOpenAIFeatureReasoning } from '../../../11_Benchmark_Engine/modules/analysis/openaiFeatureReasoning.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL = 'claude-opus-5';
@@ -166,7 +167,29 @@ function buildPrompt({ prompt, company, feature, target, previousOutput }) {
   return `${lines.join('\n')}${prompt}`;
 }
 
+// ─── Provider dispatch (REASONING_PROVIDER) ────────────────────────────────
+// Same env-driven-dispatch-with-a-default pattern already used for
+// NAVIGATION_MODE elsewhere in this codebase. Default stays "anthropic" so
+// existing behaviour (and the tests that exercise it) is unchanged unless
+// REASONING_PROVIDER is explicitly set — e.g. Render sets it to "openai"
+// when the Anthropic account has no credit. Prompt construction is
+// single-sourced here (buildPrompt) so both providers see identical
+// instructions; only the model call + response parsing differ.
 export async function runFeatureReasoning({ prompt, company, feature, target, previousOutput }) {
+  const providerName = (process.env.REASONING_PROVIDER || 'anthropic').trim().toLowerCase();
+  if (providerName !== 'anthropic' && providerName !== 'claude' && providerName !== 'openai') {
+    return { status: 'failed', error: `Unknown REASONING_PROVIDER "${process.env.REASONING_PROVIDER}". Expected "anthropic" or "openai".` };
+  }
+
+  const augmentedPrompt = buildPrompt({ prompt, company, feature, target, previousOutput });
+
+  if (providerName === 'openai') {
+    return runOpenAIFeatureReasoning({ augmentedPrompt });
+  }
+  return runFeatureReasoningAnthropic({ augmentedPrompt });
+}
+
+async function runFeatureReasoningAnthropic({ augmentedPrompt }) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return { status: 'failed', error: 'ANTHROPIC_API_KEY is not set. Add it to 10_Dashboard/.env or the environment.' };
   }
@@ -174,7 +197,6 @@ export async function runFeatureReasoning({ prompt, company, feature, target, pr
   const anthropicStartedAt = Date.now();
   logInfo('Anthropic request starting', { model: MODEL, maxTokens: MAX_TOKENS });
   try {
-    const augmentedPrompt = buildPrompt({ prompt, company, feature, target, previousOutput });
     const client = new Anthropic();
     // Transient overload / 5xx is retried inside this call — see
     // callAnthropicWithRetry. Navigation / screenshot / Vision / R2 are NOT
