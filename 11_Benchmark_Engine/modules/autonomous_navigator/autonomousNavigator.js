@@ -28,6 +28,7 @@ import { buildSystemPrompt, buildAgentInstruction } from './agentInstructions.js
 import { toAgentVariables, buildTestProfile } from './safeSyntheticProfile.js';
 import { SAFETY_INIT_SCRIPT, drainDomSafetyBlocks, safetyProbe } from './safetyPolicy.js';
 import { verifyTarget, acceptCompletion } from './targetVerifier.js';
+import { describeFieldStates } from './genericVerifier.js';
 import { makeTelemetry, scrub } from './navigationTelemetry.js';
 import { makeEvidenceStore } from './evidenceCapture.js';
 import { logInfo, logWarn, logError } from '../../../shared/logger.mjs';
@@ -437,6 +438,12 @@ export async function runAutonomousNavigation({
     // One agent_nav_action per LLM step, showing mode + a coarse intent (no
     // synthetic values). onStepFinish is an AI-SDK step callback (allowed with
     // experimental:true).
+    // DIAGNOSTIC (temporary — see PHASE 1 instrumentation below): records
+    // when each agent action actually completed, so the watchdog debug log
+    // can show the delta between "agent finished acting" and "watchdog
+    // sampled the page", to prove/disprove a sampling-timing race.
+    let lastActionAt = null;
+    let lastActionType = null;
     const onStepFinish = (stepInfo) => {
       try {
         agentStepCount += 1;
@@ -455,6 +462,8 @@ export async function runAutonomousNavigation({
           toolCount: Array.isArray(calls) ? calls.length : 0,
           currentUrl: safeUrl(page),
         });
+        lastActionAt = Date.now();
+        lastActionType = scrub(toolName);
       } catch { /* telemetry must never break the run */ }
     };
 
@@ -463,13 +472,41 @@ export async function runAutonomousNavigation({
     let stuckFingerprint = null;
     let stuckTicks = 0;
     let stuckStepAtStart = 0;
+    let watchdogTickCount = 0;
     watchdog = setInterval(async () => {
       try {
+        const tickAt = Date.now();
         const v = await verifyTarget(page, detectorKey, { featureLabel: feature });
+        watchdogTickCount += 1;
         watchdogVerify = v;
         deepestUrl = v.url || deepestUrl;
         tel.state(v);
         tel.targetCheck(v);
+
+        // Opt-in watchdog trace (AGENT_NAV_WATCHDOG_DEBUG=true) — silent by
+        // default, no cost/noise in normal production logs. Proved its worth
+        // diagnosing a real bug (elementCount frozen at 6 for an entire run
+        // because a widget was rendered in a child frame page.evaluate()
+        // never reached — see buildObservation() in playwrightAdapter.js) so
+        // it stays available for the same class of issue in the future. No
+        // raw input values, no sensitive text — only the already-hashed/
+        // bucketed field signatures pageStateFingerprint() itself uses.
+        if (process.env.AGENT_NAV_WATCHDOG_DEBUG === 'true') {
+          logInfo('agent_nav_watchdog_debug', {
+            tick: watchdogTickCount,
+            agentStepCount,
+            currentUrl: v.url,
+            fingerprint: v.fingerprint,
+            previousFingerprint: stuckFingerprint,
+            fingerprintChanged: v.fingerprint !== stuckFingerprint,
+            stuckTicksBefore: stuckTicks,
+            stuckStepAtStart,
+            fieldStates: describeFieldStates(v.observation),
+            openSuggestions: (v.observation && v.observation.counts && v.observation.counts.openSuggestions) || 0,
+            lastActionType,
+            msSinceLastAction: lastActionAt ? tickAt - lastActionAt : null,
+          });
+        }
 
         const domBlocks = await drainDomSafetyBlocks(page);
         for (const b of domBlocks) { safetyBlocks.push({ ...b, source: 'dom' }); tel.safetyBlock(b.why, 'dom'); }

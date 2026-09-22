@@ -559,6 +559,67 @@ test('observation does bounded / batched DOM work (one snapshot evaluate)', asyn
   assert.ok(perf && typeof perf.f.durationMs === 'number' && perf.f.elementCount === 1234);
 });
 
+// REGRESSION — proven live against a real Alaska Airlines run (watchdog
+// diagnostic trace, 2026-09-22): `elementCount` stayed frozen at 6 for the
+// ENTIRE run — matching only the cookie-consent banner — while the agent
+// visibly typed/confirmed real values into a totally different, much larger
+// search widget. Root cause: `page.evaluate()` only runs in the MAIN frame;
+// the widget's content was invisible to `document.querySelectorAll` there.
+// This reproduces that exact shape: a main frame with only a few banner
+// elements, a child frame with the real widget's fields — and proves the
+// OLD single-frame buildObservation() would have missed the widget entirely,
+// while the fixed one merges it in.
+test('buildObservation merges child-frame content — a main frame with only a cookie banner must not hide a widget rendered in a child frame', async () => {
+  const { buildObservation } = await import('../../../11_Benchmark_Engine/modules/goal_navigator/playwrightAdapter.js');
+
+  const mainFrameSnapshot = {
+    url: 'https://air.com/', headings: [], bodyText: 'accept all cookies',
+    controls: [{ name: 'accept all', context: 'other', disabled: false }, { name: 'refuse all', context: 'other', disabled: false }],
+    buttonNames: ['accept all', 'refuse all'],
+    fields: [{ label: 'consent', ariaLabel: 'consent', hasValue: false }],
+    counts: {}, elementCount: 3,
+  };
+  const widgetFrameSnapshot = {
+    url: 'https://air.com/', headings: ['book a flight'], bodyText: 'from sea to lax',
+    controls: [{ name: 'search flights', context: 'booking', disabled: false }],
+    buttonNames: ['search flights'],
+    fields: [
+      { label: 'From', ariaLabel: 'From SEA', hasValue: false, expanded: 'false' },
+      { label: 'To', ariaLabel: 'To LAX', hasValue: false, expanded: 'false' },
+    ],
+    counts: { openSuggestions: 0 }, elementCount: 5,
+  };
+
+  const mainFrame = { evaluate: async () => mainFrameSnapshot };
+  const widgetFrame = { evaluate: async () => widgetFrameSnapshot };
+  const fakePage = {
+    url: () => 'https://air.com/',
+    async evaluate(fn) {
+      // ensureMutationStamp() calls page.evaluate() with no snapshot arg first.
+      if (typeof fn === 'function' && fn.length === 0) return undefined;
+      return mainFrameSnapshot;
+    },
+    mainFrame: () => mainFrame,
+    frames: () => [mainFrame, widgetFrame],
+  };
+
+  const obs = await buildObservation(fakePage, {});
+  // The widget's fields must be present — the old single-frame behavior
+  // would only ever see the 1 consent field and 2 consent controls.
+  assert.ok(obs.fields.some((f) => f.ariaLabel === 'From SEA'), 'the child-frame origin field must be merged in');
+  assert.ok(obs.fields.some((f) => f.ariaLabel === 'To LAX'), 'the child-frame destination field must be merged in');
+  assert.ok(obs.controls.some((c) => c.name === 'search flights'), 'child-frame controls must be merged in');
+  assert.ok(obs.headings.includes('book a flight'), 'child-frame headings must be merged in');
+  assert.equal(obs.elementCount, 3 + 5, 'elementCount must reflect both frames, not just the main frame');
+});
+
+test('buildObservation never throws when the page has no frames()/mainFrame() (older/fixture pages)', async () => {
+  const { buildObservation } = await import('../../../11_Benchmark_Engine/modules/goal_navigator/playwrightAdapter.js');
+  const fakePage = { url: () => 'https://air.com/', async evaluate() { return { url: 'https://air.com/', headings: [], bodyText: '', controls: [], buttonNames: [], fields: [], counts: {}, elementCount: 2 }; } };
+  const obs = await buildObservation(fakePage, {});
+  assert.equal(obs.elementCount, 2, 'no frames()/mainFrame() -> falls back to main-frame-only behavior, does not throw');
+});
+
 test('one fill batch never fills the same semantic twice', () => {
   const fields = [
     { label: 'From', semantic: 'origin' },

@@ -157,6 +157,22 @@ function fieldStateSignature(f, norm) {
   return `${valueSig}${expanded}${checked}${selected}`;
 }
 
+/**
+ * Diagnostic-safe view of each field's contribution to the fingerprint —
+ * the same bounded/hashed signature pageStateFingerprint() uses, exposed so
+ * a watchdog trace can show WHICH field changed (or didn't) without ever
+ * exposing the raw typed/selected text. Not part of the fingerprint hash
+ * itself; a read-only debug aid.
+ */
+export function describeFieldStates(observation) {
+  const o = observation || {};
+  const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return (o.fields || []).map((f) => ({
+    key: f.semantic || norm(f.label || f.name || f.placeholder) || null,
+    sig: fieldStateSignature(f, norm),
+  }));
+}
+
 /** Generic fingerprint of the page state — for the universal stuck detector. */
 export function pageStateFingerprint(observation) {
   const o = observation || {};

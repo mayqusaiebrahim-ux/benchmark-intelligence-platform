@@ -90,9 +90,45 @@ function DOM_SNAPSHOT(LIMITS) {
 
   const url = location.href;
 
+  // PROVEN (real Alaska Airlines watchdog trace, 2026-09-22): a plain
+  // `document.querySelectorAll()` sees almost nothing on this page —
+  // elementCount stayed frozen at ~6 for an entire run while the agent
+  // genuinely typed/confirmed real values into the search widget. The
+  // page's own bundled JS repeatedly calls
+  // `this.attachShadow(this.constructor.shadowRootOptions)` (Lit's own
+  // component base class — defaults to `{mode:'open'}` unless a component
+  // opts into 'closed'), and 500+ `shadowRoot` references confirm heavy Web
+  // Component usage. `querySelectorAll` never descends into ANY shadow
+  // root, open or closed — a standard DOM/CSS-selector limitation, not
+  // specific to this site. Any site built with open-shadow-DOM web
+  // components (a common modern pattern) hits this.
+  //
+  // Fix: walk the light DOM once, descending into every OPEN shadow root
+  // found (closed shadow roots have no JS API to reach — a hard platform
+  // limit no code can work around), building one flat element list; every
+  // selector match below runs against that list via `.matches()` instead of
+  // `document.querySelectorAll()`. Bounded (ALL_ELEMENTS_CAP) so a huge
+  // component tree can't make one snapshot unboundedly expensive.
+  const ALL_ELEMENTS_CAP = 4000;
+  const allEls = [];
+  (function collectAllElements(root, seen) {
+    if (allEls.length >= ALL_ELEMENTS_CAP) return;
+    let kids;
+    try { kids = root.querySelectorAll('*'); } catch (e) { return; }
+    for (let i = 0; i < kids.length; i++) {
+      if (allEls.length >= ALL_ELEMENTS_CAP) return;
+      const el = kids[i];
+      if (seen.has(el)) continue;
+      seen.add(el);
+      allEls.push(el);
+      if (el.shadowRoot) collectAllElements(el.shadowRoot, seen);
+    }
+  })(document, new Set());
+  const qAll = (sel) => { try { return allEls.filter((el) => el.matches(sel)); } catch (e) { return []; } };
+
   // headings
   const headings = [];
-  document.querySelectorAll('h1,h2,h3,[role="heading"],[aria-current="step"]').forEach((h) => {
+  qAll('h1,h2,h3,[role="heading"],[aria-current="step"]').forEach((h) => {
     if (headings.length >= LIMITS.headings) return;
     if (!vis(h)) return;
     const t = lc(h.innerText || h.textContent);
@@ -105,7 +141,7 @@ function DOM_SNAPSHOT(LIMITS) {
   const controls = [];
   const buttonNames = [];
   const CLICK_SEL = 'button,[role="button"],a[href],input[type="submit"],input[type="button"],[role="tab"]';
-  const clickEls = Array.from(document.querySelectorAll(CLICK_SEL));
+  const clickEls = qAll(CLICK_SEL);
   for (const el of clickEls) {
     if (controls.length >= LIMITS.controls) break;
     if (!vis(el)) continue;
@@ -120,7 +156,7 @@ function DOM_SNAPSHOT(LIMITS) {
   // form fields (+ button-triggered trip pickers)
   const fields = [];
   const FIELD_SEL = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]),select,textarea,[role="combobox"],[role="spinbutton"],[aria-haspopup="listbox"],[aria-autocomplete]';
-  const fieldEls = Array.from(document.querySelectorAll(FIELD_SEL));
+  const fieldEls = qAll(FIELD_SEL);
   const seen = new Set();
   const fieldDesc = (el, forceTrigger) => {
     let label = '';
@@ -181,15 +217,13 @@ function DOM_SNAPSHOT(LIMITS) {
     fields.push(d);
   }
 
-  const cnt = (sel) => { try { return Math.min(document.querySelectorAll(sel).length, 999); } catch (e) { return 0; } };
+  const cnt = (sel) => Math.min(qAll(sel).length, 999);
   // Same generic option/listbox selector pickSuggestion()/confirmTripSelection()
   // already use below to CLICK a suggestion — here it only COUNTS visible ones,
   // so an open autocomplete/combobox dropdown (airport, city, any searchable
   // list) is a distinguishable state, not invisible to the watchdog fingerprint.
   const OPTION_SEL = '[role="option"],[role="listbox"] li,[class*="suggestion" i],[class*="autocomplete" i] li,[class*="typeahead" i] li,[id*="listbox" i] li';
-  const openSuggestions = (() => {
-    try { return Array.from(document.querySelectorAll(OPTION_SEL)).filter(vis).length; } catch (e) { return 0; }
-  })();
+  const openSuggestions = qAll(OPTION_SEL).filter(vis).length;
   const counts = {
     flightCards: cnt('[class*="flight" i][class*="card" i],[data-testid*="flight" i],[class*="result" i][class*="card" i],[class*="fare-option" i],[class*="journey" i][class*="option" i],[class*="itinerary" i]'),
     fareCards: cnt('[class*="fare" i][class*="card" i],[class*="fare-family" i],[class*="cabin" i][class*="option" i],[data-testid*="fare" i],[class*="brand" i][class*="fare" i]'),
@@ -294,6 +328,28 @@ async function ensureMutationStamp(page) {
   } catch { /* mid-navigation */ }
 }
 
+// PROVEN (not assumed) by a real Alaska Airlines run's watchdog diagnostic
+// trace: `elementCount` stayed frozen at exactly 6 — matching ONLY the
+// cookie-consent banner — across an entire run in which the agent visibly
+// typed/confirmed real values into a completely different, much larger
+// search widget (screenshotted proof). `page.evaluate()` only ever runs in
+// the page's MAIN frame; any content rendered inside an <iframe> (same- or
+// cross-origin) is invisible to `document.querySelectorAll` there — a
+// generic Playwright limitation, not specific to this site. Booking/search
+// widgets on enterprise sites are commonly embedded this way.
+//
+// Fix: also evaluate DOM_SNAPSHOT in every CHILD frame and merge their
+// elements into the same observation, bounded by the same SNAPSHOT_LIMITS.
+// Cross-origin frames throw on evaluate() — caught and skipped, same as the
+// existing main-frame catch. No site-specific frame name/URL matching.
+async function snapshotFrame(frame, limits) {
+  try {
+    return await frame.evaluate(DOM_SNAPSHOT, limits);
+  } catch {
+    return null; // cross-origin / detached / navigating — skip, don't fail the observation
+  }
+}
+
 export async function buildObservation(page, { logger } = {}) {
   const t0 = now();
   await ensureMutationStamp(page);
@@ -303,8 +359,30 @@ export async function buildObservation(page, { logger } = {}) {
   } catch (err) {
     raw = { url: (() => { try { return page.url(); } catch { return null; } })(), headings: [], bodyText: '', controls: [], buttonNames: [], fields: [], counts: {}, elementCount: 0, _error: err.message };
   }
+
+  // Merge in child-frame content, if any. try/catch per frame; the whole
+  // step is best-effort and never throws — a page with no iframes (the
+  // common case) pays only the cost of an empty frames() array.
+  let framesMerged = 0;
+  try {
+    const childFrames = page.frames().filter((f) => f !== page.mainFrame());
+    for (const frame of childFrames) {
+      if ((raw.fields?.length || 0) >= SNAPSHOT_LIMITS.fields && (raw.controls?.length || 0) >= SNAPSHOT_LIMITS.controls) break;
+      const sub = await snapshotFrame(frame, SNAPSHOT_LIMITS);
+      if (!sub) continue;
+      framesMerged += 1;
+      raw.headings = [...(raw.headings || []), ...(sub.headings || [])].slice(0, SNAPSHOT_LIMITS.headings);
+      raw.controls = [...(raw.controls || []), ...(sub.controls || [])].slice(0, SNAPSHOT_LIMITS.controls);
+      raw.buttonNames = [...(raw.buttonNames || []), ...(sub.buttonNames || [])].slice(0, SNAPSHOT_LIMITS.controls);
+      raw.fields = [...(raw.fields || []), ...(sub.fields || [])].slice(0, SNAPSHOT_LIMITS.fields);
+      raw.bodyText = [raw.bodyText || '', sub.bodyText || ''].filter(Boolean).join(' ').slice(0, 10000);
+      for (const [k, v] of Object.entries(sub.counts || {})) raw.counts[k] = (raw.counts[k] || 0) + v;
+      raw.elementCount = (raw.elementCount || 0) + (sub.elementCount || 0);
+    }
+  } catch { /* best-effort — never fail the observation over frame merging */ }
+
   const obs = normalizeObservation(raw);
-  logger?.info?.('goal_nav_perf', { phase: 'observation', durationMs: now() - t0, elementCount: raw.elementCount || 0 });
+  logger?.info?.('goal_nav_perf', { phase: 'observation', durationMs: now() - t0, elementCount: raw.elementCount || 0, framesMerged });
   return obs;
 }
 
