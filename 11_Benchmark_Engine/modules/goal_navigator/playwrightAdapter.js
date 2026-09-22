@@ -145,6 +145,13 @@ function DOM_SNAPSHOT(LIMITS) {
       tag: forceTrigger ? 'trigger' : el.tagName.toLowerCase(),
       autocomplete: g('autocomplete') || g('aria-autocomplete') || null,
       haspopup: g('aria-haspopup') || null,
+      // Standard ARIA state — generic, stable, present on any combobox /
+      // radio / checkbox on any site. Lets the watchdog fingerprint tell a
+      // collapsed combobox from an open one, and a checked/selected control
+      // from an unchecked one, without any site-specific code.
+      expanded: g('aria-expanded'),
+      checked: el.checked === true ? 'true' : (el.checked === false ? 'false' : g('aria-checked')),
+      selected: g('aria-selected'),
       context: contextOf(el),
       visible: vis(el),
       disabled: !!(el.disabled || g('aria-disabled') === 'true' || g('readonly') != null),

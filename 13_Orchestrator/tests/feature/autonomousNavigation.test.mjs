@@ -582,6 +582,74 @@ test('page-state fingerprint: typed -> suggestions open -> confirmed are THREE d
   assert.equal(new Set(fps).size, 3, 'each real step of the autocomplete flow must be a distinct watchdog state');
 });
 
+// ═══ 11. GENERIC FORM-STATE FINGERPRINT — a real Alaska run proved SEA was
+//    typed, its suggestion confirmed, and the site accepted it (no error,
+//    dropdown closed) — yet the watchdog treated the whole span as
+//    "unchanged" and aborted before the destination field. Root cause: the
+//    origin/destination controls are BUTTON-TRIGGERED pickers (a pill
+//    showing "From SEA", not a native <input>), so `hasValue` (which reads
+//    el.value) never becomes true — the fingerprint had no other signal for
+//    the field's displayed text. Fixed by giving every field a bounded,
+//    hashed signature of its own accessible label/value text (never the raw
+//    text itself) plus standard ARIA expanded/checked/selected state. ═══
+test('field state signature: distinguishes empty -> typed -> suggestions-open -> confirmed for a button-triggered combobox with no native .value', () => {
+  // Mirrors Alaska's real origin control: a trigger button/pill, hasValue
+  // stays false throughout — only the accessible label/expanded state change.
+  const empty = { url: 'https://x.com/', headings: [], controls: [], bodyText: '', counts: { openSuggestions: 0 },
+    fields: [{ semantic: 'origin', label: 'From', ariaLabel: 'From', hasValue: false, expanded: 'false' }] };
+  const typedNotConfirmed = { ...empty,
+    fields: [{ semantic: 'origin', label: 'From SEA', ariaLabel: 'From SEA', hasValue: false, expanded: 'true' }] };
+  const suggestionsOpen = { ...empty, counts: { openSuggestions: 6 },
+    fields: [{ semantic: 'origin', label: 'From SEA', ariaLabel: 'From SEA', hasValue: false, expanded: 'true' }] };
+  const confirmed = { ...empty,
+    fields: [{ semantic: 'origin', label: 'From Seattle, WA (SEA)', ariaLabel: 'From Seattle, WA (SEA)', hasValue: false, expanded: 'false' }] };
+
+  const fps = [empty, typedNotConfirmed, suggestionsOpen, confirmed].map(pageStateFingerprint);
+  assert.equal(new Set(fps).size, 4, 'all four real steps of the autocomplete flow must be distinct watchdog states');
+});
+
+test('field state signature: destination field progress is independent of an already-confirmed origin', () => {
+  const base = { url: 'https://x.com/', headings: [], controls: [], bodyText: '', counts: { openSuggestions: 0 } };
+  const originField = { semantic: 'origin', label: 'From Seattle, WA (SEA)', ariaLabel: 'From Seattle, WA (SEA)', hasValue: false, expanded: 'false' };
+  const destEmpty = { semantic: 'destination', label: 'To', ariaLabel: 'To', hasValue: false, expanded: 'false' };
+  const destTyped = { ...destEmpty, label: 'To LAX', ariaLabel: 'To LAX', expanded: 'true' };
+  const destConfirmed = { ...destEmpty, label: 'To Los Angeles, CA (LAX)', ariaLabel: 'To Los Angeles, CA (LAX)' };
+
+  const step5 = { ...base, fields: [originField, destEmpty] };
+  const step6 = { ...base, fields: [originField, destTyped] };
+  const step7 = { ...base, fields: [originField, destConfirmed] };
+  const fps = [step5, step6, step7].map(pageStateFingerprint);
+  assert.equal(new Set(fps).size, 3, 'destination typing/confirming must register as progress even though origin is unchanged');
+});
+
+test('field state signature: identical field state (deep-equal, different object identity) is a deterministic identical fingerprint', () => {
+  const a = { url: 'https://x.com/', headings: ['h'], controls: [{ name: 'c' }], bodyText: 'b', counts: { openSuggestions: 0 },
+    fields: [{ semantic: 'origin', label: 'From SEA', ariaLabel: 'From SEA', hasValue: false, expanded: 'false', checked: null, selected: null }] };
+  const b = JSON.parse(JSON.stringify(a));
+  assert.equal(pageStateFingerprint(a), pageStateFingerprint(b));
+});
+
+test('field state signature: volatile/irrelevant field attributes (generated id, context, disabled, tag) do NOT cause false progress', () => {
+  const a = { url: 'https://x.com/', headings: [], controls: [], bodyText: '', counts: {},
+    fields: [{ semantic: 'origin', label: 'From', ariaLabel: 'From', hasValue: false, expanded: 'false', context: 'booking', disabled: false, tag: 'trigger', id: 'x-1a2b3c' }] };
+  const b = { ...a, fields: [{ ...a.fields[0], context: 'other', disabled: true, tag: 'input', id: 'y-9z8y7x' }] };
+  assert.equal(pageStateFingerprint(a), pageStateFingerprint(b), 'generated ids / context / disabled / tag are not part of the signature and must not cause spurious "progress"');
+});
+
+test('field state signature: checked/selected ARIA state changes are visible (radio/checkbox controls)', () => {
+  const base = { url: 'https://x.com/', headings: [], controls: [], bodyText: '', counts: {} };
+  const unchecked = { ...base, fields: [{ semantic: 'cabin', label: 'Economy', ariaLabel: 'Economy', hasValue: false, checked: 'false' }] };
+  const checked = { ...base, fields: [{ semantic: 'cabin', label: 'Economy', ariaLabel: 'Economy', hasValue: false, checked: 'true' }] };
+  assert.notEqual(pageStateFingerprint(unchecked), pageStateFingerprint(checked));
+});
+
+test('field state signature: never embeds the raw field text — only a bucket + hash', () => {
+  const withSecret = { url: 'https://x.com/', headings: [], controls: [], bodyText: '', counts: {},
+    fields: [{ semantic: 'origin', label: 'From Seattle, WA (SEA) very specific synthetic text', ariaLabel: 'From Seattle, WA (SEA) very specific synthetic text', hasValue: false, expanded: 'false' }] };
+  const fp = pageStateFingerprint(withSecret);
+  assert.doesNotMatch(fp, /seattle|synthetic/i, 'the fingerprint must never contain the raw field text verbatim');
+});
+
 test('system prompt: generic autocomplete confirmation order and anti-double-typing rule are present', async () => {
   const { buildSystemPrompt } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/agentInstructions.js');
   const prompt = buildSystemPrompt().toLowerCase();

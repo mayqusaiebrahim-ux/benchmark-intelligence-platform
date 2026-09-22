@@ -129,6 +129,34 @@ export function genericVerify(observation, featureLabel) {
   return { reached: scoreReached && identified, confidence, signals, kind, identified, lexicalMatch };
 }
 
+function tinyHash(s) {
+  let h = 0;
+  const str = String(s || '');
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+/**
+ * Bounded, privacy-conscious signature of a single interactive field's
+ * CURRENT state — used by pageStateFingerprint() so "empty" vs. "typed" vs.
+ * "confirmed" are distinguishable even for custom trigger-style controls
+ * (a button/pill showing "From SEA" rather than a real <input>.value, which
+ * `hasValue` alone cannot see). Never stores or logs the field's actual
+ * text: only a coarse length bucket + a one-way hash of it, so a real
+ * change (typed, selected, cleared) changes the signature deterministically
+ * without the raw content — even synthetic test values — ever appearing in
+ * this string, in telemetry, or in logs.
+ */
+function fieldStateSignature(f, norm) {
+  const shownText = norm(f.ariaLabel || f.label || '');
+  const lenBucket = shownText.length === 0 ? 0 : shownText.length < 8 ? 1 : shownText.length < 24 ? 2 : 3;
+  const valueSig = `${f.hasValue ? 'v' : ''}${lenBucket}${shownText ? tinyHash(shownText) : ''}`;
+  const expanded = f.expanded === 'true' ? 'x1' : (f.expanded === 'false' ? 'x0' : '');
+  const checked = f.checked === 'true' ? 'c1' : (f.checked === 'false' ? 'c0' : '');
+  const selected = f.selected === 'true' ? 's1' : '';
+  return `${valueSig}${expanded}${checked}${selected}`;
+}
+
 /** Generic fingerprint of the page state — for the universal stuck detector. */
 export function pageStateFingerprint(observation) {
   const o = observation || {};
@@ -136,14 +164,12 @@ export function pageStateFingerprint(observation) {
   const parts = [
     norm(o.url),
     (o.headings || []).map(norm).sort().join('|'),
-    (o.fields || []).map((f) => `${f.semantic || norm(f.label || f.name || f.placeholder)}:${f.hasValue ? 'v' : ''}`).sort().join(','),
+    (o.fields || []).map((f) => `${f.semantic || norm(f.label || f.name || f.placeholder)}:${fieldStateSignature(f, norm)}`).sort().join(','),
     (o.controls || o.buttons || []).map((c) => norm(typeof c === 'string' ? c : c.name)).sort().join(','),
     norm(o.bodyText).slice(0, 500),
     Object.entries(o.counts || {}).map(([k, v]) => `${k}=${v}`).sort().join(','),
   ];
   // small, order-independent digest
-  let h = 0;
   const str = parts.join('§');
-  for (let i = 0; i < str.length; i++) { h = (h * 31 + str.charCodeAt(i)) | 0; }
-  return `${(o.url || '').split('?')[0]}#${(h >>> 0).toString(36)}`;
+  return `${(o.url || '').split('?')[0]}#${tinyHash(str)}`;
 }
