@@ -175,11 +175,20 @@ function DOM_SNAPSHOT(LIMITS) {
   }
 
   const cnt = (sel) => { try { return Math.min(document.querySelectorAll(sel).length, 999); } catch (e) { return 0; } };
+  // Same generic option/listbox selector pickSuggestion()/confirmTripSelection()
+  // already use below to CLICK a suggestion — here it only COUNTS visible ones,
+  // so an open autocomplete/combobox dropdown (airport, city, any searchable
+  // list) is a distinguishable state, not invisible to the watchdog fingerprint.
+  const OPTION_SEL = '[role="option"],[role="listbox"] li,[class*="suggestion" i],[class*="autocomplete" i] li,[class*="typeahead" i] li,[id*="listbox" i] li';
+  const openSuggestions = (() => {
+    try { return Array.from(document.querySelectorAll(OPTION_SEL)).filter(vis).length; } catch (e) { return 0; }
+  })();
   const counts = {
     flightCards: cnt('[class*="flight" i][class*="card" i],[data-testid*="flight" i],[class*="result" i][class*="card" i],[class*="fare-option" i],[class*="journey" i][class*="option" i],[class*="itinerary" i]'),
     fareCards: cnt('[class*="fare" i][class*="card" i],[class*="fare-family" i],[class*="cabin" i][class*="option" i],[data-testid*="fare" i],[class*="brand" i][class*="fare" i]'),
     seatCells: cnt('[class*="seat" i]:not([class*="select" i]):not([class*="selector" i]),[data-testid*="seat" i],button[aria-label*="seat" i]'),
     priceTags: cnt('[class*="price" i],[class*="amount" i],[class*="fare-price" i],[class*="total" i]'),
+    openSuggestions,
   };
 
   return { url, headings, bodyText, controls, buttonNames, fields, counts, elementCount: clickEls.length + fieldEls.length };

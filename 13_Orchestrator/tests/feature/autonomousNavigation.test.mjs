@@ -560,6 +560,45 @@ test('generic page-state fingerprint: stable for the same page, changes on any m
   assert.notEqual(pageStateFingerprint(a), pageStateFingerprint({ ...a, url: 'https://x.com/p?step=2' }));
 });
 
+// ═══ 10. AUTOCOMPLETE / COMBOBOX — a real Alaska Airlines run proved the
+//    watchdog fingerprint could not distinguish "field typed, suggestions
+//    open" from "field typed, suggestion confirmed" from "nothing happened",
+//    because playwrightAdapter.js's DOM_SNAPSHOT never counted open listbox/
+//    suggestion elements at all (only flightCards/fareCards/seatCells/
+//    priceTags existed in `counts`). Fixed by adding counts.openSuggestions —
+//    pageStateFingerprint() already hashes every key of `counts` generically,
+//    so no change to the fingerprint function itself was needed or made. ═══
+test('page-state fingerprint distinguishes an open autocomplete/suggestion list from a closed one', () => {
+  const closed = { url: 'https://x.com/', headings: [], fields: [{ semantic: 'origin', hasValue: true }], controls: [], bodyText: '', counts: { openSuggestions: 0 } };
+  const open = { ...closed, counts: { openSuggestions: 6 } };
+  assert.notEqual(pageStateFingerprint(closed), pageStateFingerprint(open), 'an opened suggestion dropdown must change the fingerprint');
+});
+
+test('page-state fingerprint: typed -> suggestions open -> confirmed are THREE distinct states, not one "stuck" state', () => {
+  const typed = { url: 'https://x.com/', headings: [], fields: [{ semantic: 'origin', hasValue: false }], controls: [], bodyText: 'from', counts: { openSuggestions: 0 } };
+  const suggesting = { url: 'https://x.com/', headings: [], fields: [{ semantic: 'origin', hasValue: true }], controls: [], bodyText: 'from sea', counts: { openSuggestions: 5 } };
+  const confirmed = { url: 'https://x.com/', headings: [], fields: [{ semantic: 'origin', hasValue: true }], controls: [{ name: 'sea seattle' }], bodyText: 'from sea seattle', counts: { openSuggestions: 0 } };
+  const fps = [typed, suggesting, confirmed].map(pageStateFingerprint);
+  assert.equal(new Set(fps).size, 3, 'each real step of the autocomplete flow must be a distinct watchdog state');
+});
+
+test('system prompt: generic autocomplete confirmation order and anti-double-typing rule are present', async () => {
+  const { buildSystemPrompt } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/agentInstructions.js');
+  const prompt = buildSystemPrompt().toLowerCase();
+  // The bounded confirmation order this task specified.
+  assert.match(prompt, /suggestion list is not complete|not complete yet/);
+  assert.match(prompt, /arrowdown/);
+  assert.match(prompt, /enter/);
+  assert.match(prompt, /semantic dom click/);
+  assert.match(prompt, /visual\/coordinate click/);
+  // Anti-double-typing / anti-blind-retry rules.
+  assert.match(prompt, /do not retype/);
+  assert.match(prompt, /do not type into that same field again/);
+  assert.match(prompt, /clear/);
+  // No domain/company leakage into the generic instructions.
+  assert.doesNotMatch(prompt, /alaska|seattle|\bsea\b|\blax\b/);
+});
+
 test('universal stuck detector: unchanged fingerprint + ongoing actions -> agent_nav_stuck + BLOCKER', async () => {
   const frozen = fakePage({ snapshot: HOME_SNAPSHOT });
   const { sh } = fakeStagehand({
