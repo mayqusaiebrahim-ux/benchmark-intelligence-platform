@@ -51,7 +51,12 @@ export async function verifyTarget(page, detectorKey, { minConfidence = 'medium'
     // AI verifier says reached: true, its result should replace `g` here
     // (with its own `method: 'ai-semantic'`) exactly the way the detector
     // fallback below replaces `det`; if it says reached: false, `det` stays
-    // as-is and navigation continues.
+    // as-is and navigation continues. The eligibility test itself
+    // (`!g.reached && g.verdict === 'ambiguous'`) and a don't-ask-twice
+    // cache keyed on target identity + pageStateFingerprint are already
+    // specified and tested in ./semanticHandoff.js
+    // (shouldUseSemanticVerifier / makeSemanticVerificationCache) — not
+    // imported here, since nothing calls the AI layer yet.
     return {
       reached: g.reached && CONF_RANK[g.confidence] >= CONF_RANK[minConfidence],
       confidence: g.confidence,

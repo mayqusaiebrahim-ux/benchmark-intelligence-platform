@@ -149,7 +149,18 @@ const FEATURE_KIND_HINTS = [
   [/(cart|basket|bag)/, ['cart']],
   [/(results|listing|search results)/, ['results']],
   [/(passenger|traveller|traveler|guest|contact details|your details)/, ['form']],
-  [/(booking|reservation|appointment|quote|enquiry|application)/, ['form', 'checkout']],
+  // PHASE-2 HARDENING: this hint used to also accept a generic 'checkout'
+  // page-kind classification for any of these words. That let an arbitrary
+  // request like "submit my application" or "get a quote" be declared
+  // reached by ANY unrelated checkout page (pageKind()'s checkout pattern
+  // is broad: "place order", "delivery address", "proceed to checkout" —
+  // none of which mention booking/reservation/application/quote/enquiry/
+  // appointment) purely via the specificKind path, with zero concept
+  // evidence connecting the two. 'checkout' removed — only the deliberately
+  // non-specific 'form' kind remains (SPECIFIC_KINDS excludes 'form'), so a
+  // match here can never grant `identified` on pageKind alone; concept
+  // evidence (heading/URL/structural) is still required.
+  [/(booking|reservation|appointment|quote|enquiry|application)/, ['form']],
 ];
 
 // A small, UNIVERSAL, domain-free UI-action vocabulary — not one entry per

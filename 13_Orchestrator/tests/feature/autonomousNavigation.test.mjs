@@ -1396,3 +1396,315 @@ test('REGRESSION: Passenger Details specialized detector is untouched by this ha
   const r = detectFeature('passenger_details', o, { minConfidence: 'medium' });
   assert.equal(r.reached, true, JSON.stringify(r.signals || []));
 });
+
+// ═══ 14. DECISION CONTRACT — detector → generic verifier → agent-claim ════
+// independence → future AI semantic-verifier handoff. No live navigation,
+// no external calls: everything below runs against fakePage()/genericVerify
+// fixtures only.
+
+import { shouldUseSemanticVerifier, semanticCacheKey, makeSemanticVerificationCache } from '../../../11_Benchmark_Engine/modules/autonomous_navigator/semanticHandoff.js';
+
+// ── PHASE 3 — the result-shape invariant, protected by tests ────────────
+
+test('INVARIANT: reached === true implies verdict === "match"', () => {
+  const cases = [
+    genericVerify(PAX_SNAPSHOT, 'Passenger Details'),
+    genericVerify({ url: 'https://airline.example/booking/payment', headings: ['Payment details'], bodyText: 'enter your card number to complete payment.', controls: [{ name: 'Pay now' }], fields: [{ label: 'Card number' }, { label: 'Expiry date' }, { label: 'CVV' }, { label: 'Cardholder name' }], counts: {} }, 'the final payment screen'),
+  ];
+  for (const r of cases) {
+    if (r.reached) assert.equal(r.verdict, 'match', JSON.stringify(r));
+  }
+  assert.ok(cases.some((r) => r.reached), 'precondition: at least one case must actually be reached for this invariant to be exercised');
+});
+
+test('INVARIANT: verdict === "ambiguous" implies reached === false', () => {
+  // Weak-but-real candidate evidence (a single informational link mentions
+  // the concept) — registers a non-zero score but fails the coherence gate.
+  const r = genericVerify(
+    { url: 'https://airline.example/', headings: ['Welcome', 'Plan your next trip'], bodyText: 'discover our seat selection options before you fly.', controls: [{ name: 'Search flights' }, { name: 'Learn about seat selection' }, { name: 'Sign in' }], fields: [{ label: 'Origin' }, { label: 'Destination' }], counts: {} },
+    'Seat Selection',
+  );
+  assert.equal(r.verdict, 'ambiguous', JSON.stringify(r));
+  assert.equal(r.reached, false);
+});
+
+test('INVARIANT: verdict === "no-match" implies reached === false', () => {
+  const r = genericVerify(HOME_SNAPSHOT, 'Passenger Details');
+  assert.equal(r.verdict, 'no-match', JSON.stringify(r));
+  assert.equal(r.reached, false);
+});
+
+test('INVARIANT: exhaustively, verdict is never "match" unless reached, and never anything but "no-match"/"ambiguous" when not reached', () => {
+  const fixtures = [
+    [PAX_SNAPSHOT, 'Passenger Details'],
+    [HOME_SNAPSHOT, 'Passenger Details'],
+    [{ url: 'https://airline.example/', headings: ['Book your trip'], bodyText: 'search flights from your city', controls: [{ name: 'Seattle' }], fields: [], counts: {} }, 'Seat Selection'],
+    [{ url: 'https://airline.example/booking/guest', headings: ['Guest details'], bodyText: 'please provide details for each guest.', controls: [{ name: 'Continue' }], fields: [{ label: 'First name' }, { label: 'Last name' }], counts: {} }, 'traveler information'],
+  ];
+  for (const [o, label] of fixtures) {
+    const r = genericVerify(o, label);
+    assert.ok(['match', 'no-match', 'ambiguous'].includes(r.verdict));
+    assert.equal(r.reached, r.verdict === 'match');
+  }
+});
+
+// ── PHASE 2 — specificKind audit: a fixed page-kind classification must ──
+// never substitute for missing concept evidence on an arbitrary target.
+
+test('specificKind AUDIT: "the screen where I choose my meal" on a generic checkout/payment page is NOT reached', () => {
+  const o = {
+    url: 'https://shop.example/checkout',
+    headings: ['Checkout', 'Order summary'],
+    bodyText: 'delivery address, place order, subtotal 2 items, shipping method.',
+    fields: [{ label: 'First name' }, { label: 'Last name' }, { label: 'Address line 1' }, { label: 'Postal code' }],
+    controls: [{ name: 'Place order' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'the screen where I choose my meal');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('specificKind AUDIT: "where I select my seat" on a generic results page is NOT reached', () => {
+  const o = {
+    url: 'https://shop.example/search?q=lamp',
+    headings: ['Search results'],
+    bodyText: 'showing 24 results for "lamp" sort by relevance',
+    fields: [],
+    controls: [{ name: 'View product' }, { name: 'Add to bag' }, { name: 'Choose options' }],
+    counts: { priceTags: 24 },
+  };
+  const r = genericVerify(o, 'where I select my seat');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('specificKind AUDIT: "change my booking" on a generic login page is NOT reached', () => {
+  const o = {
+    url: 'https://airline.example/login',
+    headings: ['Sign in'],
+    bodyText: 'welcome back, sign in to continue.',
+    fields: [{ label: 'Email', semantic: 'email' }, { label: 'Password', semantic: 'password' }],
+    controls: [{ name: 'Log in' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'change my booking');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('specificKind AUDIT (the bug this hardening pass fixes): a generic word like "application"/"quote"/"reservation" must not be satisfied by an UNRELATED checkout page via pageKind alone', () => {
+  // Before this pass, FEATURE_KIND_HINTS mapped booking/reservation/
+  // appointment/quote/enquiry/application to wantKinds ['form','checkout'] —
+  // and 'checkout' IS a SPECIFIC_KINDS entry, so pageKind()==='checkout'
+  // alone (zero concept evidence) satisfied `identified` for any of these
+  // words. A totally unrelated e-commerce checkout page (buying a lamp) has
+  // nothing to do with "submit my application".
+  const unrelatedCheckout = {
+    url: 'https://shop.example/checkout',
+    headings: ['Checkout', 'Order summary'],
+    bodyText: 'delivery address, place order, subtotal 2 items, shipping method.',
+    fields: [{ label: 'First name' }, { label: 'Last name' }, { label: 'Address line 1' }, { label: 'Postal code' }],
+    controls: [{ name: 'Place order' }],
+    counts: {},
+  };
+  assert.equal(pageKind(unrelatedCheckout), 'checkout', 'precondition: this fixture really does classify as the specific "checkout" kind');
+  for (const label of ['the page to submit my application', 'get a quote', 'make a reservation', 'book an appointment']) {
+    const r = genericVerify(unrelatedCheckout, label);
+    assert.equal(r.reached, false, `"${label}" must not be satisfied by an unrelated checkout page — ${JSON.stringify(r.signals)}`);
+  }
+});
+
+// ── PHASE 4 — specialized detector + generic fallback precedence ────────
+
+test('CASE A: specialized detector confidently matches → ACCEPT (generic result is irrelevant)', async () => {
+  const page = fakePage({ snapshot: PAX_SNAPSHOT });
+  const v = await verifyTarget(page, 'passenger_details', { featureLabel: 'Passenger Details' });
+  assert.equal(v.reached, true);
+  assert.equal(v.method, 'feature-detector');
+});
+
+test('CASE B: specialized detector misses, generic deterministic verifier confidently matches → ACCEPT', async () => {
+  const obs = {
+    url: 'https://shop.example/checkout',
+    headings: ['Checkout', 'Order summary'],
+    bodyText: 'delivery address place order subtotal 2 items shipping method',
+    fields: [{ semantic: 'first_name' }, { semantic: 'last_name' }, { semantic: 'address_line1' }, { semantic: 'postal_code' }],
+    controls: [{ name: 'place order' }], counts: {},
+  };
+  const page = fakePage({ url: obs.url, snapshot: obs });
+  const v = await verifyTarget(page, 'payment', { featureLabel: 'Checkout' });
+  assert.equal(v.reached, true);
+  assert.equal(v.method, 'generic-fallback');
+});
+
+test('CASE C: specialized detector misses, generic verifier is "no-match" → do NOT stop navigation', async () => {
+  const obs = { url: 'https://shop.example/', headings: ['Welcome'], bodyText: 'the best products, delivered', fields: [], controls: [{ name: 'shop now' }], counts: {} };
+  const page = fakePage({ url: obs.url, snapshot: obs });
+  const v = await verifyTarget(page, 'payment', { featureLabel: 'Checkout' });
+  assert.equal(v.reached, false);
+  const g = genericVerify(obs, 'Checkout');
+  assert.equal(g.verdict, 'no-match');
+});
+
+test('CASE D: no specialized detector (arbitrary target), generic verifier is "ambiguous" → NOT reached today, eligible for future AI handoff', async () => {
+  // A single informational link mentioning the concept ("Learn about seat
+  // selection") is weak-but-real candidate evidence — enough for the score
+  // to register (confidence != 'none') but not enough to pass the coherence
+  // gate (one non-actionable control alone). That is exactly the deterministic
+  // 'ambiguous' bucket: distinct from both a confident match AND a page with
+  // zero candidate evidence at all (see the CLEAR WRONG-PAGE tests below).
+  const obs = { url: 'https://airline.example/', headings: ['Welcome', 'Plan your next trip'], bodyText: 'discover our seat selection options before you fly.', controls: [{ name: 'Search flights' }, { name: 'Learn about seat selection' }, { name: 'Sign in' }], fields: [{ label: 'Origin' }, { label: 'Destination' }], counts: {} };
+  const page = fakePage({ url: obs.url, snapshot: obs });
+  const v = await verifyTarget(page, null, { featureLabel: 'Seat Selection' });
+  assert.equal(v.reached, false);
+  assert.equal(v.method, 'generic');
+  const g = genericVerify(obs, 'Seat Selection');
+  assert.equal(g.verdict, 'ambiguous', JSON.stringify(g.signals));
+  assert.equal(shouldUseSemanticVerifier(g, { specializedMatched: false }), true);
+});
+
+test('specialized-detector weak/no signal never beats a page that has strong, unambiguous generic evidence for the SAME target', async () => {
+  // Not a redesign of a working detector — proves the existing, intentional
+  // "detector miss → ask the generic verifier too" fallback (targetVerifier
+  // comment: "a detector hit always wins, precision on the known set is
+  // unchanged") still lets a genuinely reached page succeed when the known
+  // airline detector's specific signals don't apply (e.g. a non-airline
+  // site under the SAME detectorKey label).
+  const obs = { url: 'https://shop.example/search?q=lamp', headings: ['Search results'], bodyText: 'showing 24 results for "lamp"', fields: [], controls: [{ name: 'view product' }, { name: 'add to bag' }, { name: 'choose options' }], counts: { priceTags: 24 } };
+  const page = fakePage({ url: obs.url, snapshot: obs });
+  const v = await verifyTarget(page, 'flight_results', { featureLabel: 'Search results' });
+  assert.equal(v.reached, true);
+  assert.equal(v.method, 'generic-fallback');
+});
+
+// ── PHASE 5 — agent self-report independence ─────────────────────────────
+
+test('AGENT CLAIM INDEPENDENCE: agent says done/completed, verifier disagrees → targetReached:false, system continues per existing logic', async () => {
+  const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'I have reached Passenger Details.', actions: [{ type: 'act' }], completed: true } });
+  const r = await runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Passenger Details', detectorKey: 'passenger_details', limits: T({ maxMs: 800 }), stagehandFactory: async () => sh });
+  assert.equal(r.targetReached, false, 'agent self-report must never override independent verification');
+  assert.notEqual(r.targetStatus, TARGET_STATUS.REACHED);
+});
+
+test('INDEPENDENT VERIFIER WITHOUT AGENT "done": strong evidence alone is enough — no explicit agent completion claim required', async () => {
+  const paxPage = fakePage({ snapshot: PAX_SNAPSHOT, url: 'https://air.com/booking/passengers' });
+  // completed: false — the agent never claims it is finished.
+  const { sh } = fakeStagehand({ page: paxPage, agentResult: { message: 'clicked continue', actions: [{ type: 'act' }], completed: false } });
+  const r = await runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Passenger Details', detectorKey: 'passenger_details', limits: T({ maxMs: 800 }), stagehandFactory: async () => sh });
+  assert.equal(r.targetStatus, TARGET_STATUS.REACHED, 'independent verification must be able to recognize the target from observed evidence alone');
+  assert.equal(r.targetReached, true);
+});
+
+// ── PHASE 6/9 — future AI semantic-verifier handoff eligibility + cache ──
+
+test('shouldUseSemanticVerifier: true ONLY for the ambiguous bucket, with no specialized match', () => {
+  assert.equal(shouldUseSemanticVerifier({ reached: true, verdict: 'match' }), false);
+  assert.equal(shouldUseSemanticVerifier({ reached: false, verdict: 'no-match' }), false);
+  assert.equal(shouldUseSemanticVerifier({ reached: false, verdict: 'ambiguous' }), true);
+  assert.equal(shouldUseSemanticVerifier({ reached: false, verdict: 'ambiguous' }, { specializedMatched: true }), false, 'a specialized detector match must veto the AI handoff regardless of the generic result');
+});
+
+test('semanticCacheKey: same target identity + same fingerprint always produce the same key; different inputs never collide trivially', () => {
+  const k1 = semanticCacheKey('acme::the final payment screen', 'https://x.example/a#abc123');
+  const k2 = semanticCacheKey('acme::the final payment screen', 'https://x.example/a#abc123');
+  const k3 = semanticCacheKey('acme::the final payment screen', 'https://x.example/a#def456');
+  const k4 = semanticCacheKey('other::the final payment screen', 'https://x.example/a#abc123');
+  assert.equal(k1, k2);
+  assert.notEqual(k1, k3);
+  assert.notEqual(k1, k4);
+});
+
+test('COST CONTROL: the same target + the same unchanged page-state fingerprint is eligible only ONCE — repeated identical ticks do not re-trigger', () => {
+  const cache = makeSemanticVerificationCache();
+  const obs = { url: 'https://airline.example/', headings: ['Welcome', 'Plan your next trip'], bodyText: 'discover our seat selection options before you fly.', controls: [{ name: 'Search flights' }, { name: 'Learn about seat selection' }, { name: 'Sign in' }], fields: [{ label: 'Origin' }, { label: 'Destination' }], counts: {} };
+  const target = 'acme::Seat Selection';
+  const g = genericVerify(obs, 'Seat Selection');
+  const fp = pageStateFingerprint(obs);
+  assert.equal(g.verdict, 'ambiguous', JSON.stringify(g.signals));
+
+  // Tick 1: eligible (never checked before).
+  assert.equal(cache.isEligible(g, target, fp), true);
+  cache.markChecked(target, fp);
+
+  // Tick 2..N: page state has NOT changed (same fingerprint) — no longer
+  // eligible, so a repeated watchdog tick would not re-call the future AI
+  // verifier for the same unresolved page.
+  for (let i = 0; i < 5; i++) assert.equal(cache.isEligible(g, target, fp), false);
+  assert.equal(cache.size(), 1);
+
+  // The page changes (new fingerprint) — eligible again exactly once.
+  const obs2 = { ...obs, headings: ['Extras', 'Updated'] };
+  const fp2 = pageStateFingerprint(obs2);
+  assert.notEqual(fp, fp2);
+  assert.equal(cache.isEligible(g, target, fp2), true);
+});
+
+test('COST CONTROL: a different target at the same page-state fingerprint is independently eligible (cache key includes target identity)', () => {
+  const cache = makeSemanticVerificationCache();
+  const obs = { url: 'https://airline.example/', headings: ['Welcome', 'Plan your next trip'], bodyText: 'discover our seat selection options before you fly.', controls: [{ name: 'Search flights' }, { name: 'Learn about seat selection' }, { name: 'Sign in' }], fields: [{ label: 'Origin' }, { label: 'Destination' }], counts: {} };
+  const fp = pageStateFingerprint(obs);
+  const g = genericVerify(obs, 'Seat Selection');
+  cache.markChecked('target_A::Seat Selection', fp);
+  assert.equal(cache.isEligible(g, 'target_A::Seat Selection', fp), false);
+  assert.equal(cache.isEligible(g, 'target_B::Seat Selection', fp), true);
+});
+
+// ── PHASE 7 — multilingual / paraphrase: intentionally unresolved, NOT ───
+// no-match forever, eligible for the future semantic verifier.
+
+// DOCUMENTED LIMITATION (Phase 7): a deterministic, dictionary-free layer
+// can only tell "weak candidate evidence" (SOME shared token, however
+// partial — see the 'ambiguous' cases above) from "no candidate evidence"
+// (score 0 — see CLEAR WRONG-PAGE below). A genuine cross-vocabulary
+// paraphrase with ZERO shared tokens — "baggage" vs "luggage", Arabic vs
+// English, "meal" vs "dining" — is lexically indistinguishable from a truly
+// wrong page to this layer: recognizing the relationship would require
+// either a synonym dictionary (explicitly forbidden — that is exactly the
+// semantic leap reserved for the AI layer) or real semantic/embedding
+// understanding (the AI layer itself). Per the explicit instruction to "be
+// conservative and document the limitation rather than inventing a synonym
+// dictionary", these cases are therefore NOT force-classified as
+// 'ambiguous' — they fall to 'no-match', the same as a real wrong page.
+// This is safe (never a false accept) but is the exact gap the future AI
+// semantic verifier exists to close — see item 28 of the final response.
+// What both tests below GUARANTEE regardless of which bucket a given
+// paraphrase lands in: it is NEVER 'match' — a paraphrase must never be
+// silently force-accepted.
+
+test('MULTILINGUAL CONTRACT: Arabic "اختيار المقعد" vs English "Choose your seat" — never falsely matched; zero shared tokens is a documented Layer-1 limitation, not a false accept', () => {
+  const o = { url: 'https://airline.example/booking/seats', headings: ['Choose your seat'], bodyText: 'select a seat for each passenger.', controls: [{ name: 'Choose seat 14A' }, { name: 'Continue' }], fields: [], counts: {} };
+  const r = genericVerify(o, 'اختيار المقعد');
+  assert.equal(r.reached, false);
+  assert.notEqual(r.verdict, 'match');
+});
+
+test('BAGGAGE/LUGGAGE CONTRACT: "where I add baggage" vs "Purchase checked luggage" — never forced to PASS; zero shared tokens is a documented Layer-1 limitation, not a false accept', () => {
+  const o = { url: 'https://airline.example/booking/extras', headings: ['Extras'], bodyText: 'purchase checked luggage for your trip.', controls: [{ name: 'Purchase checked luggage' }, { name: 'Continue' }], fields: [], counts: {} };
+  const r = genericVerify(o, 'where I add baggage');
+  assert.equal(r.reached, false);
+  assert.notEqual(r.verdict, 'match');
+});
+
+test('MEAL/DINING CONTRACT: "choose my meal" vs "Dining preferences" — never forced to PASS; zero shared tokens is a documented Layer-1 limitation, not a false accept', () => {
+  const o = { url: 'https://airline.example/booking/dining', headings: ['Dining preferences'], bodyText: 'set your dining preferences for this flight.', controls: [{ name: 'Save preferences' }], fields: [], counts: {} };
+  const r = genericVerify(o, 'choose my meal');
+  assert.equal(r.reached, false);
+  assert.notEqual(r.verdict, 'match');
+});
+
+// ── PHASE 8 — clear wrong pages must be "no-match", not "ambiguous" ─────
+// forever — the future AI layer must not be invoked on every page.
+
+test('CLEAR WRONG-PAGE CONTRACT: a privacy-policy page has zero coherent candidate evidence for "Seat Selection" → no-match, not ambiguous', () => {
+  const o = { url: 'https://airline.example/legal/privacy', headings: ['Privacy policy'], bodyText: 'this policy describes how we handle personal data.', controls: [{ name: 'Accept' }], fields: [], counts: {} };
+  const r = genericVerify(o, 'Seat Selection');
+  assert.equal(r.reached, false);
+  assert.equal(r.verdict, 'no-match');
+  assert.equal(shouldUseSemanticVerifier(r), false, 'a clear wrong page must never be sent to the future AI layer');
+});
+
+test('CLEAR WRONG-PAGE CONTRACT: an unrelated login page has zero coherent candidate evidence for "Baggage" → no-match, not ambiguous', () => {
+  const o = { url: 'https://airline.example/login', headings: ['Sign in'], bodyText: 'welcome back, sign in to continue.', fields: [{ label: 'Email' }, { label: 'Password' }], controls: [{ name: 'Log in' }], counts: {} };
+  const r = genericVerify(o, 'Baggage');
+  assert.equal(r.reached, false);
+  assert.equal(r.verdict, 'no-match');
+  assert.equal(shouldUseSemanticVerifier(r), false);
+});
