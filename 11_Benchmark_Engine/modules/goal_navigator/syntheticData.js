@@ -35,14 +35,33 @@ export const ALTERNATE_ROUTES = [
  * buildTestProfile — one synthetic traveller + trip. `now` is injectable so
  * tests are deterministic.
  */
+// Optional, generic test-only override — same env-driven-override pattern as
+// AGENT_NAV_MODEL elsewhere in this codebase. Unset in every normal run
+// (production or otherwise): the default JED/DXB pair is unchanged. Exists
+// so a real end-to-end verification run can target a route the airline
+// under test actually serves (e.g. a US carrier that doesn't fly JED/DXB)
+// through the real pipeline, without hardcoding any one airline's route.
+function envRoute() {
+  const origin = process.env.AGENT_NAV_TEST_ORIGIN;
+  const destination = process.env.AGENT_NAV_TEST_DESTINATION;
+  if (!origin || !destination) return null;
+  return {
+    origin: origin.toUpperCase(),
+    originName: process.env.AGENT_NAV_TEST_ORIGIN_NAME || origin.toUpperCase(),
+    destination: destination.toUpperCase(),
+    destinationName: process.env.AGENT_NAV_TEST_DESTINATION_NAME || destination.toUpperCase(),
+  };
+}
+
 export function buildTestProfile({ now = new Date() } = {}) {
+  const route = envRoute();
   return {
     trip: {
       tripType: 'round_trip',          // fall back to one_way if that flow is simpler
-      origin: 'JED',
-      originName: 'Jeddah',
-      destination: 'DXB',
-      destinationName: 'Dubai',
+      origin: route?.origin || 'JED',
+      originName: route?.originName || 'Jeddah',
+      destination: route?.destination || 'DXB',
+      destinationName: route?.destinationName || 'Dubai',
       departDate: isoDateOffset(30, now),
       returnDate: isoDateOffset(35, now),
       adults: 1,
