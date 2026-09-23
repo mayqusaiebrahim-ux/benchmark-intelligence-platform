@@ -181,6 +181,114 @@ test('feature detectors: each fires on its own signals and not on a bare homepag
   assert.equal(detectFeature('nope', homepage).reached, false);
 });
 
+// REGRESSION — proven live against a real Alaska Airlines run: the
+// passenger_details detector required field(o,'first_name') /
+// field(o,'last_name') to be resolved, but the real page's name/DOB fields
+// never resolved to those semantics (a shadow-DOM label-association gap in
+// the extraction layer, out of scope to fix here) — so a real, unambiguous
+// "Primary contact" traveler-info page (government-ID instruction, TSA
+// PreCheck, loyalty program, 5 unlabeled fields) verified as NOT reached,
+// and pageKind() separately misclassified it as "confirmation" from a bare
+// "confirmation" match (a future-step breadcrumb label, not the real page).
+test('passenger_details: recognizes a real traveler-info page even when per-field semantics do not resolve', () => {
+  // Reconstructs the real Alaska /book/guest-info page's observation shape:
+  // no field.semantic resolved at all, only heading + contextual bodyText
+  // + a substantial unlabeled field count.
+  const realAlaskaShape = {
+    url: 'https://www.alaskaair.com/book/guest-info',
+    headings: ['primary contact'],
+    bodyText: 'please enter all information as it appears on the traveler\'s government-issued photo id. suffix (optional) gender date of birth accessible services loyalty program (optional) tsa pre-check / redress number (optional) contact information',
+    buttons: ['continue'],
+    fields: [
+      { semantic: null, visible: true }, { semantic: null, visible: true }, { semantic: null, visible: true },
+      { semantic: 'phone', visible: true }, { semantic: 'address_line1', visible: true },
+    ],
+    counts: {},
+  };
+  const r = detectFeature('passenger_details', realAlaskaShape, { minConfidence: 'medium' });
+  assert.equal(r.reached, true, 'a real traveler-info page must be recognized without relying on exact field semantics');
+  assert.equal(r.confidence, 'medium');
+});
+
+test('passenger_details: recognizes "Traveler information" / "Given name" / "Family name" / DOB terminology', () => {
+  const o = {
+    url: 'https://x.example/booking/travelers',
+    headings: ['traveler information'],
+    bodyText: 'given name family name date of birth',
+    buttons: [], counts: {},
+    fields: [{ semantic: 'first_name' }, { semantic: 'last_name' }, { semantic: 'date_of_birth' }],
+  };
+  assert.equal(detectFeature('passenger_details', o).reached, true);
+});
+
+test('passenger_details: recognizes "Guest information" / "Primary traveler" when accompanied by identity fields', () => {
+  const o = {
+    url: 'https://x.example/guest',
+    headings: ['guest information', 'primary traveler'],
+    bodyText: '',
+    buttons: [], counts: {},
+    fields: [{ semantic: 'first_name' }, { semantic: null, visible: true }, { semantic: null, visible: true }],
+  };
+  const r = detectFeature('passenger_details', o);
+  assert.equal(r.reached, true);
+});
+
+test('passenger_details: does NOT match a login form (email + password)', () => {
+  const o = { url: 'https://x.example/login', headings: ['sign in'], bodyText: 'welcome back', buttons: [], counts: {},
+    fields: [{ semantic: 'email' }, { semantic: 'password' }] };
+  assert.equal(detectFeature('passenger_details', o).reached, false);
+});
+
+test('passenger_details: does NOT match account registration (name + email + password)', () => {
+  const o = { url: 'https://x.example/register', headings: ['create your account'], bodyText: 'sign up to save your details', buttons: [], counts: {},
+    fields: [{ semantic: 'first_name' }, { semantic: 'last_name' }, { semantic: 'email' }, { semantic: 'password' }] };
+  assert.equal(detectFeature('passenger_details', o).reached, false);
+});
+
+test('passenger_details: does NOT match a generic contact-us form (name + email + message)', () => {
+  const o = { url: 'https://x.example/contact-us', headings: ['contact us'], bodyText: 'send us a message and we will get back to you', buttons: [], counts: {},
+    fields: [{ semantic: null, visible: true }, { semantic: 'email' }, { semantic: null, visible: true }] };
+  assert.equal(detectFeature('passenger_details', o).reached, false);
+});
+
+test('passenger_details: does NOT match a payment page (cardholder name + card fields)', () => {
+  const o = { url: 'https://x.example/payment', headings: ['payment details'], bodyText: 'card number expiration date cvv cardholder name', buttons: [], counts: {},
+    fields: [{ semantic: null, visible: true }, { semantic: null, visible: true }, { semantic: null, visible: true }] };
+  assert.equal(detectFeature('passenger_details', o).reached, false);
+});
+
+test('passenger_details: does NOT match a booking-confirmation page showing traveler names as static text', () => {
+  const o = {
+    url: 'https://x.example/confirmation',
+    headings: ['booking confirmed', 'traveler information'],
+    bodyText: 'thank you for booking with us. confirmation number ABC123. traveler: jane doe',
+    buttons: ['print', 'email itinerary'], counts: {},
+    fields: [], // static summary text, no data-entry fields at all
+  };
+  assert.equal(detectFeature('passenger_details', o).reached, false, 'a static confirmation summary is not a passenger-details FORM');
+});
+
+test('passenger_details: one isolated field with no heading/context is WEAK evidence, not a match', () => {
+  const o = { url: 'https://x.example/somewhere', headings: ['welcome'], bodyText: 'browse our site', buttons: [], counts: {},
+    fields: [{ semantic: 'email' }] };
+  assert.equal(detectFeature('passenger_details', o).reached, false);
+});
+
+// ─── pageKind() "confirmation" false-positive fix ─────────────────────────
+test('pageKind: a bare mention of the word "confirmation" (e.g. a future-step breadcrumb) is NOT enough to classify as confirmation', async () => {
+  const { pageKind } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/genericVerifier.js');
+  const breadcrumbOnly = { url: 'https://x.example/travelers', headings: ['primary contact'], bodyText: 'trip passengers seats payment confirmation', fields: [{ semantic: null, visible: true }], controls: [], counts: {} };
+  assert.notEqual(pageKind(breadcrumbOnly), 'confirmation');
+});
+
+test('pageKind: a real confirmation page (qualified wording) still classifies correctly', async () => {
+  const { pageKind } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/genericVerifier.js');
+  const real1 = { url: 'https://x.example/done', headings: ['booking confirmed'], bodyText: 'your confirmation number is ABC123', fields: [], controls: [], counts: {} };
+  const real2 = { url: 'https://x.example/done2', headings: ['thank you'], bodyText: 'a confirmation email has been sent', fields: [], controls: [], counts: {} };
+  assert.equal(pageKind(real1), 'confirmation');
+  assert.equal(pageKind(real2), 'confirmation');
+});
+
 // ─── 7. the loop ─────────────────────────────────────────────────────────
 test('loop: a detector match on the FIRST observation stops immediately (0 actions)', async () => {
   const adapter = scriptedAdapter([

@@ -34,7 +34,15 @@ const KIND_PATTERNS = [
   ['cart', /\b(cart|basket|shopping bag|proceed to checkout)\b/i, (o) => /\b(subtotal|remove|quantity|your (items|order|bag))\b/i.test(`${(o.headings || []).join(' ')} ${o.bodyText || ''}`)],
   ['checkout', /\b(checkout|check ?out|place (your )?order|order summary|delivery (address|details)|shipping (address|method)|proceed to (payment|checkout))\b/i, () => true],
   ['payment', /\b(how would you like to pay|card number|cvv|order total|amount (due|payable)|total to pay|select a payment method|pay(ment)? (details|information))\b/i, () => true],
-  ['confirmation', /\b(thank you|order (confirmed|placed)|confirmation|you're all set|booking (confirmed|reference))\b/i, () => true],
+  // PROVEN false positive (real Alaska Airlines /book/guest-info run, a
+  // genuine Passenger Details page): the bare word "confirmation" alone
+  // matched — almost certainly a multi-step progress breadcrumb naming a
+  // FUTURE step ("Passengers → Seats → Payment → Confirmation"), not the
+  // current page. Now requires "confirmation" to be qualified (a number,
+  // code, or email) so a real confirmation page — "confirmation number",
+  // "booking confirmation email sent" — still matches, but a step label
+  // mentioning the word in passing does not.
+  ['confirmation', /\b(thank you|order (confirmed|placed)|you're all set|booking (confirmed|reference)|confirmation (number|code|email|sent)|(order|booking) confirmation\b)/i, () => true],
   ['results', /\b(results|listings?|we found|showing \d+|\d+ (results|options|properties|flights|items))\b/i, (o) => count(o) >= 3],
   ['form', /\b(please (enter|provide|fill)|required fields?|your (details|information))\b/i, (o) => (o.fields || []).length >= 3],
 ];

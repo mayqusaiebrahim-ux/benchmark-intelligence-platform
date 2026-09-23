@@ -49,15 +49,78 @@ export const FEATURE_DETECTORS = {
     return result(s.length >= 2, strong ? 'high' : 'medium', s);
   },
 
+  // Multi-signal, airline-agnostic. Proven live (real Alaska Airlines
+  // /book/guest-info page) that per-field semantic tags alone are NOT
+  // reliable evidence: a site can render name/DOB fields with a label
+  // association the extraction layer can't resolve (e.g. a floating/slotted
+  // label inside a shadow-DOM component), so first_name/last_name/
+  // date_of_birth can all read as absent even though the fields are
+  // genuinely on screen. This detector therefore treats exact field
+  // semantics as a BONUS signal, not a requirement — heading phrasing,
+  // instructional/contextual text, and a generic "substantial form on an
+  // active booking page" count all combine, matching how a human would
+  // recognize the page even without perfect field labeling.
   passenger_details(o) {
     const s = [];
-    if (field(o, 'first_name')) s.push('first name field');
-    if (field(o, 'last_name')) s.push('last name field');
-    if (field(o, 'date_of_birth')) s.push('date-of-birth field');
-    if (field(o, 'title')) s.push('title selector');
-    if (has(o.headings, /(passenger|traveller|traveler|guest|who('| i)s travel|contact details)/)) s.push('passenger heading');
-    const strong = field(o, 'first_name') && field(o, 'last_name') && (field(o, 'date_of_birth') || has(o.headings, /passenger|travell?er/));
-    return result((field(o, 'first_name') && field(o, 'last_name')) || (s.length >= 2 && has(o.headings, /passenger|travell?er/)), strong ? 'high' : 'medium', s);
+    const hasFirst = field(o, 'first_name');
+    const hasLast = field(o, 'last_name');
+    const hasBothNames = hasFirst && hasLast;
+    const hasDob = field(o, 'date_of_birth');
+    const hasTitleOrGender = field(o, 'title') || field(o, 'gender');
+    if (hasBothNames) s.push('first + last name fields');
+    else if (hasFirst || hasLast) s.push('a name field');
+    if (hasDob) s.push('date-of-birth field');
+    if (hasTitleOrGender) s.push('title/gender field');
+
+    // Covers "Passenger/Traveller/Traveler/Guest [Details/Information]",
+    // "Primary Contact/Traveler/Passenger/Guest", "Who's travelling",
+    // "Contact details" — generic wording across carriers, not one string.
+    // "passenger"/"traveler"/"traveller" alone are specific enough to count
+    // as a heading signal (e.g. "Passenger 1", "Traveler Details"). "guest"
+    // is NOT — it's common travel-marketing copy unrelated to this feature
+    // (proven by a real fixture: Etihad's own homepage tagline "life's
+    // better as a guest") — so "guest" only counts when qualified by
+    // "information"/"details" or "primary guest".
+    const headingMatch = has(o.headings, /\b(passengers?|travell?ers?)\b|(guests?)\s*(information|details)\b|who('| i)s travel|primary (contact|travell?er|passenger|guest)|contact details/i);
+    if (headingMatch) s.push('traveler/passenger heading');
+
+    const govIdText = txt(o, /\b(government[- ]?issued (photo )?id|as it appears on (your|the traveler'?s?|the traveller'?s?) (passport|id|photo ?id))\b/i);
+    if (govIdText) s.push('government-ID instruction text');
+
+    const tsaText = txt(o, /\b(tsa\s*pre.?check|known traveler( number)?|known traveller( number)?|redress number)\b/i);
+    if (tsaText) s.push('TSA PreCheck / known-traveler text');
+
+    const loyaltyText = txt(o, /\b(loyalty (program|number)|frequent flyer( number)?|membership number)\b/i);
+    if (loyaltyText) s.push('loyalty/frequent-flyer text');
+
+    // Structural fallback for when per-field semantics don't resolve: a
+    // substantial number of visible fields on the page. Deliberately a
+    // HIGHER bar than genericVerify's generic "4+ fields" form heuristic —
+    // this is evidence of a real, LARGE traveler-info form, not just any
+    // form, and is only ever used ALONGSIDE a heading or contextual signal
+    // below, never alone.
+    const visibleFieldCount = (o.fields || []).filter((f) => f.visible !== false).length;
+    const substantialForm = visibleFieldCount >= 5;
+    if (substantialForm) s.push(`${visibleFieldCount} visible fields`);
+
+    // Never match a login or payment surface, even if wording coincidentally
+    // overlaps (e.g. a payment page also mentions "contact details").
+    const looksLikeLogin = field(o, 'password') || has(o.headings, /\b(sign in|log in|login)\b/i);
+    const looksLikePayment = txt(o, /\b(card number|cvv|cvc|expir(y|ation) date)\b/i) && !hasBothNames;
+    if (looksLikeLogin || looksLikePayment) return result(false, 'none', s);
+
+    const contextSignals = [govIdText, tsaText, loyaltyText].filter(Boolean).length;
+
+    // STRONG: real name+DOB fields, or names plus a heading/traveler context.
+    const strong = hasBothNames && (hasDob || headingMatch);
+    // MEDIUM: a traveler/passenger heading corroborated by SOME other
+    // evidence (a name field, a substantial form, or contextual text) — a
+    // heading alone, or one isolated field alone, is never enough.
+    const medium = hasBothNames
+      || (headingMatch && (hasFirst || hasLast || substantialForm || contextSignals >= 1))
+      || (contextSignals >= 2 && substantialForm);
+
+    return result(strong || medium, strong ? 'high' : 'medium', s);
   },
 
   seat_selection(o) {
