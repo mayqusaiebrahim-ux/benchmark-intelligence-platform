@@ -858,11 +858,17 @@ test('CUSTOM TARGET (no dedicated detector): "the page where I choose seats" mat
 });
 
 test('CUSTOM TARGET (no dedicated detector): "where I add baggage" matches real baggage UI', () => {
+  // Uses "baggage" itself in the control name — not "bag" — deliberately.
+  // "bag" and "baggage" are NOT the same token under generic suffix rules
+  // (no dictionary equates them; see the seat-vs-Seattle / bag-vs-baggage
+  // audit tests below), so this fixture proves the match comes from
+  // coherent evidence for the word the user actually typed, not a lucky
+  // substring.
   const o = {
     url: 'https://airline.example/booking/extras',
-    headings: ['Add checked bags'],
-    bodyText: 'add extra baggage to your trip. price per bag shown below.',
-    controls: [{ name: 'Add a bag' }, { name: 'Remove bag' }, { name: 'Continue' }],
+    headings: ['Add checked baggage'],
+    bodyText: 'add extra baggage to your trip. price per item shown below.',
+    controls: [{ name: 'Add baggage' }, { name: 'Remove baggage' }, { name: 'Continue' }],
     fields: [],
     counts: {},
   };
@@ -1041,4 +1047,352 @@ test('a custom target with no dedicated detector still stops at NO airline/compa
   // works for e-commerce too, not just airlines.
   const r = genericVerify(o, 'the page where I pick gift wrapping');
   assert.equal(r.reached, true, JSON.stringify(r.signals));
+});
+
+// ═══ 13. HARDENING — word-boundary matching, concept-vs-action, coherence ═══
+// Phase 1 audit: the previous implementation matched with plain substring
+// `.includes()`, which matches ANYWHERE inside a longer word, not just at a
+// word boundary. Every test below is a direct, provable case of a substring
+// that is NOT the same concept — proven with tokenMatches() directly
+// (helper-level) and with genericVerify() (behavioral level).
+
+import { tokenMatches as _tokenMatches, keyWords as _keyWords, tokenize as _tokenize } from '../../../11_Benchmark_Engine/modules/autonomous_navigator/genericVerifier.js';
+
+test('AUDIT (helper-level): tokenMatches rejects unrelated words that merely share a substring', () => {
+  const badPairs = [
+    ['seat', 'seattle'],
+    ['bag', 'baggage'],
+    ['pay', 'repayment'],
+    ['fare', 'farewell'],
+    ['meal', 'mealtime'],
+    ['add', 'address'],
+  ];
+  for (const [req, hay] of badPairs) {
+    assert.equal(_tokenMatches(req, hay), false, `"${req}" must NOT match "${hay}" — they are unrelated words, not the same word inflected`);
+  }
+});
+
+test('AUDIT (helper-level): tokenMatches accepts genuine English inflections of the SAME word', () => {
+  const goodPairs = [
+    ['select', 'selection'],
+    ['seat', 'seats'],
+    ['choose', 'choosing'],
+    ['baggage', 'baggage'],
+    ['add', 'added'],
+    ['traveler', 'travelers'],
+  ];
+  for (const [req, hay] of goodPairs) {
+    assert.equal(_tokenMatches(req, hay), true, `"${req}" should match "${hay}" — same word, generic English inflection`);
+  }
+});
+
+test('AUDIT (behavioral): "Seat Selection" requested — a control literally named "Seattle" produces NO match via tokenMatches, not just via the gate', () => {
+  const toks = _tokenize('Seattle');
+  const words = _keyWords('Seat Selection');
+  const anyMatch = words.some((w) => toks.some((t) => _tokenMatches(w, t)));
+  assert.equal(anyMatch, false);
+});
+
+test('FALSE-POSITIVE AUDIT: "add" vs "address" — a page with an Address field must not satisfy "where I add baggage"', () => {
+  const o = {
+    url: 'https://airline.example/booking/contact',
+    headings: ['Contact details'],
+    bodyText: 'enter your billing address below.',
+    controls: [{ name: 'Continue' }],
+    fields: [{ label: 'Address line 1' }, { label: 'City' }, { label: 'Postal code' }, { label: 'Country' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'where I add baggage');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('FALSE-POSITIVE AUDIT: "pay" vs "repayment" — a finance page mentioning loan repayment must not satisfy "Payment"', () => {
+  const o = {
+    url: 'https://airline.example/help/financing',
+    headings: ['Financing & repayment options'],
+    bodyText: 'learn about our flexible repayment plans and financing partners.',
+    controls: [{ name: 'Learn more' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'Payment');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('FALSE-POSITIVE AUDIT: "fare" vs "farewell" — a goodbye/thank-you message must not satisfy "choose my fare"', () => {
+  const o = {
+    url: 'https://airline.example/feedback/thanks',
+    headings: ['A farewell message from our CEO'],
+    bodyText: 'as we bid farewell to this aircraft type, thank you for flying with us.',
+    controls: [{ name: 'Close' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'choose my fare');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('FALSE-POSITIVE AUDIT: "meal" vs "mealtime" — an unrelated schedule/mealtime note must not satisfy "meal selection"', () => {
+  const o = {
+    url: 'https://airline.example/inflight/schedule',
+    headings: ['Cabin crew mealtime schedule'],
+    bodyText: 'crew mealtime is at 14:00 during the flight.',
+    controls: [{ name: 'View schedule' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'meal selection');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+// ── PHASE 3 — action word alone must not identify the target ────────────
+
+test('ACTION-ONLY MISMATCH: "where I add baggage" vs an "Add passenger" control — the action word "add" matches but the concept "baggage" does not', () => {
+  const o = {
+    url: 'https://airline.example/booking/travelers',
+    headings: ['Traveler details'],
+    bodyText: 'add a passenger to continue.',
+    controls: [{ name: 'Add passenger' }, { name: 'Continue' }],
+    fields: [{ label: 'First name' }, { label: 'Last name' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'where I add baggage');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('ACTION-ONLY MISMATCH: "meal selection" vs a "Select flight" control — the action word "select" matches but the concept "meal" does not', () => {
+  const o = {
+    url: 'https://airline.example/search/results',
+    headings: ['Available flights'],
+    bodyText: 'choose your preferred departure time.',
+    controls: [{ name: 'Select flight 101' }, { name: 'Select flight 202' }],
+    fields: [],
+    counts: { flightCards: 2 },
+  };
+  const r = genericVerify(o, 'meal selection');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('ACTION-ONLY MISMATCH: "where I change my seat" vs a "Change flight" control — the action word "change" matches but the concept "seat" does not', () => {
+  const o = {
+    url: 'https://airline.example/manage/flight',
+    headings: ['Manage your booking'],
+    bodyText: 'change your flight date or route.',
+    controls: [{ name: 'Change flight' }, { name: 'Cancel booking' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'where I change my seat');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+// ── PHASE 7 — functional control vs marketing/informational control ─────
+
+test('MARKETING-LINK FALSE POSITIVE: "Seat Selection" requested, homepage only has an informational link "Learn about seat selection"', () => {
+  const o = {
+    url: 'https://airline.example/',
+    headings: ['Welcome', 'Plan your next trip'],
+    bodyText: 'discover our seat selection options before you fly.',
+    controls: [{ name: 'Search flights' }, { name: 'Learn about seat selection' }, { name: 'Sign in' }],
+    fields: [{ label: 'Origin' }, { label: 'Destination' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'Seat Selection');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('INFORMATIONAL-LINK FALSE POSITIVE: "Baggage" requested, homepage footer only has a link "Baggage information"', () => {
+  const o = {
+    url: 'https://airline.example/',
+    headings: ['Welcome', 'Book your next trip'],
+    bodyText: 'flights hotels cars.',
+    controls: [{ name: 'Search flights' }, { name: 'Baggage information' }, { name: 'Sign in' }],
+    fields: [{ label: 'Origin' }, { label: 'Destination' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'Baggage');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('MARKETING-CTA FALSE POSITIVE: "Meal Selection" requested, marketing page only has a CTA "Explore our meals"', () => {
+  const o = {
+    url: 'https://airline.example/experience/dining',
+    headings: ['Onboard dining'],
+    bodyText: 'a world-class dining experience awaits.',
+    controls: [{ name: 'Explore our meals' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'Meal Selection');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+// ── PHASE 8 — coherent functional evidence: the same four custom targets, ──
+// but this time asserting the evidence is genuinely coherent (actionable
+// control, or a real multi-option set), not one coincidental element.
+
+test('COHERENT POSITIVE: seat selection — actionable control (concept + distinct action verb) required and present', () => {
+  const o = {
+    url: 'https://airline.example/booking/seats',
+    headings: ['Choose your seats'],
+    bodyText: 'select a seat for each passenger.',
+    controls: [{ name: 'Choose seat 14A' }, { name: 'Choose seat 14B' }, { name: 'Continue to payment' }],
+    fields: [{ label: 'Passenger 1' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'the page where I choose seats');
+  assert.equal(r.reached, true, JSON.stringify(r.signals));
+  assert.equal(r.structuralMatch, true);
+});
+
+test('COHERENT POSITIVE: baggage — actionable control (concept + distinct action verb) required and present', () => {
+  const o = {
+    url: 'https://airline.example/booking/extras',
+    headings: ['Add checked baggage'],
+    bodyText: 'add extra baggage to your trip.',
+    controls: [{ name: 'Add baggage' }, { name: 'Remove baggage' }, { name: 'Continue' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'where I add baggage');
+  assert.equal(r.reached, true, JSON.stringify(r.signals));
+});
+
+// ── PHASE 5 — deterministic paraphrase limitations: what Layer 1 CANNOT ──
+// (and, per the success criterion, MUST NOT) resolve on its own. These
+// define exactly where the future AI semantic layer begins.
+
+test('PARAPHRASE LIMITATION: "where I add baggage" vs UI wording "Purchase checked luggage" — no shared concept word, must NOT be forced to PASS', () => {
+  const o = {
+    url: 'https://airline.example/booking/extras',
+    headings: ['Extras'],
+    bodyText: 'purchase checked luggage for your trip.',
+    controls: [{ name: 'Purchase checked luggage' }, { name: 'Continue' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'where I add baggage');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+  assert.notEqual(r.verdict, 'match');
+});
+
+test('PARAPHRASE LIMITATION: "choose my meal" vs UI wording "Dining preferences" — no shared concept word, must NOT be forced to PASS', () => {
+  const o = {
+    url: 'https://airline.example/booking/dining',
+    headings: ['Dining preferences'],
+    bodyText: 'set your dining preferences for this flight.',
+    controls: [{ name: 'Save preferences' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'choose my meal');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+  assert.notEqual(r.verdict, 'match');
+});
+
+test('PARAPHRASE LIMITATION: "traveler information" vs UI wording "Guest details" — no shared concept word, must remain unresolved deterministically', () => {
+  const o = {
+    url: 'https://airline.example/booking/guest',
+    headings: ['Guest details'],
+    bodyText: 'please provide details for each guest.',
+    controls: [{ name: 'Continue' }],
+    fields: [{ label: 'First name' }, { label: 'Last name' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'traveler information');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+  assert.notEqual(r.verdict, 'match');
+});
+
+// ── PHASE 6 — multilingual target text: preserved, never falsely matched ──
+
+test('MULTILINGUAL: an Arabic target ("اختيار المقعد" — choose the seat) against an English-only page must NOT falsely match', () => {
+  const o = {
+    url: 'https://airline.example/booking/seats',
+    headings: ['Choose your seat'],
+    bodyText: 'select a seat for each passenger.',
+    controls: [{ name: 'Choose seat 14A' }, { name: 'Continue' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'اختيار المقعد');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+  assert.notEqual(r.verdict, 'match');
+});
+
+test('MULTILINGUAL: arbitrary Unicode target text survives target creation unchanged (no mangling, no transliteration, no truncation)', async () => {
+  const { createBenchmarkTarget } = await import('../../runtime/benchmarkTarget.js');
+  const arabic = 'اختيار المقعد';
+  const target = createBenchmarkTarget({ company: 'Test Airline', slug: 'test_airline', url: 'https://airline.example/', feature: arabic, requestId: 'req_ar_1' });
+  assert.equal(target.feature, arabic, 'the exact Arabic string must survive unchanged through target creation');
+  assert.equal(target.feature.length, arabic.length);
+});
+
+test('MULTILINGUAL: genericVerify never throws on Unicode/mixed-script input', () => {
+  const o = { url: 'https://airline.example/', headings: ['首页'], bodyText: '', controls: [], fields: [], counts: {} };
+  assert.doesNotThrow(() => genericVerify(o, '座席選択 🛫 اختيار المقعد'));
+});
+
+// ── PHASE 4 — three-way verdict for the future AI hand-off ──────────────
+
+test('VERDICT: a clear match reports verdict "match"', () => {
+  const o = {
+    url: 'https://airline.example/booking/payment',
+    headings: ['Payment details'],
+    bodyText: 'enter your card number to complete payment.',
+    controls: [{ name: 'Pay now' }],
+    fields: [{ label: 'Card number' }, { label: 'Expiry date' }, { label: 'CVV' }, { label: 'Cardholder name' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'the final payment screen');
+  assert.equal(r.verdict, 'match');
+});
+
+test('VERDICT: a page with zero signal for the request reports verdict "no-match", not "ambiguous"', () => {
+  const o = {
+    url: 'https://airline.example/legal/privacy',
+    headings: ['Privacy policy'],
+    bodyText: 'this policy describes how we handle personal data.',
+    controls: [{ name: 'Accept' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'Seat Selection');
+  assert.equal(r.reached, false);
+  assert.equal(r.verdict, 'no-match');
+});
+
+test('VERDICT: a paraphrase with no shared concept word reports verdict "ambiguous" or "no-match" but never "match" — this is the future AI hand-off condition', () => {
+  const o = {
+    url: 'https://airline.example/booking/guest',
+    headings: ['Guest details'],
+    bodyText: 'please provide details for each guest.',
+    controls: [{ name: 'Continue' }],
+    fields: [{ label: 'First name' }, { label: 'Last name' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'traveler information');
+  assert.notEqual(r.verdict, 'match');
+  assert.ok(['ambiguous', 'no-match'].includes(r.verdict), r.verdict);
+});
+
+// ── PHASE 9 — regression: known detector path + original identity intact ──
+
+test('REGRESSION: Passenger Details specialized detector is untouched by this hardening pass', async () => {
+  const { detectFeature } = await import('../../../11_Benchmark_Engine/modules/goal_navigator/featureDetectors.js');
+  const o = {
+    url: 'https://airline.example/booking/passengers',
+    headings: ['Passenger details'],
+    bodyText: 'please enter first name, last name and date of birth for each passenger.',
+    controls: [{ name: 'Continue' }],
+    fields: [
+      { label: 'First name', semantic: 'first_name' },
+      { label: 'Last name', semantic: 'last_name' },
+      { label: 'Date of birth', semantic: 'dob' },
+      { label: 'Nationality', semantic: 'nationality' },
+    ],
+    counts: {},
+  };
+  const r = detectFeature('passenger_details', o, { minConfidence: 'medium' });
+  assert.equal(r.reached, true, JSON.stringify(r.signals || []));
 });

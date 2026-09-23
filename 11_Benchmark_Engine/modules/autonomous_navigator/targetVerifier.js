@@ -36,6 +36,22 @@ export async function verifyTarget(page, detectorKey, { minConfidence = 'medium'
     // requested experience, or just "a page with inputs"?). Deriving reached
     // from the confidence RANK alone ignored that veto and let a homepage with
     // a booking widget verify as "Passenger Details" with zero navigation.
+    //
+    // FUTURE AI-VERIFIER INSERTION POINT (not implemented — no API call
+    // exists here today): when `!g.reached && g.verdict === 'ambiguous'`,
+    // this is the exact place to call an optional
+    // `aiAssistedVerify(observation, featureLabel, g)`. genericVerify()'s
+    // three-way verdict already separates "definitely not this page"
+    // (verdict 'no-match', confidence 'none' — keep navigating, no AI call
+    // needed) from "some signal fired but not enough to safely accept"
+    // (verdict 'ambiguous' — a paraphrase, a synonym, a different language,
+    // evidence that just missed the coherence bar). Only the 'ambiguous'
+    // bucket should ever reach the future AI layer; 'match' and 'no-match'
+    // are already fully decided deterministically and must stay free. If an
+    // AI verifier says reached: true, its result should replace `g` here
+    // (with its own `method: 'ai-semantic'`) exactly the way the detector
+    // fallback below replaces `det`; if it says reached: false, `det` stays
+    // as-is and navigation continues.
     return {
       reached: g.reached && CONF_RANK[g.confidence] >= CONF_RANK[minConfidence],
       confidence: g.confidence,
