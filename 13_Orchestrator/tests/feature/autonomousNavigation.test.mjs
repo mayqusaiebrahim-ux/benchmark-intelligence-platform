@@ -833,3 +833,212 @@ test('NO company / airline / hostname-specific code in the autonomous_navigator 
     assert.ok(!/if\s*\([^)]*\.(hostname|host)\s*===/.test(src), `${f} branches on a hostname`);
   }
 });
+
+// ═══ 12. GENERIC TARGET VERIFICATION — arbitrary user-requested targets ═══
+// No feature-specific keyword dictionary exists anywhere below (no "seat
+// words", "baggage words", "meal words" list). Every match below comes from
+// (a) words the test itself types as the REQUESTED feature, matched against
+// (b) generic page evidence (headings/URL/controls/fields), optionally
+// combined with (c) the one small, universal, domain-free action-verb list
+// (select/choose/add/enter/...) already used by the whole platform for any
+// site, any industry — not travel-specific, not airline-specific.
+
+test('CUSTOM TARGET (no dedicated detector): "the page where I choose seats" matches real seat-selection UI', () => {
+  const o = {
+    url: 'https://airline.example/booking/seats',
+    headings: ['Choose your seats'],
+    bodyText: 'select a seat for each passenger. extra legroom seats available for a fee.',
+    controls: [{ name: 'Choose seat 14A' }, { name: 'Choose seat 14B' }, { name: 'Continue to payment' }],
+    fields: [{ label: 'Passenger 1' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'the page where I choose seats');
+  assert.equal(r.reached, true, JSON.stringify(r.signals));
+  assert.equal(r.structuralMatch, true, 'an actionable "Choose seat" control must count as structural evidence');
+});
+
+test('CUSTOM TARGET (no dedicated detector): "where I add baggage" matches real baggage UI', () => {
+  const o = {
+    url: 'https://airline.example/booking/extras',
+    headings: ['Add checked bags'],
+    bodyText: 'add extra baggage to your trip. price per bag shown below.',
+    controls: [{ name: 'Add a bag' }, { name: 'Remove bag' }, { name: 'Continue' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'where I add baggage');
+  assert.equal(r.reached, true, JSON.stringify(r.signals));
+});
+
+test('CUSTOM TARGET (no dedicated detector): "meal selection" matches real meal-preference UI, verified generically not via a detector', () => {
+  const o = {
+    url: 'https://airline.example/booking/meals',
+    headings: ['Choose your meal'],
+    bodyText: 'select a meal preference for your flight. vegetarian and standard options available.',
+    controls: [{ name: 'Select vegetarian meal' }, { name: 'Select standard meal' }, { name: 'Continue' }],
+    fields: [],
+    counts: {},
+  };
+  // Calling genericVerify() directly, bypassing targetVerifier's detectorKey
+  // routing entirely — this is the real, exact code path an arbitrary
+  // user-typed target with detectorKey:null takes.
+  const r = genericVerify(o, 'meal selection');
+  assert.equal(r.reached, true, JSON.stringify(r.signals));
+});
+
+test('CUSTOM TARGET (no dedicated detector): "the final payment screen" matches real payment-form semantics', () => {
+  const o = {
+    url: 'https://airline.example/booking/payment',
+    headings: ['Payment details'],
+    bodyText: 'enter your card number, expiry date and cvv to complete payment.',
+    controls: [{ name: 'Pay now' }],
+    fields: [{ label: 'Card number' }, { label: 'Expiry date' }, { label: 'CVV' }, { label: 'Cardholder name' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'the final payment screen');
+  assert.equal(r.reached, true, JSON.stringify(r.signals));
+});
+
+test('TRULY NOVEL TARGET — a phrase absent from every keyword list in the repo (featureDetectors, featureIntent, FEATURE_KIND_HINTS) still verifies generically', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const phrase = 'onboard wifi package';
+  // Prove the phrase really is absent from the repo's hardcoded keyword
+  // surfaces first — otherwise this test would silently degrade into
+  // testing detector routing instead of generic verification.
+  for (const rel of ['../../../11_Benchmark_Engine/modules/goal_navigator/featureDetectors.js', '../../featureNavigation/featureIntent.js', '../../../11_Benchmark_Engine/modules/autonomous_navigator/genericVerifier.js']) {
+    const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').toLowerCase();
+    assert.ok(!src.includes('wifi'), `${rel} must not already hardcode "wifi" for this test to prove anything`);
+  }
+  const o = {
+    url: 'https://airline.example/booking/extras/connectivity',
+    // Deliberately no hyphen — matches how keyWords() extracts the request
+    // ("wifi", no hyphen); a real page could render either way, this test
+    // is about generic matching, not hyphen normalization.
+    headings: ['Choose your WiFi package'],
+    bodyText: 'select an onboard wifi package to stay connected during your flight.',
+    controls: [{ name: 'Select WiFi plan' }, { name: 'Skip' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'the screen for choosing my onboard wifi package');
+  assert.equal(r.reached, true, JSON.stringify(r.signals));
+});
+
+test('ALIAS / PARAPHRASE: differently-worded requests for the same real traveler-info page each verify independently', () => {
+  // Each alias is checked against a small fixture using THAT alias's own
+  // wording somewhere real (heading or an actionable control) — proving the
+  // generic matcher tracks meaning-bearing words from whatever phrase the
+  // user actually typed, not a fixed list of accepted synonyms.
+  const cases = [
+    { alias: 'Traveler Details', heading: 'Traveler details' },
+    { alias: 'Traveller Details', heading: 'Traveller details' },
+    { alias: 'Guest Information', heading: 'Guest information' },
+    { alias: 'Passenger Information', heading: 'Passenger information' },
+  ];
+  for (const { alias, heading } of cases) {
+    const o = {
+      url: 'https://airline.example/booking/travelers',
+      headings: [heading],
+      bodyText: 'please enter first name, last name and date of birth.',
+      controls: [{ name: 'Continue' }],
+      fields: [{ label: 'First name' }, { label: 'Last name' }, { label: 'Date of birth' }],
+      counts: {},
+    };
+    const r = genericVerify(o, alias);
+    assert.equal(r.reached, true, `"${alias}" should verify against a page headed "${heading}" — ${JSON.stringify(r.signals)}`);
+  }
+});
+
+// ── NEGATIVE / WRONG-PAGE — coherent multi-signal evidence required ──────
+
+test('NEGATIVE: Seat Selection requested, but page is flight results merely mentioning "seat availability" in prose', () => {
+  const o = {
+    url: 'https://airline.example/search/results',
+    headings: ['Available flights'],
+    bodyText: 'flight 101, 9:00am, seat availability: 42 seats remaining. flight 202, 2:00pm.',
+    controls: [{ name: 'Select flight 101' }, { name: 'Select flight 202' }],
+    fields: [],
+    counts: { flightCards: 2, priceTags: 2 },
+  };
+  const r = genericVerify(o, 'Seat Selection');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('NEGATIVE: Baggage requested, but page is the homepage footer mentioning "baggage policy"', () => {
+  const o = {
+    url: 'https://airline.example/',
+    headings: ['Welcome', 'Book your next trip'],
+    bodyText: 'flights hotels cars. see our baggage policy for details. cookie policy privacy policy.',
+    controls: [{ name: 'Search flights' }, { name: 'Sign in' }],
+    fields: [{ label: 'Origin' }, { label: 'Destination' }],
+    counts: {},
+  };
+  const r = genericVerify(o, 'Baggage');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('NEGATIVE: Payment requested, but page is a fare page mentioning "payment later" as fine print', () => {
+  const o = {
+    url: 'https://airline.example/booking/fares',
+    headings: ['Choose your fare'],
+    bodyText: 'economy basic, economy flex. book now, payment later available on select fares.',
+    controls: [{ name: 'Select economy basic' }, { name: 'Select economy flex' }],
+    fields: [],
+    counts: { fareCards: 2 },
+  };
+  const r = genericVerify(o, 'Payment');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('NEGATIVE: Meal Selection requested, but page is marketing copy mentioning onboard meals with no meal-choosing control', () => {
+  const o = {
+    url: 'https://airline.example/experience/dining',
+    headings: ['Our onboard dining experience'],
+    bodyText: 'enjoy a curated selection of meals prepared by award-winning chefs on every long-haul flight.',
+    controls: [{ name: 'Learn more' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'Meal Selection');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('NEGATIVE: keyword-only coincidence — a control name that happens to share a word is not enough on its own to inflate confidence past the gate on a clearly wrong page', () => {
+  // "seat" appears in a totally unrelated control ("Seattle" origin button)
+  // — a substring coincidence, not semantic evidence. Kept deliberately
+  // adversarial: proves word-matching alone (without heading/URL/action
+  // context) cannot carry a false positive through the full gate.
+  const o = {
+    url: 'https://airline.example/',
+    headings: ['Book your trip'],
+    bodyText: 'search flights from your city',
+    controls: [{ name: 'Seattle' }],
+    fields: [],
+    counts: {},
+  };
+  const r = genericVerify(o, 'Seat Selection');
+  assert.equal(r.reached, false, JSON.stringify(r.signals));
+});
+
+test('original user-requested feature text survives target creation verbatim, for a fully custom phrase', async () => {
+  const { createBenchmarkTarget } = await import('../../runtime/benchmarkTarget.js');
+  const custom = 'the screen for choosing my onboard wifi package';
+  const target = createBenchmarkTarget({ company: 'Test Airline', slug: 'test_airline', url: 'https://airline.example/', feature: custom, requestId: 'req_1' });
+  assert.equal(target.feature, custom, 'the exact user-typed feature string must survive unchanged, not be replaced by a normalized/detector name');
+});
+
+test('a custom target with no dedicated detector still stops at NO airline/company-specific evidence — generic evidence only', () => {
+  const o = {
+    url: 'https://shop.example/checkout/gift-wrap',
+    headings: ['Add gift wrapping'],
+    bodyText: 'select a gift wrap style for your order.',
+    controls: [{ name: 'Choose gift wrap' }],
+    fields: [],
+    counts: {},
+  };
+  // A completely non-travel example — proves the same generic mechanism
+  // works for e-commerce too, not just airlines.
+  const r = genericVerify(o, 'the page where I pick gift wrapping');
+  assert.equal(r.reached, true, JSON.stringify(r.signals));
+});

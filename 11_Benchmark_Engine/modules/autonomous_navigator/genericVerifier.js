@@ -80,6 +80,14 @@ const FEATURE_KIND_HINTS = [
   [/(booking|reservation|appointment|quote|enquiry|application)/, ['form', 'checkout']],
 ];
 
+// A small, UNIVERSAL, domain-free UI-action vocabulary — not one entry per
+// feature category (no "seat words", "baggage words", "meal words" list;
+// that would just move the scalability problem into this file). These are
+// the generic verbs any interactive web UI uses to let a user DO something,
+// on any site, in any industry. Used only to tell "a control that lets you
+// act on the requested concept" apart from "a passing mention of it".
+const ACTION_WORDS = new Set(['select', 'choose', 'add', 'enter', 'review', 'pay', 'confirm', 'continue', 'edit', 'remove', 'update', 'change', 'submit', 'proceed', 'book', 'reserve', 'apply']);
+
 /**
  * @returns {{ reached, confidence: 'none'|'low'|'medium'|'high', signals: string[] }}
  */
@@ -92,15 +100,37 @@ export function genericVerify(observation, featureLabel) {
   const hayHeadings = (o.headings || []).join(' • ').toLowerCase();
   const hayUrl = String(o.url || '').toLowerCase();
   const hayText = String(o.bodyText || '').toLowerCase().slice(0, 4000);
+  // Structural evidence — NOT prose: the accessible names of actual
+  // interactive controls and form fields on the page right now. A concept
+  // word appearing here means the page lets the user DO/ENTER something
+  // related to the request, which is categorically stronger evidence than
+  // the same word merely appearing in a heading or a paragraph of body text.
+  const controlNames = (o.controls || []).map((c) => (typeof c === 'string' ? c : c.name) || '');
+  const fieldNames = (o.fields || []).map((f) => `${f.label || ''} ${f.ariaLabel || ''} ${f.placeholder || ''} ${f.semantic || ''}`);
 
   const inHeading = words.filter((w) => hayHeadings.includes(w));
   const inUrl = words.filter((w) => hayUrl.includes(w));
   const inText = words.filter((w) => hayText.includes(w));
+  const matchingControls = controlNames.filter((n) => words.some((w) => n.toLowerCase().includes(w)));
+  const matchingFields = fieldNames.filter((n) => words.some((w) => n.toLowerCase().includes(w)));
+  // The strongest generic signal available without another model call: a
+  // real, currently-visible control whose name BOTH names the requested
+  // concept AND carries a generic action verb — e.g. requested "seats",
+  // control "Choose your seat". This is genuine functional-state evidence,
+  // not keyword coincidence: a footer link "Seat availability info" or a
+  // paragraph mentioning "seat" would not match (no action verb attached).
+  const actionableControlMatch = matchingControls.some((n) => {
+    const lc = n.toLowerCase();
+    return [...ACTION_WORDS].some((a) => lc.includes(a));
+  });
 
   if (words.length && inHeading.length >= Math.ceil(words.length / 2)) { score += 3; signals.push(`heading matches "${inHeading.join(' ')}"`); }
   else if (inHeading.length) { score += 1; signals.push(`heading mentions "${inHeading.join(' ')}"`); }
   if (inUrl.length) { score += 1; signals.push(`url path mentions "${inUrl.join(' ')}"`); }
   if (words.length && inText.length >= Math.ceil(words.length / 2) && !inHeading.length) { score += 1; signals.push(`visible text mentions "${inText.join(' ')}"`); }
+  if (actionableControlMatch) { score += 3; signals.push(`an actionable control matches the request: "${matchingControls.find((n) => [...ACTION_WORDS].some((a) => n.toLowerCase().includes(a)))}"`); }
+  else if (matchingControls.length) { score += 2; signals.push(`a control on the page matches the request: "${matchingControls[0]}"`); }
+  if (matchingFields.length) { score += 1; signals.push(`a form field matches the request: "${matchingFields[0].trim()}"`); }
 
   const kind = pageKind(o);
   const wantKinds = (FEATURE_KIND_HINTS.find(([re]) => re.test(String(featureLabel || '').toLowerCase())) || [null, []])[1];
@@ -126,15 +156,23 @@ export function genericVerify(observation, featureLabel) {
   // that actually identifies THIS experience:
   //   - the page's own kind is a SPECIFIC one (checkout, login, cart, ...), or
   //   - the feature's words appear in the headings or the URL path.
-  // A generic "form" plus a field count is never enough on its own.
+  // A generic "form" plus a field count is never enough on its own. A
+  // STRUCTURAL match (a real control on the page) is added as an equally
+  // valid identifying signal alongside heading/URL text — this is what lets
+  // a target with no dedicated detector AND no matching pageKind entry
+  // (e.g. "Seat Selection", "Baggage", "the page where I add a meal") still
+  // be identified: not by inventing a per-feature keyword dictionary, but by
+  // checking whether the words the USER ALREADY TYPED show up as something
+  // actionable on the actual page, not just prose mentioning them.
   const lexicalMatch = inHeading.length > 0 || inUrl.length > 0;
   const specificKind = wantKinds.includes(kind) && SPECIFIC_KINDS.has(kind);
-  const identified = lexicalMatch || specificKind;
+  const structuralMatch = matchingControls.length > 0;
+  const identified = lexicalMatch || specificKind || structuralMatch;
   const scoreReached = confidence === 'high' || confidence === 'medium';
   if (scoreReached && !identified) {
-    signals.push(`not accepted: only a generic "${kind}" page — "${featureLabel}" does not appear in the headings or URL`);
+    signals.push(`not accepted: only a generic "${kind}" page — "${featureLabel}" does not appear in the headings, URL, or any on-page control`);
   }
-  return { reached: scoreReached && identified, confidence, signals, kind, identified, lexicalMatch };
+  return { reached: scoreReached && identified, confidence, signals, kind, identified, lexicalMatch, structuralMatch };
 }
 
 function tinyHash(s) {
