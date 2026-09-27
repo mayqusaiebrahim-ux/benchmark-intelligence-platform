@@ -24,7 +24,23 @@ services:
     # start now carry it directly, in the exact command strings Render has
     # been observed to execute verbatim.
     buildCommand: PLAYWRIGHT_BROWSERS_PATH=0 npm install
-    startCommand: PLAYWRIGHT_BROWSERS_PATH=0 npm start
+    # Live-run finding (BROWSER_PROVIDER=local): npm install's postinstall
+    # DID run scripts/installBrowsersIfNeeded.js during build, but at
+    # runtime the expected chromium-headless-shell binary was missing under
+    # 11_Benchmark_Engine/node_modules/playwright-core/.local-browsers/ —
+    # the exact path this Blueprint's persistent Disk mounts
+    # (mountPath: /opt/render/project/src, i.e. the whole project root,
+    # node_modules included). This repo cannot independently confirm
+    # Render's exact build-vs-runtime-filesystem timing for a Disk mounted
+    # at that path, but a Disk snapshot from an earlier deploy reintroducing
+    # itself over freshly-built node_modules content is the standard
+    # explanation for "installed during build, absent at runtime" on
+    # Render. Re-running the (idempotent — see installBrowsersIfNeeded.js)
+    # browser install immediately before the server starts makes this
+    # self-healing regardless of the exact cause, at negligible cost once
+    # the browsers are actually present (playwright install no-ops on an
+    # already-installed revision).
+    startCommand: PLAYWRIGHT_BROWSERS_PATH=0 node scripts/installBrowsersIfNeeded.js && PLAYWRIGHT_BROWSERS_PATH=0 npm start
     envVars:
       - key: OPENAI_API_KEY
         sync: false
