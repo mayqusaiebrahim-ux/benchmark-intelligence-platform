@@ -82,6 +82,27 @@ export function makeTelemetry({ feature, detectorKey, startedAt = Date.now() } =
     recovery(what) {
       logInfo('agent_nav_recovery', { feature, stepNumber: step, what: scrub(what), elapsedMs: elapsed() });
     },
+    // Local-only cost/budget telemetry — no external send, no extra AI call.
+    // Recorded once per run so the real distribution of navigation steps can
+    // be learned from a few benchmarks before any Sol-escalation policy is
+    // designed. navStepsUsed/navAiCallsUsed are BOTH the same
+    // onStepFinish-derived count (one real Stagehand model step == one
+    // agent_nav_action) — there is deliberately no second, independently
+    // maintained counter that could drift from it.
+    budget(b = {}) {
+      logInfo('agent_nav_budget_summary', {
+        feature,
+        navModel: b.navModel || null,
+        navProvider: b.navProvider || null,
+        navStepsUsed: b.navStepsUsed ?? step,
+        navAiCallsUsed: b.navAiCallsUsed ?? step,
+        maxNavSteps: b.maxNavSteps ?? null,
+        maxNavAiCalls: b.maxNavAiCalls ?? null,
+        navAiBudgetExhausted: !!b.navAiBudgetExhausted,
+        finalNavigationStatus: b.finalNavigationStatus || null,
+        elapsedMs: elapsed(),
+      });
+    },
     stop(r) {
       logInfo('agent_nav_stop', {
         feature, stepNumber: step,

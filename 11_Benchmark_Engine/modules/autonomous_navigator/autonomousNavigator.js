@@ -59,8 +59,20 @@ const INTENT_BY_TOOL = {
   screenshot: 'look at the page', think: 'reason about the next step', wait: 'wait for the page', done: 'finish',
 };
 
+// Cost-audit finding: maxSteps IS Stagehand's own native model-step ceiling
+// (agent.execute({maxSteps}) → the AI SDK's stepCountIs(maxSteps) inside
+// Stagehand's V3AgentHandler) — one step there is one real model call. A
+// separate "AI call counter" that tried to track this independently could
+// only ever drift from Stagehand's own count or require patching
+// node_modules; neither is acceptable. So MAX_NAV_AI_CALLS is enforced by
+// feeding the SAME native ceiling a (possibly tighter) number — see
+// resolveEffectiveLimits()'s `effectiveMaxSteps` — never a second loop.
+const DEFAULT_MAX_STEPS = 25;             // was 40 — conservative default, still overridable
+const DEFAULT_MAX_NAV_AI_CALLS = 25;      // hard ceiling on real agent model steps, independent knob
+
 export const DEFAULT_AGENT_LIMITS = Object.freeze({
-  maxSteps: 40,               // deep multi-step journeys need room; still bounded
+  maxSteps: DEFAULT_MAX_STEPS,      // deep multi-step journeys need room; still bounded
+  maxNavAiCalls: DEFAULT_MAX_NAV_AI_CALLS,
   maxMs: 7 * 60 * 1000,       // 420_000 — usable AGENT budget, from agentStartedAt
   evidenceReserveMs: 25 * 1000,
   probeIntervalMs: 6000,
@@ -108,30 +120,37 @@ function firstEnv(names) {
 const HYBRID_CAPABLE_PATTERNS = ['gemini-3', 'claude', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6'];
 const isHybridCapable = (model) => HYBRID_CAPABLE_PATTERNS.some((p) => String(model || '').includes(p));
 
+// Deterministic, explicit production default — cost-audit finding: the
+// previous "no AGENT_NAV_MODEL set → pick whichever provider key happens to
+// be present (Anthropic first, then Google, then OpenAI DOM-only)" chain let
+// an unrelated ANTHROPIC_API_KEY silently switch the navigation provider
+// with no explicit configuration anywhere. Confirmed against the exact
+// installed Stagehand 3.7.3: node_modules/@browserbasehq/stagehand/dist/esm/
+// lib/v3/agent/AgentProvider.js's modelToAgentProviderMap lists
+// "gpt-5.6-luna" verbatim (mapped to "openai"), and v3AgentHandler.js's own
+// hybrid gate (`HYBRID_CAPABLE_MODEL_PATTERNS.some(p => modelId.includes(p))`)
+// matches it via the "gpt-5.6" pattern — so this default is hybrid-capable
+// in this exact installed version, not merely assumed compatible.
+export const DEFAULT_AGENT_NAV_MODEL = 'openai/gpt-5.6-luna';
+
 /**
  * Concrete agent model + provider + interaction mode. NEVER "auto" (invalid
- * with disableAPI/experimental). Prefers a HYBRID-capable model (so the agent
- * can fall back from DOM to visual/coordinate interaction on custom widgets).
- * Honours AGENT_NAV_MODEL. `anthropic/claude-sonnet-4-6` is in Stagehand
- * v3.7.3's own model list and is hybrid-capable (id contains "claude").
+ * with disableAPI/experimental).
+ *
+ * Resolution is now a SINGLE explicit rule, not a provider-key priority
+ * chain: AGENT_NAV_MODEL if set, else DEFAULT_AGENT_NAV_MODEL. The mere
+ * presence of ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY no longer
+ * has any effect on WHICH model is chosen — only on whether the chosen
+ * model's required key is actually available (validateAgentConfiguration()
+ * fails loudly, with a clear reason, if it is not; it never silently swaps
+ * to a different provider). Anthropic/Google remain fully usable, but only
+ * via an explicit `AGENT_NAV_MODEL=anthropic/...` / `google/...` value.
  */
 export function detectAgentLlm() {
-  const explicit = process.env.AGENT_NAV_MODEL;
-  let base;
-  if (explicit) {
-    if (explicit === 'auto') return { provider: 'auto', model: 'auto', keyEnv: null, agentMode: 'dom', hybridCapable: false };
-    const provider = explicit.includes('/') ? explicit.split('/')[0] : 'openai';
-    base = { provider, model: explicit, keyEnv: firstEnv(PROVIDER_KEY_ENV[provider] || []) };
-  } else if (process.env.ANTHROPIC_API_KEY) {
-    base = { provider: 'anthropic', model: 'anthropic/claude-sonnet-4-6', keyEnv: 'ANTHROPIC_API_KEY' };
-  } else if (firstEnv(PROVIDER_KEY_ENV.google)) {
-    base = { provider: 'google', model: 'google/gemini-3-pro-preview', keyEnv: firstEnv(PROVIDER_KEY_ENV.google) };
-  } else if (process.env.OPENAI_API_KEY) {
-    // no OpenAI model in the hybrid list that we can assume access to → DOM mode.
-    base = { provider: 'openai', model: 'openai/gpt-4.1-mini', keyEnv: 'OPENAI_API_KEY' };
-  } else {
-    return null;
-  }
+  const explicit = process.env.AGENT_NAV_MODEL || DEFAULT_AGENT_NAV_MODEL;
+  if (explicit === 'auto') return { provider: 'auto', model: 'auto', keyEnv: null, agentMode: 'dom', hybridCapable: false };
+  const provider = explicit.includes('/') ? explicit.split('/')[0] : 'openai';
+  const base = { provider, model: explicit, keyEnv: firstEnv(PROVIDER_KEY_ENV[provider] || []) };
   const hybridCapable = isHybridCapable(base.model);
   return { ...base, hybridCapable, agentMode: hybridCapable ? 'hybrid' : 'dom' };
 }
@@ -191,6 +210,16 @@ export function agentModeAvailable() {
   return validateAgentConfiguration().ok;
 }
 
+// MAX_NAV_AI_CALLS env override — same override pattern as AGENT_NAV_MODEL.
+// Only ever tightens/loosens the ceiling passed to Stagehand's OWN
+// maxSteps; it is not a second counter.
+function envMaxNavAiCalls() {
+  const raw = process.env.MAX_NAV_AI_CALLS;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
 /** Compute + sanity-check the effective limits. Never returns a budget < MIN. */
 export function resolveEffectiveLimits(limits = {}) {
   const L = { ...DEFAULT_AGENT_LIMITS, ...limits };
@@ -200,6 +229,17 @@ export function resolveEffectiveLimits(limits = {}) {
   const minBudgetMs = Number.isFinite(L.minBudgetMs) ? L.minBudgetMs : MIN_DEEP_BUDGET_MS;
   let agentMaxMs = Math.round(L.maxMs);
   const warnings = [];
+
+  // maxNavAiCalls: explicit `limits.maxNavAiCalls` > MAX_NAV_AI_CALLS env >
+  // default. effectiveMaxSteps is the tighter of the two ceilings — this IS
+  // the hard AI-call budget: it's the exact number handed to Stagehand's own
+  // `agent.execute({ maxSteps })`, which the installed SDK already enforces
+  // natively (stepCountIs) as real model-call steps, not watchdog ticks.
+  const maxNavAiCalls = Number.isFinite(limits.maxNavAiCalls) && limits.maxNavAiCalls > 0
+    ? Math.floor(limits.maxNavAiCalls)
+    : (envMaxNavAiCalls() ?? DEFAULT_AGENT_LIMITS.maxNavAiCalls);
+  const maxSteps = Number.isFinite(L.maxSteps) && L.maxSteps > 0 ? Math.floor(L.maxSteps) : DEFAULT_AGENT_LIMITS.maxSteps;
+  const effectiveMaxSteps = Math.max(1, Math.min(maxSteps, maxNavAiCalls));
 
   if (!Number.isFinite(agentMaxMs) || agentMaxMs < minBudgetMs) {
     warnings.push(`configured agent budget ${agentMaxMs}ms is below the ${minBudgetMs}ms deep-journey minimum — using the default`);
@@ -217,7 +257,11 @@ export function resolveEffectiveLimits(limits = {}) {
     agentMaxMs = maxBySession;
   }
   return {
-    maxSteps: L.maxSteps,
+    maxSteps,
+    maxNavAiCalls,
+    // The number actually passed to agent.execute({ maxSteps }) — the real,
+    // native, Stagehand-enforced ceiling on model calls for this run.
+    effectiveMaxSteps,
     probeIntervalMs: L.probeIntervalMs,
     maxStuckTicks: Number.isFinite(L.maxStuckTicks) ? L.maxStuckTicks : DEFAULT_AGENT_LIMITS.maxStuckTicks,
     agentMaxMs,
@@ -389,7 +433,8 @@ export async function runAutonomousNavigation({
       startingUrl, provider: cfg.agentProvider, model: cfg.agentModel,
       stagehandDisableAPI: cfg.disableAPI, stagehandExperimental: cfg.experimental,
       agentMaxMs: eff.agentMaxMs,
-      agentMaxSteps: eff.maxSteps,
+      agentMaxSteps: eff.effectiveMaxSteps,
+      agentMaxNavAiCalls: eff.maxNavAiCalls,
       evidenceReserveMs: eff.evidenceReserveMs,
       browserbaseSessionTimeoutMs: eff.browserbaseSessionTimeoutMs,
       // effective deadline (from run start): min(sessionEnd - reserve, initHeadroom + agentBudget)
@@ -568,7 +613,10 @@ export async function runAutonomousNavigation({
       // watchdog, not by removing tools.
       execResult = await agent.execute({
         instruction,
-        maxSteps: eff.maxSteps,
+        // effectiveMaxSteps = min(maxSteps, maxNavAiCalls) — Stagehand's own
+        // native step ceiling doubles as the hard AI-call budget; no second
+        // loop, no independent counter that could drift from it.
+        maxSteps: eff.effectiveMaxSteps,
         variables,
         signal: controller.signal,
         callbacks: { onStepFinish },
@@ -631,7 +679,9 @@ export async function runAutonomousNavigation({
       reason = `agent reported completion but the ${feature} detector did not confirm it (confidence: ${finalVerify.confidence}); deepest state: ${finalVerify.detectedStates.join(', ') || 'unknown'}`;
     } else {
       status = TARGET_STATUS.MAX_STEPS;
-      reason = `agent used its ${eff.maxSteps} step budget without reaching "${feature}"`;
+      reason = eff.effectiveMaxSteps < eff.maxSteps
+        ? `agent used its ${eff.effectiveMaxSteps}-step AI-call budget (MAX_NAV_AI_CALLS) without reaching "${feature}"`
+        : `agent used its ${eff.effectiveMaxSteps} step budget without reaching "${feature}"`;
     }
 
     if (status !== TARGET_STATUS.REACHED && cfg.agentMode !== 'hybrid') {
@@ -645,6 +695,21 @@ export async function runAutonomousNavigation({
     res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, mode: cfg.agentMode, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
     res.evidence = evidence.result().terminal;
     res.milestones = evidence.result().milestones;
+    // Local deterministic cost telemetry (item 9) — no external send, no
+    // extra AI call. navStepsUsed/navAiCallsUsed are the SAME onStepFinish
+    // count (agentStepCount) — one real Stagehand model step, not a
+    // watchdog tick, and not a second independently-tracked counter.
+    res.navBudget = {
+      navModel: cfg.agentModel,
+      navProvider: cfg.agentProvider,
+      navStepsUsed: agentStepCount,
+      navAiCallsUsed: agentStepCount,
+      maxNavSteps: eff.maxSteps,
+      maxNavAiCalls: eff.maxNavAiCalls,
+      navAiBudgetExhausted: status === TARGET_STATUS.MAX_STEPS && agentStepCount >= eff.effectiveMaxSteps,
+      finalNavigationStatus: status,
+    };
+    tel.budget(res.navBudget);
     if (term) {
       res.evidenceOverride = { screenshotPath: term.path, pageUrl: term.url, pageTitle: term.title, pageHtml: term.html };
     }
@@ -659,6 +724,17 @@ export async function runAutonomousNavigation({
     res.agentActionsEmitted = agentStepCount;
     res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, mode: cfg.agentMode, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
     res.evidence = evidence.result().terminal;
+    res.navBudget = {
+      navModel: cfg.agentModel,
+      navProvider: cfg.agentProvider,
+      navStepsUsed: agentStepCount,
+      navAiCallsUsed: agentStepCount,
+      maxNavSteps: eff.maxSteps,
+      maxNavAiCalls: eff.maxNavAiCalls,
+      navAiBudgetExhausted: false,
+      finalNavigationStatus: TARGET_STATUS.BLOCKER,
+    };
+    tel.budget(res.navBudget);
     if (over) res.evidenceOverride = over;
     return res;
   } finally {

@@ -20,6 +20,11 @@ function scrubAgentTestArtifacts() {
   }
 }
 
+// Model resolution is now a single explicit rule (AGENT_NAV_MODEL, else the
+// deterministic DEFAULT_AGENT_NAV_MODEL 'openai/gpt-5.6-luna') — an OpenAI
+// key is required by default regardless of whether ANTHROPIC_API_KEY is
+// also present (see autonomousNavigator.js's detectAgentLlm()).
+process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'test-openai-key';
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test-agent-key';
 process.env.BROWSERBASE_API_KEY = process.env.BROWSERBASE_API_KEY || 'test-bb-key';
 process.env.BROWSERBASE_PROJECT_ID = process.env.BROWSERBASE_PROJECT_ID || 'test-bb-proj';
@@ -29,6 +34,7 @@ const NAV = '../../../11_Benchmark_Engine/modules/autonomous_navigator/autonomou
 const {
   runAutonomousNavigation, agentModeAvailable, detectAgentLlm, resolveEffectiveLimits,
   browserbaseSessionTimeoutMs, AgentNavUnavailableError, TARGET_STATUS, DEFAULT_AGENT_LIMITS,
+  DEFAULT_AGENT_NAV_MODEL,
   validateAgentConfiguration, buildStagehandConstructorOptions, buildAgentExecuteOptionShape,
   STAGEHAND_DISABLE_API, STAGEHAND_EXPERIMENTAL,
 } = await import(NAV);
@@ -201,20 +207,24 @@ test('effective limits are logged at agent_nav_start', async () => {
   for (const k of ['agentMaxMs', 'agentMaxSteps', 'evidenceReserveMs', 'browserbaseSessionTimeoutMs', 'effectiveDeadlineMs']) {
     assert.equal(typeof start[k], 'number', `agent_nav_start.${k}`);
   }
-  assert.equal(start.agentMaxSteps, 40);
+  assert.equal(start.agentMaxSteps, 25, 'new conservative default maxSteps (was 40)');
   assert.equal(start.browserbaseSessionTimeoutMs, 900000);
   assert.ok(events.some((e) => e.message === 'agent_nav_perf' && e.phase === 'stagehand_init'));
   assert.ok(events.some((e) => e.message === 'agent_nav_perf' && (e.phase === 'agent_execute' || e.phase === 'agent_execute_start')));
 });
 
 // ═══ 4. DOM-only degradation is loud, not silent ═══════════════════════
-// Forces detectAgentLlm() to fall through to openai/gpt-4.1-mini (agentMode
-// 'dom') by hiding every hybrid-capable provider key, keeping only OPENAI_API_KEY.
+// Forces detectAgentLlm() to resolve to openai/gpt-4.1-mini (agentMode
+// 'dom'). Model resolution is now a single explicit rule (AGENT_NAV_MODEL,
+// else the hybrid-capable DEFAULT_AGENT_NAV_MODEL) — an unset AGENT_NAV_MODEL
+// no longer falls to DOM-only just because other providers' keys are hidden,
+// so DOM-only must be forced with an explicit non-hybrid AGENT_NAV_MODEL.
 function withDomOnlyEnv(fn) {
   const keys = ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AGENT_NAV_MODEL', 'AGENT_NAV_REQUIRE_HYBRID'];
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   for (const k of keys) delete process.env[k];
   process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'test-openai-key';
+  process.env.AGENT_NAV_MODEL = 'openai/gpt-4.1-mini';
   return Promise.resolve()
     .then(fn)
     .finally(() => {
@@ -238,7 +248,7 @@ test('DOM-only degradation emits a loud agent_nav_mode_degraded warning', async 
 });
 
 test('hybrid mode emits NO agent_nav_mode_degraded warning', async () => {
-  assert.equal(detectAgentLlm().agentMode, 'hybrid', 'precondition: default test env resolves to hybrid (ANTHROPIC_API_KEY set)');
+  assert.equal(detectAgentLlm().agentMode, 'hybrid', 'precondition: unset AGENT_NAV_MODEL resolves to the hybrid-capable default');
   const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'done', actions: [], completed: false } });
   const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 300 }), stagehandFactory: async () => sh }));
   assert.equal(events.some((e) => e.message === 'agent_nav_mode_degraded'), false);
@@ -471,11 +481,22 @@ test('validateAgentConfiguration rejects unsupported / incomplete configs BEFORE
   assert.equal(validateAgentConfiguration().ok, false);
   assert.match(validateAgentConfiguration().reason, /"auto" is only valid with the Stagehand API/);
 
+  // With NO AGENT_NAV_MODEL and NO provider keys at all, detectAgentLlm()
+  // still resolves the deterministic default model (openai/gpt-5.6-luna) —
+  // it just has no key for it, so validateAgentConfiguration fails loudly
+  // and specifically, naming the model and the exact key it needs.
   for (const k of LLM_KEYS) delete process.env[k];
   assert.equal(validateAgentConfiguration().ok, false);
-  assert.match(validateAgentConfiguration().reason, /no agent LLM key/);
+  assert.match(validateAgentConfiguration().reason, /needs a openai key/);
 
+  // An ANTHROPIC_API_KEY present ALONE (no AGENT_NAV_MODEL) must NOT
+  // silently switch the provider — the default still requires an OpenAI key.
   process.env.ANTHROPIC_API_KEY = 'x';
+  assert.equal(validateAgentConfiguration().ok, false, 'ANTHROPIC_API_KEY alone must not satisfy the OpenAI-default configuration');
+  assert.match(validateAgentConfiguration().reason, /needs a openai key/);
+
+  // Anthropic remains usable, but ONLY via an explicit AGENT_NAV_MODEL.
+  process.env.AGENT_NAV_MODEL = 'anthropic/claude-sonnet-4-6';
   const ok = validateAgentConfiguration();
   assert.equal(ok.ok, true);
   assert.equal(ok.disableAPI, true);
@@ -528,20 +549,39 @@ const { buildAgentConfig } = await import(NAV);
 const { genericVerify, pageKind, pageStateFingerprint } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/genericVerifier.js');
 const { verifyTarget: verifyT } = await import('../../../11_Benchmark_Engine/modules/autonomous_navigator/targetVerifier.js');
 
-test('hybrid mode: a "claude" model gets mode:"hybrid"; an openai-only env gets mode:"dom"', async (t) => {
+test('model resolution is EXPLICIT ONLY: AGENT_NAV_MODEL picks the provider/mode; provider keys alone never do', async (t) => {
   const saved = { a: process.env.ANTHROPIC_API_KEY, o: process.env.OPENAI_API_KEY, m: process.env.AGENT_NAV_MODEL };
   t.after(() => { for (const [k, v] of [['ANTHROPIC_API_KEY', saved.a], ['OPENAI_API_KEY', saved.o], ['AGENT_NAV_MODEL', saved.m]]) { if (v == null) delete process.env[k]; else process.env[k] = v; } });
-  delete process.env.AGENT_NAV_MODEL;
-  process.env.ANTHROPIC_API_KEY = 'x'; delete process.env.OPENAI_API_KEY;
+
+  // Explicit AGENT_NAV_MODEL=anthropic/... → hybrid, regardless of which
+  // other keys happen to be set.
+  process.env.ANTHROPIC_API_KEY = 'x';
+  process.env.OPENAI_API_KEY = 'y';
+  process.env.AGENT_NAV_MODEL = 'anthropic/claude-sonnet-4-6';
   let llm = detectAgentLlm();
   assert.match(llm.model, /claude/);
   assert.equal(llm.agentMode, 'hybrid');
   assert.equal(buildAgentConfig().mode, 'hybrid');
   assert.equal(validateAgentConfiguration().agentMode, 'hybrid');
-  delete process.env.ANTHROPIC_API_KEY; process.env.OPENAI_API_KEY = 'x';
+
+  // Explicit AGENT_NAV_MODEL=openai/gpt-4.1-mini (not hybrid-capable) → dom,
+  // even though ANTHROPIC_API_KEY is STILL set — the key has no say.
+  process.env.AGENT_NAV_MODEL = 'openai/gpt-4.1-mini';
   assert.equal(detectAgentLlm().agentMode, 'dom');
-  process.env.AGENT_NAV_MODEL = 'anthropic/claude-sonnet-4-6';
-  assert.equal(detectAgentLlm().agentMode, 'hybrid');
+  assert.equal(detectAgentLlm().provider, 'openai');
+
+  // Unset AGENT_NAV_MODEL → the deterministic default (openai/gpt-5.6-luna,
+  // hybrid) — NOT whichever provider key happens to be present. Proven by
+  // leaving ANTHROPIC_API_KEY set and OPENAI_API_KEY unset: the old
+  // "Anthropic key alone silently wins" behavior would have resolved
+  // anthropic/claude here; the new rule always resolves the OpenAI default.
+  delete process.env.AGENT_NAV_MODEL;
+  delete process.env.OPENAI_API_KEY;
+  llm = detectAgentLlm();
+  assert.equal(llm.provider, 'openai');
+  assert.equal(llm.model, 'openai/gpt-5.6-luna');
+  assert.equal(llm.agentMode, 'hybrid');
+  assert.equal(llm.keyEnv, null, 'no OPENAI_API_KEY present — resolution still picks the model, just without a usable key');
 });
 
 test('the running navigator passes mode + model to sh.agent()', async () => {
@@ -1707,4 +1747,142 @@ test('CLEAR WRONG-PAGE CONTRACT: an unrelated login page has zero coherent candi
   assert.equal(r.reached, false);
   assert.equal(r.verdict, 'no-match');
   assert.equal(shouldUseSemanticVerifier(r), false);
+});
+
+// ═══ 15. COST CONTROL — navigation model default, AI-call budget, telemetry ═══
+// No network, no API calls: everything below exercises pure config
+// resolution and fakePage()/fakeStagehand() fixtures only.
+
+test('A: AGENT_NAV_MODEL explicitly set to gpt-5.6-luna is respected verbatim', (t) => {
+  const saved = process.env.AGENT_NAV_MODEL;
+  t.after(() => { if (saved == null) delete process.env.AGENT_NAV_MODEL; else process.env.AGENT_NAV_MODEL = saved; });
+  process.env.AGENT_NAV_MODEL = 'openai/gpt-5.6-luna';
+  const llm = detectAgentLlm();
+  assert.equal(llm.model, 'openai/gpt-5.6-luna');
+  assert.equal(llm.provider, 'openai');
+  assert.equal(llm.agentMode, 'hybrid', 'gpt-5.6-luna matches Stagehand 3.7.3\'s own HYBRID_CAPABLE_MODEL_PATTERNS ("gpt-5.6")');
+});
+
+test('B: default model resolution (AGENT_NAV_MODEL unset) is the deterministic openai/gpt-5.6-luna default', (t) => {
+  const saved = process.env.AGENT_NAV_MODEL;
+  t.after(() => { if (saved == null) delete process.env.AGENT_NAV_MODEL; else process.env.AGENT_NAV_MODEL = saved; });
+  delete process.env.AGENT_NAV_MODEL;
+  assert.equal(DEFAULT_AGENT_NAV_MODEL, 'openai/gpt-5.6-luna');
+  const llm = detectAgentLlm();
+  assert.equal(llm.model, DEFAULT_AGENT_NAV_MODEL);
+  assert.equal(llm.provider, 'openai');
+  assert.equal(llm.agentMode, 'hybrid');
+});
+
+test('C: ANTHROPIC_API_KEY alone (no AGENT_NAV_MODEL) does NOT override the explicit/default OpenAI navigation configuration', (t) => {
+  const saved = { m: process.env.AGENT_NAV_MODEL, a: process.env.ANTHROPIC_API_KEY };
+  t.after(() => {
+    if (saved.m == null) delete process.env.AGENT_NAV_MODEL; else process.env.AGENT_NAV_MODEL = saved.m;
+    if (saved.a == null) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved.a;
+  });
+  delete process.env.AGENT_NAV_MODEL;
+  process.env.ANTHROPIC_API_KEY = 'present-but-must-not-matter';
+  const llm = detectAgentLlm();
+  assert.equal(llm.provider, 'openai', 'an Anthropic key must never silently switch the default provider');
+  assert.equal(llm.model, 'openai/gpt-5.6-luna');
+  assert.equal(/claude/.test(llm.model), false);
+});
+
+test('D: DEFAULT_AGENT_LIMITS.maxSteps default is 25 (was 40)', () => {
+  assert.equal(DEFAULT_AGENT_LIMITS.maxSteps, 25);
+  assert.equal(resolveEffectiveLimits({}).maxSteps, 25);
+});
+
+test('E: MAX_NAV_AI_CALLS default is 25, and resolveEffectiveLimits() exposes it plus the effective (min) ceiling', (t) => {
+  const saved = process.env.MAX_NAV_AI_CALLS;
+  t.after(() => { if (saved == null) delete process.env.MAX_NAV_AI_CALLS; else process.env.MAX_NAV_AI_CALLS = saved; });
+  delete process.env.MAX_NAV_AI_CALLS;
+  assert.equal(DEFAULT_AGENT_LIMITS.maxNavAiCalls, 25);
+  const eff = resolveEffectiveLimits({});
+  assert.equal(eff.maxNavAiCalls, 25);
+  assert.equal(eff.effectiveMaxSteps, 25, 'min(maxSteps=25, maxNavAiCalls=25) === 25');
+
+  // A tighter override actually tightens the effective ceiling — this IS the
+  // hard AI-call budget: it is the exact number that would be passed to
+  // agent.execute({ maxSteps }).
+  const eff2 = resolveEffectiveLimits({ maxNavAiCalls: 10 });
+  assert.equal(eff2.maxNavAiCalls, 10);
+  assert.equal(eff2.effectiveMaxSteps, 10);
+
+  // A looser override never exceeds maxSteps — the tighter of the two always wins.
+  const eff3 = resolveEffectiveLimits({ maxSteps: 25, maxNavAiCalls: 100 });
+  assert.equal(eff3.effectiveMaxSteps, 25);
+});
+
+test('F: watchdog verification does NOT consume the AI-call budget — it runs on a separate deterministic interval, never counted in agentStepCount', async () => {
+  // probeIntervalMs is short enough for several watchdog ticks to fire
+  // during the run; agent.execute() never actually resolves (the agent
+  // "hangs") so ANY step count increase could only come from onStepFinish
+  // (real Stagehand model steps), never from the watchdog's own polling.
+  const { sh } = fakeStagehand({
+    pageCfg: { snapshot: HOME_SNAPSHOT },
+    // Never calls onStepFinish — resolves only when OUR deadline aborts it,
+    // exactly like the other abort-driven fixtures in this file.
+    agentResult: (opts) => new Promise((res) => opts.signal.addEventListener('abort', () => res({ message: 'x', actions: [], completed: false }))),
+  });
+  const r = await runAutonomousNavigation({
+    startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment',
+    limits: T({ maxMs: 350, probeIntervalMs: 40 }),
+    stagehandFactory: async () => sh,
+  });
+  assert.equal(r.navBudget.navAiCallsUsed, 0, 'zero real model steps occurred — the watchdog ticks that DID occur must not have counted');
+  assert.equal(r.agentActionsEmitted, 0);
+});
+
+test('G: budget exhaustion (AI-call ceiling reached without completion) produces a non-reached, honest result', async () => {
+  const { sh } = fakeStagehand({
+    pageCfg: { snapshot: HOME_SNAPSHOT },
+    agentResult: { message: 'done', actions: [], completed: false },
+  });
+  const r = await runAutonomousNavigation({
+    startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment',
+    limits: T({ maxMs: 60000, maxSteps: 25, maxNavAiCalls: 25, probeIntervalMs: 100000 }),
+    stagehandFactory: async () => sh,
+  });
+  assert.equal(r.targetReached, false);
+  assert.equal(r.targetStatus, TARGET_STATUS.MAX_STEPS);
+  assert.match(r.blocker, /step budget|AI-call budget/);
+});
+
+test('H: budget exhaustion still goes through the existing evidence/finish path (terminal screenshot, navBudget telemetry, honest status — no second navigation loop)', async () => {
+  const page = fakePage({ snapshot: HOME_SNAPSHOT });
+  const { sh } = fakeStagehand({ page, agentResult: { message: 'done', actions: [], completed: false } });
+  const r = await runAutonomousNavigation({
+    startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment',
+    limits: T({ maxMs: 60000, maxSteps: 25, maxNavAiCalls: 25, probeIntervalMs: 100000 }),
+    stagehandFactory: async () => sh,
+  });
+  assert.equal(r.targetReached, false);
+  assert.ok(r.evidence, 'the existing evidence capture ran — a budget exhaustion is not a crash path');
+  assert.ok(r.navBudget, 'navBudget telemetry object is present');
+  assert.equal(r.navBudget.finalNavigationStatus, TARGET_STATUS.MAX_STEPS);
+  assert.equal(r.navBudget.maxNavAiCalls, 25);
+  assert.equal(typeof r.navBudget.navModel, 'string');
+});
+
+test('navBudget telemetry carries model/provider/steps/calls/max fields for a normal REACHED run', async () => {
+  const paxPage = fakePage({ snapshot: PAX_SNAPSHOT, url: 'https://air.com/booking/passengers' });
+  const { sh } = fakeStagehand({ page: paxPage, agentResult: { message: 'done', actions: [{ type: 'goto' }, { type: 'fillForm' }], completed: true } });
+  const r = await runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Passenger Details', detectorKey: 'passenger_details', limits: T({ maxMs: 800 }), stagehandFactory: async () => sh });
+  assert.equal(r.targetStatus, TARGET_STATUS.REACHED);
+  assert.equal(r.navBudget.finalNavigationStatus, TARGET_STATUS.REACHED);
+  assert.equal(r.navBudget.navAiBudgetExhausted, false);
+  assert.equal(r.navBudget.navModel, DEFAULT_AGENT_NAV_MODEL);
+  assert.equal(r.navBudget.maxNavSteps, 25);
+  assert.equal(r.navBudget.maxNavAiCalls, 25);
+});
+
+test('agent_nav_budget_summary telemetry event is emitted locally (no external send) with the same fields', async () => {
+  const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'done', actions: [], completed: false } });
+  const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 300 }), stagehandFactory: async () => sh }));
+  const budget = events.find((e) => e.message === 'agent_nav_budget_summary');
+  assert.ok(budget, 'agent_nav_budget_summary emitted');
+  for (const k of ['navModel', 'navProvider', 'navStepsUsed', 'navAiCallsUsed', 'maxNavSteps', 'maxNavAiCalls', 'finalNavigationStatus']) {
+    assert.ok(k in budget, `agent_nav_budget_summary.${k} present`);
+  }
 });
