@@ -33,6 +33,31 @@ export function verifyFeatureCompletion({ output = {}, target }) {
     errors.push(`target feature changed: expected "${target.feature}", pipeline carried "${output.targetFeature}"`);
   }
 
+  // T — the requested target was actually REACHED. Every stage running
+  //     (Vision, Reasoning, report written) is not target success: a run
+  //     whose navigation stopped short still produces all of those from the
+  //     "where navigation stopped" screenshot. Reached means either the
+  //     feature's own step succeeded (relevance 'direct' — the navigation
+  //     runner marks a goal-driven step success only when targetReached), or
+  //     a homepage-scoped feature captured its homepage ('homepage_base' —
+  //     the homepage IS that target). A blocked step, a non-reached goal
+  //     status, or a report that itself says the feature was not found can
+  //     never be Completed; the report stays persisted, the run is
+  //     verification_failed with the blocker as the reason.
+  const tev = output.evidence;
+  checks.target_reached = !!tev && !tev.navBlocked && !output.navBlocked &&
+    (tev.relevance === 'direct' || tev.evidenceType === 'homepage_base') &&
+    (tev.targetStatus == null || tev.targetStatus === 'target_reached');
+  if (!checks.target_reached) {
+    const why = output.navBlockReason || tev?.navBlockReason ||
+      (tev?.targetStatus ? `navigation status ${tev.targetStatus}` : 'navigation did not reach it');
+    errors.push(`requested target "${target.feature}" was not reached: ${why}`);
+  }
+  checks.feature_found = output.reasoningData?.feature_found === true;
+  if (!checks.feature_found) {
+    errors.push(`the report does not confirm "${target.feature}" was found (feature_found=${output.reasoningData?.feature_found})`);
+  }
+
   // B — the URL actually navigated is the target's official domain
   const navUrl = output.evidence?.url || output.url || null;
   checks.url_on_target_domain = !!navUrl && sameRegistrableDomain(target.url, navUrl);

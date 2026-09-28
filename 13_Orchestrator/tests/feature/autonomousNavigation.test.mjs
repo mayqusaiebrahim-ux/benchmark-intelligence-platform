@@ -445,6 +445,28 @@ test('we build the SUPPORTED Stagehand combination — disableAPI:true + experim
   assert.match(opts.model, /^[a-z]+\//, 'a concrete "provider/model" id');
 });
 
+test('LOCAL Stagehand launches headless + --no-sandbox (display-less Render host); Browserbase gets no local options', (t) => {
+  const saved = { p: process.env.BROWSER_PROVIDER, k: process.env.BROWSERBASE_API_KEY };
+  t.after(() => {
+    if (saved.p == null) delete process.env.BROWSER_PROVIDER; else process.env.BROWSER_PROVIDER = saved.p;
+    if (saved.k == null) delete process.env.BROWSERBASE_API_KEY; else process.env.BROWSERBASE_API_KEY = saved.k;
+  });
+  // Live failure: Stagehand 3.7.3 defaults headless:false → Chrome exits on a
+  // host with no X display → "connect ECONNREFUSED 127.0.0.1:<port>".
+  process.env.BROWSER_PROVIDER = 'local';
+  const local = buildStagehandConstructorOptions();
+  assert.equal(local.env, 'LOCAL');
+  assert.equal(local.localBrowserLaunchOptions.headless, true);
+  assert.ok(local.localBrowserLaunchOptions.args.includes('--no-sandbox'));
+  assert.equal(local.localBrowserLaunchOptions.executablePath, undefined, 'executable still comes from CHROME_PATH via chrome-launcher');
+
+  process.env.BROWSER_PROVIDER = 'browserbase';
+  process.env.BROWSERBASE_API_KEY = 'test-key';
+  const remote = buildStagehandConstructorOptions();
+  assert.equal(remote.env, 'BROWSERBASE');
+  assert.equal(remote.localBrowserLaunchOptions, undefined);
+});
+
 test('the exact production failure combo (disableAPI:false + signal/excludeTools) is NOT what we send', () => {
   const opts = buildStagehandConstructorOptions();
   // production error was: env=BROWSERBASE, disableAPI:false, agent.execute({ signal, excludeTools })

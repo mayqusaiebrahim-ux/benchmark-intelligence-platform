@@ -254,6 +254,130 @@ test('completion gate: an ungrounded report or one with no stated limitations fa
   }
 });
 
+// ─── Completion gate: target reached is REQUIRED ───────────────────────────
+// Live trace: targetReached=false, navigation unrecoverable_blocker, then
+// Vision + Reasoning + report all succeeded and the run was marked Complete.
+// Every stage succeeding is not target success.
+function reachedFixture(t, dir, overrides = {}) {
+  const marker = `<!-- benchmark-target: company=${t.company} | slug=${t.slug} | url=${t.url} | feature=${t.feature} | request=${t.requestId} -->`;
+  const report = join(dir, 'report.md');
+  writeFileSync(report, `## Qatar Airways\n${marker}\nThe captured viewport shows a passenger form.\n\n## Evidence limitations\nBased on one captured viewport, one page state.\n`);
+  return {
+    targetCompany: t.company, targetFeature: t.feature, url: 'https://www.qatarairways.com/book',
+    evidence: {
+      company: t.slug, feature: t.feature, url: 'https://www.qatarairways.com/book', screenshotPath: THIS_FILE,
+      evidenceType: 'feature_page', relevance: 'direct', navBlocked: false, targetStatus: 'target_reached',
+    },
+    navBlocked: false,
+    visionFindings: {},
+    reasoningData: { feature_found: true, analyzed_company: 'Qatar Airways', summary_markdown: 'Qatar Airways passenger form', evidence_limitations: 'Single viewport.' },
+    reportPath: report,
+    ...overrides,
+  };
+}
+
+test('completion gate: targetReached=true (direct evidence, target_reached, feature_found) → completion allowed', () => {
+  const t = createBenchmarkTarget({ ...T, feature: 'Passenger Details' });
+  const dir = mkdtempSync(join(tmpdir(), 'gate-ok-'));
+  try {
+    const r = verifyFeatureCompletion({ output: reachedFixture(t, dir), target: t });
+    assert.equal(r.verification_status, 'passed', r.verification_summary);
+    assert.equal(r.checks.target_reached, true);
+    assert.equal(r.checks.feature_found, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('completion gate: targetReached=false → completion rejected', () => {
+  const t = createBenchmarkTarget({ ...T, feature: 'Passenger Details' });
+  const dir = mkdtempSync(join(tmpdir(), 'gate-notreached-'));
+  try {
+    const base = reachedFixture(t, dir);
+    // a goal status other than target_reached, even with otherwise-direct evidence
+    const r = verifyFeatureCompletion({
+      output: { ...base, evidence: { ...base.evidence, targetStatus: 'budget_exhausted' } },
+      target: t,
+    });
+    assert.equal(r.verification_status, 'failed');
+    assert.equal(r.checks.target_reached, false);
+    assert.ok(r.verification_errors.some((e) => /was not reached/i.test(e) && /budget_exhausted/.test(e)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('completion gate: navigation blocker → verification_failed carrying the blocker, never Complete', () => {
+  const t = createBenchmarkTarget({ ...T, feature: 'Passenger Details' });
+  const dir = mkdtempSync(join(tmpdir(), 'gate-blocker-'));
+  try {
+    const base = reachedFixture(t, dir);
+    const reason = 'automated navigation to "Passenger Details" stopped at: unrecoverable_blocker — connect ECONNREFUSED 127.0.0.1:36355';
+    const r = verifyFeatureCompletion({
+      output: {
+        ...base,
+        navBlocked: true,
+        navBlockReason: reason,
+        evidence: { ...base.evidence, evidenceType: 'blocked_state', relevance: 'base_page', navBlocked: true, navBlockReason: reason, targetStatus: 'unrecoverable_blocker' },
+      },
+      target: t,
+    });
+    assert.equal(r.verification_status, 'failed');
+    assert.equal(r.checks.target_reached, false);
+    assert.ok(r.verification_errors.some((e) => e.includes('ECONNREFUSED 127.0.0.1:36355')), 'the original blocker is preserved in the failure reason');
+    assert.match(r.verification_summary, /cannot be marked complete/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('completion gate: Vision + Reasoning + report all succeeding after a navigation failure is still NOT Complete', () => {
+  const t = createBenchmarkTarget({ ...T, feature: 'Passenger Details' });
+  const dir = mkdtempSync(join(tmpdir(), 'gate-postnav-'));
+  try {
+    const base = reachedFixture(t, dir);
+    // The exact live shape: nav blocked, Vision ran, Reasoning returned a
+    // valid report with feature_found=false / NOT FOUND, report written.
+    const output = {
+      ...base,
+      navBlocked: true,
+      navBlockReason: 'stopped at: unrecoverable_blocker',
+      evidence: { ...base.evidence, evidenceType: 'blocked_state', relevance: 'base_page', navBlocked: true, targetStatus: 'unrecoverable_blocker' },
+      visionFindings: { layout: 'homepage' },
+      reasoningData: { ...base.reasoningData, feature_found: false, evidence_source: 'NOT FOUND' },
+    };
+    const r = verifyFeatureCompletion({ output, target: t });
+    assert.equal(r.checks.vision_ran, true, 'precondition: Vision succeeded');
+    assert.equal(r.checks.reasoning_ran, true, 'precondition: Reasoning succeeded');
+    assert.equal(r.checks.report_written, true, 'precondition: report persisted');
+    assert.equal(r.verification_status, 'failed');
+    assert.equal(r.checks.target_reached, false);
+    assert.equal(r.checks.feature_found, false);
+
+    // Reasoning alone saying NOT FOUND also blocks Complete, even if nav claimed success
+    const r2 = verifyFeatureCompletion({ output: { ...base, reasoningData: { ...base.reasoningData, feature_found: false } }, target: t });
+    assert.equal(r2.verification_status, 'failed');
+    assert.ok(r2.verification_errors.some((e) => /feature_found=false/.test(e)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('completion gate: a homepage-scoped feature with homepage_base evidence counts as reached', () => {
+  const t = createBenchmarkTarget(T); // feature: Homepage
+  const dir = mkdtempSync(join(tmpdir(), 'gate-home-'));
+  try {
+    const base = reachedFixture(t, dir);
+    const r = verifyFeatureCompletion({
+      output: { ...base, url: 'https://www.qatarairways.com/', evidence: { ...base.evidence, url: 'https://www.qatarairways.com/', evidenceType: 'homepage_base', relevance: 'base_page', targetStatus: undefined } },
+      target: t,
+    });
+    assert.equal(r.checks.target_reached, true, r.verification_summary);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('contamination heuristic: names another brand but not the target → rejected', () => {
   const t = createBenchmarkTarget(T);
   assert.equal(nameRefersToTarget(t, 'The Qatar Airways homepage has a booking widget.').ok, true);

@@ -288,6 +288,14 @@ export function buildStagehandConstructorOptions() {
     browserbaseSessionCreateParams: useBrowserbase
       ? { ...(process.env.BROWSERBASE_PROJECT_ID ? { projectId: process.env.BROWSERBASE_PROJECT_ID } : {}), timeout: sessionSecs }
       : undefined,
+    // LOCAL only. Stagehand 3.7.3's launchLocalChrome() defaults to
+    // headless:false and chrome-launcher adds only --disable-setuid-sandbox,
+    // so on a display-less Linux host (Render) Chrome exits at once and the
+    // CDP poll fails with ECONNREFUSED 127.0.0.1:<random port>. These two
+    // settings mirror what Playwright's working chromium.launch() passes by
+    // default on the same host (headless + --no-sandbox). The executable is
+    // still resolved by chrome-launcher from CHROME_PATH.
+    localBrowserLaunchOptions: useBrowserbase ? undefined : { headless: true, args: ['--no-sandbox'] },
     model: (llm && llm.model) || 'openai/gpt-4.1-mini',
     disableAPI: STAGEHAND_DISABLE_API,       // true  — SUPPORTED path for `signal`
     experimental: STAGEHAND_EXPERIMENTAL,    // true  — SUPPORTED path for `signal` / callbacks
