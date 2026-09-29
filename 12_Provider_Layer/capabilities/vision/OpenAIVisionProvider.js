@@ -30,7 +30,7 @@ import { readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { VisionProvider } from './VisionProvider.js';
 import { buildVisionAnalysisPrompt } from '../../../11_Benchmark_Engine/modules/analysis/promptBuilder.js';
-import { callVisionModel } from '../../../11_Benchmark_Engine/modules/analysis/visionModelClient.js';
+import { callVisionModel, resolveVisionModel } from '../../../11_Benchmark_Engine/modules/analysis/visionModelClient.js';
 import { parseVisionAnalysisResponse } from '../../../11_Benchmark_Engine/modules/analysis/responseParser.js';
 import { SCREENSHOTS_DIR } from '../../../11_Benchmark_Engine/modules/vision/screenshotRunner.js';
 
@@ -157,7 +157,7 @@ function writeDetectionFindings({ findings, companySlug, screenshotPath, url, ti
     url: url || null,
     title: title || null,
     screenshot_path: screenshotPath,
-    model: process.env.OPENAI_VISION_MODEL || 'gpt-5',
+    model: resolveVisionModel().model,
     analyzed_at: new Date().toISOString(),
     findings,
   };
@@ -169,7 +169,7 @@ function writeDetectionFindings({ findings, companySlug, screenshotPath, url, ti
 export class OpenAIVisionProvider extends VisionProvider {
   async analyze({ screenshotPath, discoveryReport }) {
     const payload = buildVisionAnalysisPrompt({ screenshotPath, discoveryReport });
-    const rawResponse = await callVisionModel(payload);
+    const rawResponse = await callVisionModel(payload, { stage: 'vision_analysis' });
     return parseVisionAnalysisResponse(rawResponse);
   }
 
@@ -183,7 +183,7 @@ export class OpenAIVisionProvider extends VisionProvider {
 
     try {
       const payload = buildDetectionPrompt({ screenshotPath });
-      const rawResponse = await callVisionModel(payload);
+      const rawResponse = await callVisionModel(payload, { stage: 'feature_vision' });
       const findings = parseDetectionResponse(rawResponse);
       const jsonPath = writeDetectionFindings({ findings, companySlug, screenshotPath, url, title });
       return { success: true, findings, jsonPath, timing: timing(), error: null };

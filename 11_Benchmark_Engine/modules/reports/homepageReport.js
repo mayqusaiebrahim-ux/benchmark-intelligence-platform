@@ -23,7 +23,7 @@ async function runVisionAnalysis({ screenshot, discovery }) {
   }
   try {
     const payload = buildVisionAnalysisPrompt({ screenshotPath: screenshot.path, discoveryReport: discovery });
-    const rawResponse = await callVisionModel(payload);
+    const rawResponse = await callVisionModel(payload, { stage: 'homepage_report' });
     const analysis = parseVisionAnalysisResponse(rawResponse);
     return { analysis, error: null };
   } catch (err) {

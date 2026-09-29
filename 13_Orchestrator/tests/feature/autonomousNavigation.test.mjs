@@ -559,6 +559,33 @@ test('agent_nav_config + agent_nav_agent_ready + agent_nav_action are emitted; o
   assert.notEqual(cfg.agentModel, 'auto');
 });
 
+test('cost audit: every navigation model step logs agent_nav_ai_call with stage/model/modelSource/request id', async (t) => {
+  const saved = process.env.AGENT_NAV_MODEL;
+  t.after(() => { if (saved == null) delete process.env.AGENT_NAV_MODEL; else process.env.AGENT_NAV_MODEL = saved; });
+  delete process.env.AGENT_NAV_MODEL;
+  const { sh } = fakeStagehand({
+    pageCfg: { snapshot: HOME_SNAPSHOT },
+    agentResult: async (opts) => {
+      // AI SDK StepResult shape: response.{id, modelId, headers}
+      await opts.callbacks.onStepFinish({ toolCalls: [{ toolName: 'ariaTree' }], response: { id: 'resp_nav_1', modelId: 'gpt-5.6-luna', headers: { 'x-request-id': 'req_nav_1' } } });
+      await opts.callbacks.onStepFinish({ toolCalls: [{ toolName: 'click' }] }); // no response metadata → nulls, falls back to cfg model
+      return { message: 'done', actions: [], completed: false };
+    },
+  });
+  const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 500 }), stagehandFactory: async () => sh }));
+  const cfg = events.find((e) => e.message === 'agent_nav_config');
+  assert.equal(cfg.modelSource, 'default');
+  const calls = events.filter((e) => e.message === 'agent_nav_ai_call');
+  assert.equal(calls.length, 2, 'one line per real model step');
+  assert.deepEqual(
+    { stage: calls[0].stage, step: calls[0].step, model: calls[0].model, modelSource: calls[0].modelSource, requestId: calls[0].requestId, responseId: calls[0].responseId },
+    { stage: 'navigation', step: 1, model: 'gpt-5.6-luna', modelSource: 'default', requestId: 'req_nav_1', responseId: 'resp_nav_1' },
+  );
+  assert.equal(calls[0].maxNavAiCalls, 25, 'the existing MAX_NAV_AI_CALLS ceiling is reported, unchanged');
+  assert.equal(calls[1].model, 'openai/gpt-5.6-luna');
+  assert.equal(calls[1].requestId, null);
+});
+
 test('agent_nav_action still emitted post-hoc from execResult.actions if onStepFinish never fired', async () => {
   const { sh } = fakeStagehand({ pageCfg: { snapshot: HOME_SNAPSHOT }, agentResult: { message: 'done', actions: [{ type: 'goto', pageUrl: 'https://air.com/x' }, { type: 'fillForm' }], completed: false } });
   const events = await captureEvents('agent_nav_', () => runAutonomousNavigation({ startingUrl: 'https://air.com/', feature: 'Payment', detectorKey: 'payment', limits: T({ maxMs: 400 }), stagehandFactory: async () => sh }));

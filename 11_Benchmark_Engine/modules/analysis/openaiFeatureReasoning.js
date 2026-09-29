@@ -19,12 +19,25 @@ import { FEATURE_REPORT_SCHEMA, FEATURE_REPORT_EVIDENCE_SOURCES } from '../../..
 import { logInfo, logError } from '../../../shared/logger.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MODEL = process.env.OPENAI_REASONING_MODEL || 'gpt-5';
+
+// Cost control (V1): one explicit knob, one cheap default, no silent fallback
+// to a more expensive model. The legacy OPENAI_REASONING_MODEL (whose default
+// was 'gpt-5') is deliberately NOT honoured — a stale value must not quietly
+// select an expensive model; it is only warned about.
+export const DEFAULT_FEATURE_REASONING_MODEL = 'gpt-5.6-luna';
 
 try {
   process.loadEnvFile(join(__dirname, '..', '..', '.env')); // 11_Benchmark_Engine/.env
 } catch {
   // No .env file present — fall back to whatever is already in process.env.
+}
+
+/** Resolved per call (after .env has loaded): { model, modelSource: 'env'|'default' }. */
+export function resolveFeatureReasoningModel() {
+  const fromEnv = (process.env.OPENAI_FEATURE_REASONING_MODEL || '').trim();
+  return fromEnv
+    ? { model: fromEnv, modelSource: 'env' }
+    : { model: DEFAULT_FEATURE_REASONING_MODEL, modelSource: 'default' };
 }
 
 /**
@@ -39,16 +52,29 @@ export async function runOpenAIFeatureReasoning({ augmentedPrompt }) {
     return { status: 'failed', error: 'OPENAI_API_KEY is not set. Add it to 11_Benchmark_Engine/.env or the environment.' };
   }
 
+  const { model, modelSource } = resolveFeatureReasoningModel();
+  if (process.env.OPENAI_REASONING_MODEL && process.env.OPENAI_REASONING_MODEL !== model) {
+    logInfo('OpenAI reasoning: legacy OPENAI_REASONING_MODEL is set and IGNORED — use OPENAI_FEATURE_REASONING_MODEL', {
+      stage: 'feature_reasoning', ignoredValue: process.env.OPENAI_REASONING_MODEL, model,
+    });
+  }
+
   const startedAt = Date.now();
-  logInfo('OpenAI reasoning request starting', { model: MODEL });
+  logInfo('OpenAI reasoning request starting', { stage: 'feature_reasoning', model, modelSource, maxRetries: 0 });
   try {
-    const client = new OpenAI();
+    // Exactly ONE HTTP request per benchmark: the SDK's default of 2 automatic
+    // retries is disabled, and there is no retry with any other model.
+    const client = new OpenAI({ maxRetries: 0 });
     const response = await client.responses.create({
-      model: MODEL,
+      model,
       input: augmentedPrompt,
       text: { format: { type: 'json_schema', name: 'feature_report', schema: FEATURE_REPORT_SCHEMA, strict: true } },
     });
-    logInfo('OpenAI reasoning request finished', { durationMs: Date.now() - startedAt });
+    logInfo('OpenAI reasoning request finished', {
+      stage: 'feature_reasoning', model, modelSource,
+      requestId: response._request_id || null, responseId: response.id || null,
+      durationMs: Date.now() - startedAt,
+    });
 
     const raw = response.output_text;
     let data;
@@ -73,7 +99,9 @@ export async function runOpenAIFeatureReasoning({ augmentedPrompt }) {
 
     return { status: 'completed', data };
   } catch (err) {
-    logError('OpenAI reasoning request threw', err, { durationMs: Date.now() - startedAt });
+    logError('OpenAI reasoning request threw', err, {
+      stage: 'feature_reasoning', model, modelSource, requestId: err.requestID || null, durationMs: Date.now() - startedAt,
+    });
     return { status: 'failed', error: err.message };
   }
 }

@@ -19,7 +19,7 @@ const MODEL_NAME = 'gpt-5-vision'; // Placeholder identifier — not yet called.
  */
 export async function analyzeHomepageUX({ screenshotPath, discoveryReport, companySlug = null, companyName = null, url = null }) {
   const payload = buildVisionAnalysisPrompt({ screenshotPath, discoveryReport });
-  const rawResponse = await callVisionModel(payload); // Throws until the model client is implemented.
+  const rawResponse = await callVisionModel(payload, { stage: 'homepage_ux_analysis' }); // Throws until the model client is implemented.
   const findings = parseVisionAnalysisResponse(rawResponse);
 
   return {

@@ -6,7 +6,8 @@ read — no scoring, no cross-company comparison (see
 
 **Default provider: `OpenAIVisionProvider` — not a Claude Vision provider.**
 This is the one capability where the platform's default is *not* Claude: the
-production Vision pipeline runs on OpenAI's `gpt-5` via the Responses API today
+production Vision pipeline runs on OpenAI's `gpt-5.6-luna` (default; override with
+`OPENAI_VISION_MODEL`) via the Responses API today
 (`11_Benchmark_Engine/modules/analysis/visionModelClient.js`), and that is what
 `OpenAIVisionProvider` wraps unchanged. The "Claude remains the default provider"
 requirement from Sprint 15 applies to the **Reasoning** capability

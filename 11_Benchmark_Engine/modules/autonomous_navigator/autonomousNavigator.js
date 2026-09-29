@@ -361,6 +361,7 @@ export async function runAutonomousNavigation({
     feature,
     agentProvider: cfg.agentProvider,
     agentModel: cfg.agentModel,
+    modelSource: process.env.AGENT_NAV_MODEL ? 'env' : 'default',
     stagehandDisableAPI: cfg.disableAPI,
     stagehandExperimental: cfg.experimental,
     agentMode: cfg.agentMode,
@@ -517,6 +518,18 @@ export async function runAutonomousNavigation({
         });
         lastActionAt = Date.now();
         lastActionType = scrub(toolName);
+        // Cost audit trail: one line per real model call (one step = one call).
+        const resp = (stepInfo && stepInfo.response) || {};
+        const hdrs = resp.headers || {};
+        logInfo('agent_nav_ai_call', {
+          stage: 'navigation',
+          step: agentStepCount,
+          maxNavAiCalls: eff.effectiveMaxSteps,
+          model: resp.modelId || cfg.agentModel,
+          modelSource: process.env.AGENT_NAV_MODEL ? 'env' : 'default',
+          requestId: hdrs['x-request-id'] || null,
+          responseId: resp.id || null,
+        });
       } catch { /* telemetry must never break the run */ }
     };
 
