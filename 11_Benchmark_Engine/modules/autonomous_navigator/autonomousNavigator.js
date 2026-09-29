@@ -295,7 +295,7 @@ export function buildStagehandConstructorOptions() {
     // settings mirror what Playwright's working chromium.launch() passes by
     // default on the same host (headless + --no-sandbox). The executable is
     // still resolved by chrome-launcher from CHROME_PATH.
-    localBrowserLaunchOptions: useBrowserbase ? undefined : { headless: true, args: ['--no-sandbox'] },
+    localBrowserLaunchOptions: useBrowserbase ? undefined : { headless: true, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] },
     model: (llm && llm.model) || 'openai/gpt-4.1-mini',
     disableAPI: STAGEHAND_DISABLE_API,       // true  — SUPPORTED path for `signal`
     experimental: STAGEHAND_EXPERIMENTAL,    // true  — SUPPORTED path for `signal` / callbacks

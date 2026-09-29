@@ -51,6 +51,42 @@ try {
 // meaningless (and unused) when connecting to a remote session.
 const MEMORY_OPTIMIZED_LAUNCH_ARGS = ['--disable-gpu', '--disable-dev-shm-usage', '--disable-breakpad'];
 
+// Generic browser-fingerprint profile (no site-specific logic). A default
+// Playwright launch uses the stripped chromium-headless-shell, which exposes
+// navigator.webdriver=true, no plugins, no window.chrome and a
+// "HeadlessChrome" user-agent — the first things enterprise bot management
+// scores. Same approach as antibot/strategies.js's stealth_lite, applied to
+// the Feature Benchmark's own sessions.
+export const LOCAL_LAUNCH_ARGS = [...MEMORY_OPTIMIZED_LAUNCH_ARGS, '--disable-blink-features=AutomationControlled'];
+
+/** chromium.launch() options: the full installed Chromium in new-headless mode. */
+export function buildLocalLaunchOptions() {
+  return { channel: 'chromium', args: [...LOCAL_LAUNCH_ARGS] };
+}
+
+const UA_PLATFORM = {
+  win32: 'Windows NT 10.0; Win64; x64',
+  darwin: 'Macintosh; Intel Mac OS X 10_15_7',
+  linux: 'X11; Linux x86_64',
+};
+
+/**
+ * The one page/context profile every local Feature Benchmark page is created
+ * with: a regular desktop Chrome user-agent carrying the ACTUAL running
+ * Chromium version (never "HeadlessChrome"), a 1440x900 viewport, en-US.
+ * @param {string} browserVersion  browser.version(), e.g. "149.0.7827.55"
+ * @param {string} [os]            process platform (defaults to this host)
+ */
+export function buildPageProfile(browserVersion, os = platform()) {
+  const version = String(browserVersion || '').replace(/^HeadlessChrome\//i, '').replace(/^Chrome\//i, '');
+  const ua = `Mozilla/5.0 (${UA_PLATFORM[os] || UA_PLATFORM.linux}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`;
+  return {
+    userAgent: ua.replace(/HeadlessChrome/g, 'Chrome'),
+    viewport: { width: 1440, height: 900 },
+    locale: 'en-US',
+  };
+}
+
 const BROWSERBASE_SESSIONS_URL = 'https://api.browserbase.com/v1/sessions';
 
 // ─── Global browser concurrency gate ──────────────────────────────────────
@@ -124,7 +160,7 @@ async function launchLocal(label) {
   logInfo('browser_provider', { provider: 'local', label });
   let browser;
   try {
-    browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS });
+    browser = await chromium.launch(buildLocalLaunchOptions());
   } catch (err) {
     // Seen locally: a stray PLAYWRIGHT_BROWSERS_PATH=0 in the environment
     // makes Playwright look for an in-package .local-browsers/ Chromium that
@@ -136,13 +172,15 @@ async function launchLocal(label) {
     const resolved = findInstalledChromium();
     logError('browser_launch_retry_with_executable_path', err, { provider: 'local', label, resolved });
     if (!resolved) throw err;
-    browser = await chromium.launch({ args: MEMORY_OPTIMIZED_LAUNCH_ARGS, executablePath: resolved });
+    browser = await chromium.launch({ args: [...LOCAL_LAUNCH_ARGS], executablePath: resolved });
     logInfo('browser_launch_recovered_via_default_path', { provider: 'local', label, executablePath: resolved });
   }
-  logInfo('browser_connected', { provider: 'local', label });
+  const pageOptions = buildPageProfile(browser.version());
+  logInfo('browser_connected', { provider: 'local', label, browserVersion: browser.version() });
 
   return {
     browser,
+    pageOptions, // pass to browser.newPage(pageOptions)
     close: async () => {
       await browser.close();
       logInfo('browser_closed', { provider: 'local', label });
@@ -234,7 +272,8 @@ async function launchBrowserbase(label) {
  * launchBrowser — the one function discovery/index.js and
  * navigation_runner/index.js call instead of chromium.launch() directly.
  * @param {string} label - which caller, for logging only (e.g. 'Discovery').
- * @returns {Promise<{browser: import('playwright').Browser, close: () => Promise<void>}>}
+ * @returns {Promise<{browser: import('playwright').Browser, close: () => Promise<void>, pageOptions?: object}>}
+ *   pageOptions: the shared page profile (local provider only) — pass to browser.newPage().
  */
 export async function launchBrowser(label) {
   const provider = (process.env.BROWSER_PROVIDER || 'local').trim().toLowerCase();

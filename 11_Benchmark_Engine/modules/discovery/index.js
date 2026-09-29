@@ -62,7 +62,7 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
     logInfo('Discovery: browser created');
     browser.on('disconnected', () => logInfo('Discovery: browser disconnected'));
 
-    const page = await browser.newPage();
+    const page = await browser.newPage(session.pageOptions);
     logInfo('Discovery: page created (default context)');
     page.on('close', () => logInfo('Discovery: page closed'));
 

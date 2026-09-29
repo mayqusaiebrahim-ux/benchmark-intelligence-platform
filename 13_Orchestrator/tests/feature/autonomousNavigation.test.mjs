@@ -458,6 +458,7 @@ test('LOCAL Stagehand launches headless + --no-sandbox (display-less Render host
   assert.equal(local.env, 'LOCAL');
   assert.equal(local.localBrowserLaunchOptions.headless, true);
   assert.ok(local.localBrowserLaunchOptions.args.includes('--no-sandbox'));
+  assert.ok(local.localBrowserLaunchOptions.args.includes('--disable-blink-features=AutomationControlled'));
   assert.equal(local.localBrowserLaunchOptions.executablePath, undefined, 'executable still comes from CHROME_PATH via chrome-launcher');
 
   process.env.BROWSER_PROVIDER = 'browserbase';

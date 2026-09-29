@@ -61,7 +61,7 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
     browser = session.browser;
     logInfo('Navigation Runner: browser created', { runId });
     browser.on('disconnected', () => logInfo('Navigation Runner: browser disconnected', { runId }));
-    page = await browser.newPage();
+    page = await browser.newPage(session.pageOptions);
     page.on('close', () => logInfo('Navigation Runner: page closed', { runId }));
     logInfo('Navigation Runner: navigating to starting URL', { url: journeyPlan.starting_url, runId });
     await page.goto(journeyPlan.starting_url, { waitUntil: 'load', timeout: 30000 });
