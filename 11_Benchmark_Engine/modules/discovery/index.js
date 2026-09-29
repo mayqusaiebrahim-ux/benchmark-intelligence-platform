@@ -67,7 +67,12 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
     page.on('close', () => logInfo('Discovery: page closed'));
 
     logInfo('Discovery: navigating', { url });
-    const response = await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+    // 'domcontentloaded', not 'load': dynamic sites can stay short of the
+    // load event for 30s+ on slow third-party resources while the page itself
+    // is already usable. A real navigation failure (DNS, refused, net::ERR_*)
+    // still rejects goto() and fails discovery; the best-effort networkidle
+    // wait below gives late-rendering content a bounded chance to appear.
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     try {
       await page.waitForLoadState('networkidle', { timeout: 8000 });
     } catch {
