@@ -21,7 +21,7 @@ export const FEATURE_REPORT_SCHEMA = {
     },
     feature_found: {
       type: 'boolean',
-      description: 'True if the captured page/screenshot actually shows the requested feature; false if the crawler could only reach a related or fallback page.',
+      description: 'True if the captured page/screenshot actually shows the requested feature — a single captured viewport of the verified requested surface is sufficient; capture limitations belong in evidence_limitations, not here. False if the crawler could only reach a related or fallback page, or the screenshot shows a different company, an error page, or a blocking overlay.',
     },
     evidence_source: {
       type: 'string',

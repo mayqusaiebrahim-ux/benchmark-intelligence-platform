@@ -124,6 +124,12 @@ function buildPrompt({ prompt, company, feature, target, previousOutput }) {
   lines.push('');
   lines.push(`Mapped CLAUDE.md journey step: ${featureStepId || '(no journey step matched this feature keyword)'}`);
   lines.push(`Evidence shows the requested feature directly: ${featureStepFound ? 'yes' : 'no — the evidence below is the homepage / base page for this same company'}`);
+  if (featureStepFound === true) {
+    lines.push(`Navigation reached and verified the requested "${feature}" surface, and the screenshot is of that surface.`);
+    lines.push('Set feature_found to true and evidence_source to OBSERVED unless the screenshot shows a different company,');
+    lines.push('an error page, or a blocking overlay. The single-viewport capture is a limitation — record it in');
+    lines.push('evidence_limitations; it is NOT a reason to set feature_found to false.');
+  }
   if (evidence) lines.push(`Evidence type: ${evidence.evidenceType} (relevance: ${evidence.relevance})`);
   if (selectedStep) lines.push(`Navigation status of the captured step: ${selectedStep.status}`);
   if (navBlocked) {
