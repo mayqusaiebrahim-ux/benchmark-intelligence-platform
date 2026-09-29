@@ -869,18 +869,6 @@ async function start() {
     console.log(`   Reads live from: ${PROJECT}`);
     console.log(`   Storage provider: ${providerLabel}`);
     console.log(`   Auth: ${auth.configured ? 'Clerk (configured)' : auth.devMode ? 'DEV identity (AUTH_DEV_USER) — local only' : 'NOT configured — set CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY'}`);
-
-    // ── TEMPORARY ACCESS PROBE — remove after test ──────────────────────────
-    // One-shot, env-gated, after the server is already listening. Loads only
-    // ACCESS_PROBE_URL via the production launchBrowser() profile and logs
-    // `access_probe_result`. Never throws into the server.
-    if (process.env.ACCESS_PROBE_URL) {
-      import('../11_Benchmark_Engine/modules/diagnostics/accessProbe.js')
-        .then(({ runAccessProbe }) => runAccessProbe(process.env.ACCESS_PROBE_URL))
-        .then((r) => logInfo('access_probe_result', { url: process.env.ACCESS_PROBE_URL, ...r }))
-        .catch((err) => logError('access_probe_failed', err, { url: process.env.ACCESS_PROBE_URL }));
-    }
-    // ── end TEMPORARY ACCESS PROBE ───────────────────────────────────────────
   });
 }
 
