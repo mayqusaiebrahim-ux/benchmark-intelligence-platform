@@ -11,6 +11,7 @@ import { executeStep } from './runner.js';
 import { writeRunManifest } from './capture.js';
 import { logInfo, logError } from '../../../shared/logger.mjs';
 import { launchBrowser } from '../browserLauncher.js';
+import { gotoWithBoundedReadiness } from './pageReadiness.js';
 import { agentModeAvailable } from '../autonomous_navigator/autonomousNavigator.js';
 
 function navMode() {
@@ -64,8 +65,7 @@ export async function runJourney({ journeyPlan, companyName = null, companySlug 
     page = await browser.newPage(session.pageOptions);
     page.on('close', () => logInfo('Navigation Runner: page closed', { runId }));
     logInfo('Navigation Runner: navigating to starting URL', { url: journeyPlan.starting_url, runId });
-    await page.goto(journeyPlan.starting_url, { waitUntil: 'load', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch { /* some pages never idle */ }
+    await gotoWithBoundedReadiness(page, journeyPlan.starting_url, { label: 'Navigation Runner' });
     return page;
   };
 

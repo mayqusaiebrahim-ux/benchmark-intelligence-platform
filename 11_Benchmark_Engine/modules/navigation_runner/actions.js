@@ -16,6 +16,7 @@ import { runGoalNavigation, TARGET_STATUS } from '../goal_navigator/goalNavigato
 import { playwrightAdapter } from '../goal_navigator/playwrightAdapter.js';
 import { buildTestProfile } from '../goal_navigator/syntheticData.js';
 import { runAutonomousNavigation, agentModeAvailable, AgentNavUnavailableError } from '../autonomous_navigator/autonomousNavigator.js';
+import { gotoWithBoundedReadiness } from './pageReadiness.js';
 
 // NAVIGATION_MODE: 'agent' (default — autonomous browser agent) or 'heuristic'
 // (the legacy GoalNavigator). Agent mode falls back to heuristic automatically
@@ -391,6 +392,6 @@ export async function performStepAction(page, step, ctx = {}) {
  */
 export async function safeGoto(page, url) {
   logInfo('Navigation Runner: re-baseline navigation', { url });
-  await page.goto(url, { waitUntil: 'load', timeout: 30000 });
-  await waitForSettle(page);
+  // Commit + bounded load wait + the same best-effort networkidle settle.
+  await gotoWithBoundedReadiness(page, url, { label: 'Navigation Runner (re-baseline)' });
 }
