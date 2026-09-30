@@ -46,6 +46,12 @@ try {
   logError('Startup diagnostics failed', err);
 }
 
+// Navigation readiness bounds (see runDiscovery): the response must commit
+// within NAV_COMMIT_TIMEOUT_MS; DOMContentLoaded is awaited best-effort for
+// at most DOM_READY_TIMEOUT_MS.
+export const NAV_COMMIT_TIMEOUT_MS = 60000;
+export const DOM_READY_TIMEOUT_MS = 30000;
+
 /**
  * runDiscovery — accepts { url, companySlug?, companyName? }, returns a DiscoveryReport
  * matching contracts/discovery.schema.json.
@@ -67,12 +73,29 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
     page.on('close', () => logInfo('Discovery: page closed'));
 
     logInfo('Discovery: navigating', { url });
-    // 'domcontentloaded', not 'load': dynamic sites can stay short of the
-    // load event for 30s+ on slow third-party resources while the page itself
-    // is already usable. A real navigation failure (DNS, refused, net::ERR_*)
-    // still rejects goto() and fails discovery; the best-effort networkidle
-    // wait below gives late-rendering content a bounded chance to appear.
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Resilient readiness: navigation only has to COMMIT (a response was
+    // received and the new document started). A real navigation failure (DNS,
+    // refused, TLS, net::ERR_*, no response within NAV_COMMIT_TIMEOUT_MS)
+    // still rejects goto() and fails discovery. DOMContentLoaded is then a
+    // bounded best-effort wait, not a hard gate: some sites keep the
+    // document "loading" long after a usable page has rendered. If it never
+    // arrives, discovery continues only when the committed document already
+    // has a <body>; otherwise it fails as before.
+    const response = await page.goto(url, { waitUntil: 'commit', timeout: NAV_COMMIT_TIMEOUT_MS });
+    try {
+      await page.waitForLoadState('domcontentloaded', { timeout: DOM_READY_TIMEOUT_MS });
+    } catch {
+      const hasBody = await page.evaluate(() => !!document.body).catch(() => false);
+      if (!hasBody) {
+        throw new Error(
+          `Discovery: ${url} responded (HTTP ${response ? response.status() : 'n/a'}) but no document body was available ` +
+          `after ${DOM_READY_TIMEOUT_MS}ms — page unavailable.`,
+        );
+      }
+      logInfo('Discovery: DOMContentLoaded not reached within the bounded wait — continuing with the committed document', {
+        url, status: response ? response.status() : null, waitedMs: DOM_READY_TIMEOUT_MS,
+      });
+    }
     try {
       await page.waitForLoadState('networkidle', { timeout: 8000 });
     } catch {
