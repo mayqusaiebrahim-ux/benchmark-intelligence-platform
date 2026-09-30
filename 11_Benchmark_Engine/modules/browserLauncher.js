@@ -36,6 +36,7 @@ import { fileURLToPath } from 'url';
 import { existsSync, readdirSync } from 'fs';
 import { homedir, platform } from 'os';
 import { logInfo, logError } from '../../shared/logger.mjs';
+import { readRemoteBrowserConfig } from './remoteBrowserConfig.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -115,6 +116,30 @@ function releaseBrowserSlot() {
   activeBrowserSlots = Math.max(0, activeBrowserSlots - 1);
 }
 
+/**
+ * Run `fn` while holding the SAME global browser slot launchBrowser() uses —
+ * for browser work that does not go through launchBrowser() (the Stagehand
+ * agent, which attaches to / launches its own browser). With
+ * BROWSER_PROVIDER=remote every run shares one worker browser, so this keeps
+ * all browser work serialized. The slot is always released, success or
+ * failure; fn's own result/error passes through unchanged.
+ */
+export async function withBrowserSlot(fn, label = 'browser work') {
+  await acquireBrowserSlot();
+  logInfo('browser_slot_acquired', { label, active: activeBrowserSlots, max: MAX_CONCURRENT_BROWSERS, waiting: browserSlotWaiters.length });
+  try {
+    return await fn();
+  } finally {
+    releaseBrowserSlot();
+    logInfo('browser_slot_released', { label });
+  }
+}
+
+/** Read-only snapshot of the browser concurrency gate (diagnostics / tests). */
+export function browserSlotStatus() {
+  return { active: activeBrowserSlots, max: MAX_CONCURRENT_BROWSERS, waiting: browserSlotWaiters.length };
+}
+
 // Playwright's DEFAULT browser download roots per OS (used only as a
 // last-resort fallback when the env-driven resolution points at a Chromium
 // that was never installed — e.g. a stray PLAYWRIGHT_BROWSERS_PATH=0).
@@ -184,6 +209,64 @@ async function launchLocal(label) {
     close: async () => {
       await browser.close();
       logInfo('browser_closed', { provider: 'local', label });
+    },
+  };
+}
+
+// ─── BROWSER_PROVIDER=remote ────────────────────────────────────────────────
+// Chromium runs on a separate browser-worker machine (scripts/browserWorker.mjs)
+// so its memory never counts against this service. Same session shape as
+// the local provider; screenshots are still written on THIS machine (the
+// Playwright client). No fallback: if the worker is unreachable or rejects
+// the token, this throws — it never launches a local Chromium instead.
+export const REMOTE_CONNECT_TIMEOUT_MS = 15000;
+
+/** Page profile from the remote browser's own user-agent (its real platform), never "HeadlessChrome". */
+export function buildPageProfileFromUserAgent(userAgent) {
+  return {
+    userAgent: String(userAgent || '').replace(/HeadlessChrome/g, 'Chrome'),
+    viewport: { width: 1440, height: 900 },
+    locale: 'en-US',
+  };
+}
+
+export async function launchRemote(label, { connect = (url, opts) => chromium.connectOverCDP(url, opts), env = process.env } = {}) {
+  logInfo('browser_provider', { provider: 'remote', label });
+  const cfg = readRemoteBrowserConfig(env);
+  if (!cfg.ok) {
+    const err = new Error(cfg.error);
+    logError('browser_remote_config_invalid', err, { provider: 'remote', label });
+    throw err;
+  }
+  let browser;
+  try {
+    browser = await connect(cfg.url, { headers: cfg.headers, timeout: REMOTE_CONNECT_TIMEOUT_MS });
+  } catch (err) {
+    // Never log the token — only the endpoint host and the connect error.
+    let host = '';
+    try { host = new URL(cfg.url).host; } catch { /* ignore */ }
+    const wrapped = new Error(`Remote browser worker unavailable at ${host || 'REMOTE_BROWSER_CDP_URL'}: ${String(err && err.message || err).split('\n')[0]}`);
+    logError('browser_connect_failed', wrapped, { provider: 'remote', label });
+    throw wrapped; // no local fallback
+  }
+
+  let pageOptions = buildPageProfile(browser.version());
+  try {
+    const cdp = await browser.newBrowserCDPSession();
+    const { userAgent } = await cdp.send('Browser.getVersion');
+    if (userAgent) pageOptions = buildPageProfileFromUserAgent(userAgent);
+    await cdp.detach().catch(() => {});
+  } catch { /* keep the version-derived profile */ }
+  logInfo('browser_connected', { provider: 'remote', label, browserVersion: browser.version() });
+
+  return {
+    browser,
+    pageOptions, // pass to browser.newPage(pageOptions)
+    close: async () => {
+      // On a connected browser this clears the contexts WE created and
+      // disconnects — it does not shut down the worker's Chromium.
+      try { await browser.close(); } catch (err) { logError('browser_close_error', err, { provider: 'remote', label }); }
+      logInfo('browser_closed', { provider: 'remote', label });
     },
   };
 }
@@ -277,8 +360,8 @@ async function launchBrowserbase(label) {
  */
 export async function launchBrowser(label) {
   const provider = (process.env.BROWSER_PROVIDER || 'local').trim().toLowerCase();
-  if (provider !== 'browserbase' && provider !== 'local') {
-    throw new Error(`Unknown BROWSER_PROVIDER "${process.env.BROWSER_PROVIDER}". Expected "local" or "browserbase".`);
+  if (provider !== 'browserbase' && provider !== 'local' && provider !== 'remote') {
+    throw new Error(`Unknown BROWSER_PROVIDER "${process.env.BROWSER_PROVIDER}". Expected "local", "remote" or "browserbase".`);
   }
 
   await acquireBrowserSlot();
@@ -286,7 +369,9 @@ export async function launchBrowser(label) {
 
   let session;
   try {
-    session = provider === 'browserbase' ? await launchBrowserbase(label) : await launchLocal(label);
+    session = provider === 'browserbase' ? await launchBrowserbase(label)
+      : provider === 'remote' ? await launchRemote(label)
+        : await launchLocal(label);
   } catch (err) {
     releaseBrowserSlot();
     throw err;

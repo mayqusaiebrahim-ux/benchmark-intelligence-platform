@@ -32,6 +32,7 @@ import { describeFieldStates } from './genericVerifier.js';
 import { makeTelemetry, scrub } from './navigationTelemetry.js';
 import { makeEvidenceStore } from './evidenceCapture.js';
 import { logInfo, logWarn, logError } from '../../../shared/logger.mjs';
+import { isRemoteProvider, readRemoteBrowserConfig } from '../remoteBrowserConfig.js';
 
 export class AgentNavUnavailableError extends Error {
   constructor(msg) { super(msg); this.name = 'AgentNavUnavailableError'; }
@@ -170,11 +171,16 @@ export function validateAgentConfiguration() {
   const base = { disableAPI: STAGEHAND_DISABLE_API, experimental: STAGEHAND_EXPERIMENTAL };
   const browserbase = agentUsesBrowserbase();
   const local = (process.env.BROWSER_PROVIDER || 'local').toLowerCase() === 'local';
-  if (!browserbase && !local) {
-    return { ...base, ok: false, reason: `BROWSER_PROVIDER="${process.env.BROWSER_PROVIDER}" is not a supported agent browser (need "browserbase" or "local")` };
+  const remote = isRemoteProvider();
+  if (!browserbase && !local && !remote) {
+    return { ...base, ok: false, reason: `BROWSER_PROVIDER="${process.env.BROWSER_PROVIDER}" is not a supported agent browser (need "browserbase", "local" or "remote")` };
   }
   if (browserbase && !process.env.BROWSERBASE_API_KEY) {
     return { ...base, ok: false, reason: 'BROWSER_PROVIDER=browserbase but BROWSERBASE_API_KEY is not set' };
+  }
+  if (remote) {
+    const rc = readRemoteBrowserConfig();
+    if (!rc.ok) return { ...base, ok: false, reason: rc.error };
   }
   const llm = detectAgentLlm();
   if (!llm) {
@@ -200,7 +206,7 @@ export function validateAgentConfiguration() {
     agentModel: llm.model,
     agentMode: llm.agentMode || 'dom',            // 'hybrid' (DOM + visual) or 'dom'
     hybridCapable: !!llm.hybridCapable,
-    browser: browserbase ? 'browserbase' : 'local',
+    browser: browserbase ? 'browserbase' : (remote ? 'remote' : 'local'),
     keyEnv: llm.keyEnv,
   };
 }
@@ -271,6 +277,17 @@ export function resolveEffectiveLimits(limits = {}) {
   };
 }
 
+const STAGEHAND_DEFAULT_VIEWPORT = { width: 1288, height: 711 }; // Stagehand 3.7.3 v3.js DEFAULT_VIEWPORT
+
+/** Stagehand localBrowserLaunchOptions for LOCAL (launch) or REMOTE (attach over CDP). Pure — for tests. */
+export function buildLocalAgentBrowserOptions() {
+  if (isRemoteProvider()) {
+    const rc = readRemoteBrowserConfig();
+    return { cdpUrl: rc.url || undefined, cdpHeaders: rc.headers || undefined, viewport: { ...STAGEHAND_DEFAULT_VIEWPORT } };
+  }
+  return { headless: true, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] };
+}
+
 /**
  * The Stagehand constructor options this integration uses. Pure — exported so
  * a test can prove we pass the SUPPORTED combination (disableAPI:true +
@@ -295,7 +312,13 @@ export function buildStagehandConstructorOptions() {
     // settings mirror what Playwright's working chromium.launch() passes by
     // default on the same host (headless + --no-sandbox). The executable is
     // still resolved by chrome-launcher from CHROME_PATH.
-    localBrowserLaunchOptions: useBrowserbase ? undefined : { headless: true, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] },
+    //
+    // REMOTE (BROWSER_PROVIDER=remote): attach to the browser worker's
+    // Chromium over CDP instead of launching one here. Stagehand only applies
+    // its default 1288x711 viewport when it launches Chrome itself, so the
+    // same viewport is passed explicitly to keep the agent's screenshot /
+    // coordinate space unchanged.
+    localBrowserLaunchOptions: useBrowserbase ? undefined : buildLocalAgentBrowserOptions(),
     model: (llm && llm.model) || 'openai/gpt-4.1-mini',
     disableAPI: STAGEHAND_DISABLE_API,       // true  — SUPPORTED path for `signal`
     experimental: STAGEHAND_EXPERIMENTAL,    // true  — SUPPORTED path for `signal` / callbacks

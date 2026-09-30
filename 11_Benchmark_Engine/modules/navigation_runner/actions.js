@@ -17,6 +17,7 @@ import { playwrightAdapter } from '../goal_navigator/playwrightAdapter.js';
 import { buildTestProfile } from '../goal_navigator/syntheticData.js';
 import { runAutonomousNavigation, agentModeAvailable, AgentNavUnavailableError } from '../autonomous_navigator/autonomousNavigator.js';
 import { gotoWithBoundedReadiness } from './pageReadiness.js';
+import { withBrowserSlot } from '../browserLauncher.js';
 
 // NAVIGATION_MODE: 'agent' (default — autonomous browser agent) or 'heuristic'
 // (the legacy GoalNavigator). Agent mode falls back to heuristic automatically
@@ -288,13 +289,17 @@ export async function performStepAction(page, step, ctx = {}) {
         if (!agentModeAvailable()) throw new AgentNavUnavailableError('agent-mode credentials (Browserbase + LLM key) are not configured');
         const startingUrl = (() => { try { return page && page.url(); } catch { return null; } })() || ctx.startingUrl || null;
         logInfo('Navigation Runner: autonomous agent navigation starting', { stepId: step.id, detectorKey: step.detector_key, startingUrl });
-        const r = await runAutonomousNavigation({
+        const runAgent = () => runAutonomousNavigation({
           startingUrl,
           company: ctx.company || ctx.companySlug || step.feature_label || 'company',
           feature,
           detectorKey: step.detector_key,
           profile: buildTestProfile(),
         });
+        // Hold the global browser slot for the agent run. When `page` is set,
+        // this journey already holds the slot through launchBrowser()
+        // (ensureBrowser) — acquiring it again would deadlock at concurrency 1.
+        const r = page ? await runAgent() : await withBrowserSlot(runAgent, 'Autonomous agent');
         logInfo('Navigation Runner: autonomous agent navigation finished', {
           stepId: step.id, targetStatus: r.targetStatus, reached: r.targetReached,
           confidence: r.confidence, deepestUrl: r.deepestUrl, safetyBlocks: r.safetyBlocks?.length || 0,

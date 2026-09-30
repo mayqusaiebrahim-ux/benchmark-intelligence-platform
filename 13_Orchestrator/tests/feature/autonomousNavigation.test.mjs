@@ -333,7 +333,7 @@ test('agent-only run does NOT pre-launch the Navigation Runner browser', async (
   process.env.BROWSER_PROVIDER = 'browserbase';
   const launches = [];
   const m1 = mock.module('../../../11_Benchmark_Engine/modules/browserLauncher.js', {
-    namedExports: { launchBrowser: async (label) => { launches.push(label); return { browser: { on() {}, async newPage() { return fakePage(); } }, close: async () => {} }; } },
+    namedExports: { launchBrowser: async (label) => { launches.push(label); return { browser: { on() {}, async newPage() { return fakePage(); } }, close: async () => {} }; }, withBrowserSlot: async (fn) => fn() },
   });
   const m2 = mock.module(NAV, {
     namedExports: {
@@ -362,7 +362,7 @@ test('heuristic mode still launches and uses the Navigation Runner browser', asy
   const launches = [];
   const page = fakePage({ snapshot: PAX_SNAPSHOT, url: 'https://air.com/pax' });
   const m1 = mock.module('../../../11_Benchmark_Engine/modules/browserLauncher.js', {
-    namedExports: { launchBrowser: async (label) => { launches.push(label); return { browser: { on() {}, async newPage() { return page; } }, close: async () => {} }; } },
+    namedExports: { launchBrowser: async (label) => { launches.push(label); return { browser: { on() {}, async newPage() { return page; } }, close: async () => {} }; }, withBrowserSlot: async (fn) => fn() },
   });
   t.after(() => { m1.restore(); delete process.env.NAVIGATION_MODE;  scrubAgentTestArtifacts(); });
   const { runJourney } = await import(`../../../11_Benchmark_Engine/modules/navigation_runner/index.js?bust=${Math.random()}`);

@@ -63,6 +63,7 @@ mock.module('../../../11_Benchmark_Engine/modules/browserLauncher.js', {
       calls.launches += 1;
       return { browser: { on() {}, async newPage() { return fakePage(); } }, close: async () => { calls.closes += 1; } };
     },
+    withBrowserSlot: async (fn) => fn(),
   },
 });
 
