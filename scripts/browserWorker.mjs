@@ -58,6 +58,11 @@ export function parseWorkerConfig(env = process.env) {
 export function buildChromeArgs({ cdpPort, userDataDir, userAgent }) {
   return [
     ...LOCAL_LAUNCH_ARGS,
+    // Same as production: Playwright's chromium.launch() always adds
+    // --no-sandbox. Launched directly, Chromium's Windows sandbox cannot
+    // access the Playwright Chromium folder ("Sandbox cannot access
+    // executable … Access is denied"), which destabilises startup.
+    '--no-sandbox',
     '--headless=new',
     `--remote-debugging-address=${LOOPBACK}`,
     `--remote-debugging-port=${cdpPort}`,
@@ -154,9 +159,21 @@ function chromiumExecutable() {
   return require('playwright').chromium.executablePath(); // full Chromium, not the headless shell
 }
 
-async function waitForCdp(cdpPort, timeoutMs = 20000) {
+/** True when something is already listening on 127.0.0.1:<port>. */
+export function isPortInUse(port, host = LOOPBACK, timeoutMs = 1000) {
+  return new Promise((resolve) => {
+    const s = net.connect(port, host);
+    const done = (inUse) => { try { s.destroy(); } catch { /* ignore */ } resolve(inUse); };
+    s.setTimeout(timeoutMs, () => done(false));
+    s.once('connect', () => done(true));
+    s.once('error', () => done(false));
+  });
+}
+
+async function waitForCdp(cdpPort, { timeoutMs = 20000, hasExited = () => false } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (hasExited()) throw new Error('Chromium exited before opening its debugging port');
     try { await browserWsPath(LOOPBACK, cdpPort); return; } catch { await new Promise((r) => setTimeout(r, 250)); }
   }
   throw new Error(`Chromium did not open its debugging port ${cdpPort} within ${timeoutMs}ms`);
@@ -167,11 +184,31 @@ async function main() {
   if (!cfg.ok) { console.error(`✖ ${cfg.error}`); process.exit(1); }
   const exe = chromiumExecutable();
   if (!exe || !existsSync(exe)) { console.error(`✖ Chromium not found at "${exe}". Run: npm install --prefix 11_Benchmark_Engine`); process.exit(1); }
+  // Pre-flight: never start (or proxy to) a browser we did not launch. On
+  // Windows, closing the terminal does not kill the Chromium a previous
+  // worker spawned — an orphan holding the port is the usual cause of
+  // "did not open its debugging port".
+  for (const [name, port] of [['BROWSER_WORKER_CDP_PORT', cfg.cdpPort], ['BROWSER_WORKER_PORT', cfg.proxyPort]]) {
+    if (await isPortInUse(port)) {
+      console.error(`✖ Port ${port} (${name}) is already in use on ${LOOPBACK} — most likely a Chromium or worker left running from an earlier run.`);
+      console.error('  Close it (e.g. Task Manager → end the leftover "chrome.exe" from ms-playwright), or choose another port via that variable.');
+      process.exit(1);
+    }
+  }
+
   const version = chromiumVersion();
   const userAgent = buildPageProfile(version).userAgent; // same builder as production, this machine's platform
   const userDataDir = mkdtempSync(join(tmpdir(), 'bench-worker-profile-'));
 
-  const chrome = spawn(exe, buildChromeArgs({ cdpPort: cfg.cdpPort, userDataDir, userAgent }), { stdio: 'ignore' });
+  const chrome = spawn(exe, buildChromeArgs({ cdpPort: cfg.cdpPort, userDataDir, userAgent }), { stdio: ['ignore', 'ignore', 'pipe'] });
+  // Keep Chromium's last stderr lines so a startup failure says WHY.
+  const chromeLog = [];
+  chrome.stderr.on('data', (d) => {
+    for (const line of d.toString().split(/\r?\n/)) if (line.trim()) chromeLog.push(line.trim().slice(0, 300));
+    if (chromeLog.length > 20) chromeLog.splice(0, chromeLog.length - 20);
+  });
+  let chromeExited = false;
+  const printChromeLog = () => { if (chromeLog.length) console.error(`  Chromium output (last lines):\n    ${chromeLog.slice(-6).join('\n    ')}`); };
   let proxy = null;
   let stopping = false;
   const shutdown = (code) => {
@@ -181,11 +218,15 @@ async function main() {
     try { chrome.kill(); } catch { /* ignore */ }
     setTimeout(() => { try { rmSync(userDataDir, { recursive: true, force: true }); } catch { /* ignore */ } process.exit(code); }, 1000);
   };
-  chrome.on('exit', (c) => { if (!stopping) { console.error(`✖ Chromium exited (code ${c}) — worker stopping.`); shutdown(1); } });
+  chrome.on('exit', (c) => {
+    chromeExited = true;
+    if (!stopping) { console.error(`✖ Chromium exited (code ${c}) — worker stopping.`); printChromeLog(); shutdown(1); }
+  });
   process.on('SIGINT', () => shutdown(0));
   process.on('SIGTERM', () => shutdown(0));
 
-  try { await waitForCdp(cfg.cdpPort); } catch (err) { console.error(`✖ ${err.message}`); shutdown(1); return; }
+  try { await waitForCdp(cfg.cdpPort, { hasExited: () => chromeExited }); }
+  catch (err) { console.error(`✖ ${err.message}`); printChromeLog(); shutdown(1); return; }
   proxy = createWorkerProxy({ token: cfg.token, cdpPort: cfg.cdpPort, log: (m) => console.log(`[worker] ${m}`) });
   proxy.listen(cfg.proxyPort, LOOPBACK, () => {
     console.log(`✓ Browser worker ready — Chromium ${version}, throwaway profile ${userDataDir}`);

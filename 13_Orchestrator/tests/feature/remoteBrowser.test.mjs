@@ -180,6 +180,7 @@ test('worker Chromium args: production flags, new headless, CDP bound to 127.0.0
   for (const a of LOCAL_LAUNCH_ARGS) assert.ok(args.includes(a), `production flag ${a}`);
   assert.ok(args.includes('--disable-blink-features=AutomationControlled'));
   assert.ok(args.includes('--headless=new'));
+  assert.ok(args.includes('--no-sandbox'), 'same as production Playwright launches');
   assert.ok(args.includes('--remote-debugging-address=127.0.0.1'));
   assert.ok(args.includes('--remote-debugging-port=9222'));
   assert.ok(args.includes('--user-data-dir=/tmp/bench-worker-profile-abc'));
@@ -190,6 +191,19 @@ test('worker Chromium args: production flags, new headless, CDP bound to 127.0.0
 
 test('worker resolves the bundled Chromium version from playwright-core (not an exported subpath)', () => {
   assert.match(W.chromiumVersion(), /^\d+\.\d+\.\d+\.\d+$/);
+});
+
+test('worker pre-flight: detects a port that is already in use (orphaned Chromium/worker) and a free one', async (t) => {
+  const busy = http.createServer();
+  await new Promise((r) => busy.listen(0, '127.0.0.1', r));
+  const busyPort = busy.address().port;
+  t.after(() => busy.close());
+  assert.equal(await W.isPortInUse(busyPort), true);
+  const free = http.createServer();
+  await new Promise((r) => free.listen(0, '127.0.0.1', r));
+  const freePort = free.address().port;
+  await new Promise((r) => free.close(r));
+  assert.equal(await W.isPortInUse(freePort), false);
 });
 
 test('worker auth: exact token only', () => {
