@@ -17,6 +17,12 @@
  * Homepage / entry just happens to be the homepage-only case.
  */
 
+import { hasKeyword, bestKeywordMatch } from '../../11_Benchmark_Engine/modules/autonomous_navigator/keywordMatch.js';
+
+// All keyword routing below is WHOLE-WORD and picks the most specific
+// (longest) matching keyword — never a raw substring ("menu" in "meal menu",
+// "entry" in "Re-entry", "pay" in "display" no longer route a target).
+
 // Same table as featureVisionStage.mapFeatureToStepId — single source now.
 const FEATURE_KEYWORD_MAP = [
   [['entry', 'landing', 'homepage', 'home page', 'hero'], 'step_01_entry'],
@@ -40,7 +46,10 @@ const FEATURE_KEYWORD_MAP = [
 // specific than the journey step: "Fare Selection" and "Passenger Details"
 // both map to step_07_booking, but need different arrival detectors.
 const DETECTOR_KEYWORD_MAP = [
-  [['flight results', 'search results', 'results page', 'flight list'], 'flight_results'],
+  // Flight-specific detector: flight phrases only. A generic "search results"
+  // / "results page" target (hotels, cars, products…) falls through to the
+  // generic verifier instead of being judged by an airline detector.
+  [['flight results', 'flight list'], 'flight_results'],
   [['fare selection', 'fare family', 'fare options', 'select fare', 'branded fares'], 'fare_selection'],
   [['passenger details', 'passenger information', 'traveller details', 'traveler details', 'contact details'], 'passenger_details'],
   [['seat selection', 'seat map', 'choose seat', 'select seat'], 'seat_selection'],
@@ -54,11 +63,7 @@ const DETECTOR_KEYWORD_MAP = [
 ];
 
 function mapFeatureToDetectorKey(feature) {
-  const text = String(feature || '').toLowerCase();
-  for (const [keywords, key] of DETECTOR_KEYWORD_MAP) {
-    if (keywords.some((k) => text.includes(k))) return key;
-  }
-  return null;
+  return bestKeywordMatch(feature, DETECTOR_KEYWORD_MAP)?.value ?? null;
 }
 export { mapFeatureToDetectorKey };
 
@@ -71,11 +76,7 @@ const HOMEPAGE_SURFACE_KEYWORDS = [
 ];
 
 export function mapFeatureToStepId(feature) {
-  const text = String(feature || '').toLowerCase();
-  for (const [keywords, stepId] of FEATURE_KEYWORD_MAP) {
-    if (keywords.some((k) => text.includes(k))) return stepId;
-  }
-  return null;
+  return bestKeywordMatch(feature, FEATURE_KEYWORD_MAP)?.value ?? null;
 }
 
 /**
@@ -86,12 +87,16 @@ export function mapFeatureToStepId(feature) {
 export function resolveFeatureIntent(feature) {
   const f = String(feature || '').trim();
   const lower = f.toLowerCase();
-  const stepId = mapFeatureToStepId(f) || (/(sign[- ]?in|log[- ]?in|login)/.test(lower) ? 'step_auth' : null);
+  const stepId = mapFeatureToStepId(f) || (/(?<![a-z0-9-])(sign[- ]?in|log[- ]?in|login)(?![a-z0-9-])/.test(lower) ? 'step_auth' : null);
   const detectorKey = mapFeatureToDetectorKey(f);
 
-  const homepageSurface = HOMEPAGE_SURFACE_KEYWORDS.some((k) => lower.includes(k));
+  // Homepage-only ONLY when a homepage keyword matches AND nothing more
+  // specific does — "In-flight meal menu" / "Navigation to baggage allowance"
+  // name a real destination and must be navigated to, not read off the homepage.
+  const homepageKeyword = stepId === 'step_01_entry' || HOMEPAGE_SURFACE_KEYWORDS.some((k) => hasKeyword(f, k));
+  const moreSpecific = (stepId && stepId !== 'step_01_entry') || detectorKey;
 
-  if (stepId === 'step_01_entry' || homepageSurface) {
+  if (homepageKeyword && !moreSpecific) {
     return {
       stepId: 'step_01_entry',
       homepageOnly: true,
@@ -133,6 +138,64 @@ export function resolveFeatureIntent(feature) {
     description: genericDescription,
     note: `custom feature "${f}" — no known detector; arrival is verified generically`,
   };
+}
+
+// ─── Entry-point hints from Discovery ────────────────────────────────────
+// Discovery already extracts the homepage's header/nav, footer and CTA links.
+// Rank the SAME-DOMAIN ones by whole-word overlap with the target and hand
+// the top few to the agent as hints — never navigated to automatically.
+const ENTRY_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'your', 'our', 'page', 'flow', 'form', 'screen', 'step',
+  'information', 'info', 'section', 'view', 'experience', 'feature', 'website', 'site', 'more',
+]);
+const MAX_ENTRY_POINTS = 3;
+
+// Target and link label are split into words THE SAME WAY (any non-alphanumeric
+// separates, so "Check-in" → check + in; trailing plural s/es normalised) and
+// scored by how many target words the label shares.
+function wordSet(text) {
+  return new Set(String(text || '').toLowerCase().split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !ENTRY_STOPWORDS.has(w))
+    .map((w) => (w.length > 4 ? w.replace(/(es|s)$/, '') : w)));
+}
+
+function registrable(host) {
+  return String(host || '').toLowerCase().replace(/^www\./, '').split('.').slice(-2).join('.');
+}
+
+/**
+ * Up to 3 same-domain homepage links whose labels share whole words with the
+ * target, as absolute URLs: [{ label, url, score }]. Pure.
+ */
+export function rankEntryPoints({ discoveryReport, target, baseUrl }) {
+  const tokens = [...wordSet(target && target.feature)];
+  if (!tokens.length || !discoveryReport) return [];
+  const candidates = [
+    ...(discoveryReport.navigation || []),
+    ...(discoveryReport.footer_links || []),
+    ...(discoveryReport.visible_entry_points || []).filter((e) => e && e.type === 'cta'),
+  ];
+  const seen = new Set();
+  const ranked = [];
+  for (const c of candidates) {
+    const label = String((c && c.label) || '').trim();
+    const href = String((c && c.href) || '').trim();
+    if (!label || !href || /^(javascript:|mailto:|tel:|#)/i.test(href)) continue;
+    let url;
+    try { url = new URL(href, baseUrl || target.url); } catch { continue; }
+    if (!/^https?:$/.test(url.protocol)) continue;
+    if (registrable(url.hostname) !== (target.domain || registrable(new URL(target.url).hostname))) continue;
+    url.hash = '';
+    const key = url.toString();
+    if (seen.has(key)) continue;
+    const labelWords = wordSet(label);
+    const score = tokens.filter((t) => labelWords.has(t)).length;
+    if (score === 0) continue;
+    seen.add(key);
+    ranked.push({ label: label.slice(0, 80), url: key, score });
+  }
+  ranked.sort((a, b) => b.score - a.score || a.label.length - b.label.length);
+  return ranked.slice(0, MAX_ENTRY_POINTS);
 }
 
 const STEP_TITLES = {
@@ -195,6 +258,9 @@ export function buildFeatureJourneyPlan({ discoveryReport, target, intent }) {
       : intent.goalDriven
         ? 'The multi-step flow may hit an auth wall, a safety boundary (payment), or the step/time budget before the feature detector confirms arrival — the run then reports the deepest page reached.'
         : 'The one-hop link for this feature may not exist on the homepage — the run then falls back to homepage evidence.',
+    // Hints for the agent only (never auto-navigated): same-domain homepage
+    // links Discovery saw whose labels overlap the target.
+    entry_points: intent.goalDriven ? rankEntryPoints({ discoveryReport, target, baseUrl: startingUrl }) : [],
   };
 
   return {

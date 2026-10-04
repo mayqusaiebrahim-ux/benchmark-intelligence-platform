@@ -808,7 +808,10 @@ const { detectFeature: rawDetect } = await import('../../../11_Benchmark_Engine/
 test('featureIntent really does map generic labels onto airline detector keys', () => {
   // If these ever stop matching, the fallback below is guarding nothing.
   assert.equal(mapFeatureToDetectorKey('Checkout'), 'payment');
-  assert.equal(mapFeatureToDetectorKey('Search results'), 'flight_results');
+  // Generic "search results" no longer routes to the FLIGHT detector (it falls
+  // through to the generic verifier); flight phrases still do.
+  assert.equal(mapFeatureToDetectorKey('Search results'), null);
+  assert.equal(mapFeatureToDetectorKey('Flight results'), 'flight_results');
 });
 
 test('store Checkout (detectorKey "payment") verifies via generic-fallback, not a false negative', async () => {

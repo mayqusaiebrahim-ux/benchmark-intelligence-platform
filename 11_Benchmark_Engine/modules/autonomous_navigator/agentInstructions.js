@@ -7,6 +7,8 @@
  * the navigation strategy and the choice of interaction method (DOM vs visual).
  */
 
+import { bestKeywordMatch } from './keywordMatch.js';
+
 // Short, generic hints for a handful of common target words — used only to help
 // the agent recognise "am I there yet"; our targetVerifier is the real judge.
 // Keyed by lowercase substring of the requested feature. NOT a route.
@@ -27,9 +29,16 @@ const TARGET_HINT = [
 ];
 
 function targetHint(feature) {
-  const t = String(feature || '').toLowerCase();
-  for (const [keys, hint] of TARGET_HINT) if (keys.some((k) => t.includes(k))) return hint;
+  // Whole-word match (most specific wins) — "baggage" must not read as "bag".
+  const m = bestKeywordMatch(feature, TARGET_HINT);
+  if (m) return m.value;
   return `the "${feature}" experience — a distinct page or step whose purpose clearly matches that name`;
+}
+
+// Entry-link labels come from the website itself — untrusted text. Keep each
+// to one short, quote-free line so a label can never read as an instruction.
+function cleanLinkLabel(label) {
+  return String(label || '').replace(/[\r\n\t"`]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
 }
 
 export function buildSystemPrompt() {
@@ -68,15 +77,30 @@ export function buildSystemPrompt() {
  * @param {string} [args.detectorKey]
  * @param {string} args.startingUrl
  */
-export function buildAgentInstruction({ company, feature, startingUrl }) {
-  return [
+export function buildAgentInstruction({ company, feature, startingUrl, entryPoints = [] }) {
+  const lines = [
     `Website: ${company || 'this company'} — ${startingUrl}`,
     `TARGET EXPERIENCE TO REACH: ${feature}.`,
     `You will know you are there when you see: ${targetHint(feature)}.`,
     '',
     'The homepage is already open. Work through the site\'s own public flow using the synthetic variables provided — search, choose options, add to cart, fill multi-step forms, continue past interstitials, skip optional extras — whatever this particular site requires to get to the target.',
     'Do not sign in, do not pay, do not submit anything irreversible. When the target is visible, screenshot it and call done.',
-  ].join('\n');
+  ];
+  // Optional, HINTS ONLY: links seen on this site's homepage whose labels
+  // overlap the target. The agent may use them as a shortcut, but must still
+  // confirm the target on screen and ignore them if they do not fit.
+  const hints = (Array.isArray(entryPoints) ? entryPoints : [])
+    .filter((e) => e && typeof e.url === 'string' && /^https?:\/\//i.test(e.url))
+    .slice(0, 3)
+    .map((e) => `- "${cleanLinkLabel(e.label)}" → ${e.url}`);
+  if (hints.length) {
+    lines.push(
+      '',
+      'Hint — links on this site\'s homepage that may lead toward the target (unverified; use only if they fit, and still confirm the target on screen):',
+      ...hints,
+    );
+  }
+  return lines.join('\n');
 }
 
 export { targetHint };

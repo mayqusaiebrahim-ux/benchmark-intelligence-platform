@@ -28,6 +28,9 @@ export const featureDiscoveryStage = new Stage(
           url: target.url,
           companySlug: target.slug,
           companyName: target.company,
+          // Feature runs only need resolved_url (domain check below) and the
+          // extracted links/signals — skip consent/menu actions and the idle wait.
+          light: true,
         });
       } catch (err) {
         logError('Discovery threw', err);

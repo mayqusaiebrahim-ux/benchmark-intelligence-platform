@@ -84,12 +84,13 @@ test('b) the slot is RELEASED after a successful agent run', async (t) => {
   assert.equal(browserSlotStatus().waiting, 0);
 });
 
-test('c) the slot is RELEASED when the agent fails; the existing clear error is preserved', async (t) => {
+test('c) the slot is RELEASED when the agent fails; the crash is a clear terminal failure', async (t) => {
   setup(t, 'throw');
   const r = await performStepAction(null, STEP, CTX);
   assert.equal(browserSlotStatus().active, 0);
   assert.equal(r.success, false);
-  assert.match(r.error, /was not reached — agent mode could not run and no browser is available for the heuristic fallback/);
+  assert.equal(r.terminal, true);
+  assert.match(r.error, /"Passenger Details" was not reached — agent navigation crashed: agent crashed/);
 });
 
 test('d) a second browser run cannot overlap an agent run (it waits, then proceeds)', async (t) => {

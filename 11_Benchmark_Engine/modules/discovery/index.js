@@ -53,10 +53,16 @@ export const NAV_COMMIT_TIMEOUT_MS = 60000;
 export const DOM_READY_TIMEOUT_MS = 30000;
 
 /**
- * runDiscovery — accepts { url, companySlug?, companyName? }, returns a DiscoveryReport
- * matching contracts/discovery.schema.json.
+ * runDiscovery — accepts { url, companySlug?, companyName?, light? }, returns a
+ * DiscoveryReport matching contracts/discovery.schema.json.
+ *
+ * light (Feature Benchmark runs): keeps commit navigation, the bounded
+ * DOMContentLoaded readiness and signal extraction (the caller still
+ * validates the resolved domain), but skips the extra network-idle wait, the
+ * consent click, the menu expansion and the re-extraction — the Feature
+ * pipeline never uses what those add.
  */
-export async function runDiscovery({ url, companySlug = null, companyName = null }) {
+export async function runDiscovery({ url, companySlug = null, companyName = null, light = false }) {
   const startedAt = Date.now();
   let browser;
   let session;
@@ -96,10 +102,12 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
         url, status: response ? response.status() : null, waitedMs: DOM_READY_TIMEOUT_MS,
       });
     }
-    try {
-      await page.waitForLoadState('networkidle', { timeout: 8000 });
-    } catch {
-      // Some pages never go fully idle (analytics/websockets) — observe whatever rendered.
+    if (!light) {
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 8000 });
+      } catch {
+        // Some pages never go fully idle (analytics/websockets) — observe whatever rendered.
+      }
     }
 
     const meta = { requestedUrl: url, finalUrl: page.url(), status: response ? response.status() : null };
@@ -108,20 +116,22 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
     const actionsTaken = [];
 
     // ── Decide + act: at most one consent dismissal, at most one menu expand ──
-    const consentAction = await dismissConsentBanner(page, raw.consentCandidate);
-    if (consentAction) {
-      actionsTaken.push(consentAction);
-      await page.waitForTimeout(400);
-    }
+    if (!light) {
+      const consentAction = await dismissConsentBanner(page, raw.consentCandidate);
+      if (consentAction) {
+        actionsTaken.push(consentAction);
+        await page.waitForTimeout(400);
+      }
 
-    const navAction = await expandNavigationMenu(page, raw.navToggleCandidate, raw.navLinks.length);
-    if (navAction) {
-      actionsTaken.push(navAction);
-      await page.waitForTimeout(400);
-    }
+      const navAction = await expandNavigationMenu(page, raw.navToggleCandidate, raw.navLinks.length);
+      if (navAction) {
+        actionsTaken.push(navAction);
+        await page.waitForTimeout(400);
+      }
 
-    if (actionsTaken.length) {
-      raw = await extractRawSignals(page); // re-observe — dismissing/expanding changes what's visible
+      if (actionsTaken.length) {
+        raw = await extractRawSignals(page); // re-observe — dismissing/expanding changes what's visible
+      }
     }
 
     // ── Everything from here on is pure computation over `raw`/`meta` — no
@@ -163,6 +173,7 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
       website_type: classification.website_type,
       confidence,
       navigation: raw.navLinks,
+      footer_links: raw.footerLinks || [],   // additive: used for Feature-run entry-point hints
       primary_user_goals: primaryUserGoals,
       detected_ai_capabilities: aiFeatures,
       visible_entry_points: visibleEntryPoints,

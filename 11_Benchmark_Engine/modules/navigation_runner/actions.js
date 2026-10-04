@@ -279,8 +279,9 @@ export async function performStepAction(page, step, ctx = {}) {
   // PRIMARY (NAVIGATION_MODE=agent, default): an autonomous browser agent
   // (Stagehand) drives its own session and decides every action; our code
   // enforces safety, budget, synthetic data, and INDEPENDENT target
-  // verification. FALLBACK (NAVIGATION_MODE=heuristic, or agent creds absent /
-  // agent crash): the legacy heuristic GoalNavigator on this same page.
+  // verification. FALLBACK (NAVIGATION_MODE=heuristic, or agent mode
+  // unavailable): the legacy heuristic GoalNavigator on this same page. An
+  // agent CRASH is a terminal failure for the step — never a heuristic re-run.
   if (step.goal_driven) {
     const feature = step.feature_label || step.title || step.detector_key;
 
@@ -294,6 +295,7 @@ export async function performStepAction(page, step, ctx = {}) {
           company: ctx.company || ctx.companySlug || step.feature_label || 'company',
           feature,
           detectorKey: step.detector_key,
+          entryPoints: Array.isArray(step.entry_points) ? step.entry_points : [],
           profile: buildTestProfile(),
         });
         // Hold the global browser slot for the agent run. When `page` is set,
@@ -314,12 +316,24 @@ export async function performStepAction(page, step, ctx = {}) {
           evidenceOverride: r.evidenceOverride || null,
         };
       } catch (err) {
-        if (err instanceof AgentNavUnavailableError) {
-          logInfo('Navigation Runner: agent mode unavailable — using heuristic navigator', { stepId: step.id, reason: err.message });
-        } else {
-          logError('Navigation Runner: agent navigation threw before a classified result — using heuristic navigator', err, { stepId: step.id });
+        if (!(err instanceof AgentNavUnavailableError)) {
+          // Fail fast: an agent CRASH is a terminal result for this step. Do
+          // NOT start the heuristic navigator — it would launch a browser and
+          // re-navigate the whole site from zero (its own 3-minute budget)
+          // only to report the same failure much later.
+          logError('Navigation Runner: agent navigation crashed — failing the step (no heuristic re-run)', err, { stepId: step.id });
+          const reason = `agent navigation crashed: ${String(err && err.message || err).split('\n')[0]}`;
+          return {
+            success: false,
+            terminal: true,
+            error: `"${feature}" was not reached — ${reason}`,
+            action_taken: 'Autonomous agent crashed before a classified result',
+            consent,
+            goal: { targetStatus: TARGET_STATUS.BLOCKER, targetReached: false, blocker: reason, interactionsPerformed: [], classificationsSeen: [] },
+          };
         }
-        // fall through to the heuristic navigator below
+        logInfo('Navigation Runner: agent mode unavailable — using heuristic navigator', { stepId: step.id, reason: err.message });
+        // fall through to the heuristic navigator below (agent could not run at all)
       }
     }
 
@@ -379,10 +393,10 @@ export async function performStepAction(page, step, ctx = {}) {
   }
 
   if (hint.kind === 'observe') {
-    // No interaction — the page as loaded (already re-baselined to
-    // starting_url by runner.js) is the evidence. Wait for it to settle so
-    // the screenshot capture.js takes next is of the final rendered state.
-    await waitForSettle(page);
+    // No interaction — the page as loaded is the evidence. It was loaded by
+    // gotoWithBoundedReadiness() (ensureBrowser / safeGoto), which already
+    // waited for load + a best-effort network-idle settle; a second idle
+    // wait here only added up to 8s.
     return { success: true, error: null, action_taken: 'Observed the page as loaded (no interaction required)', consent };
   }
   const result = hint.kind === 'search'

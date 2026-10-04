@@ -74,7 +74,7 @@ const DEFAULT_MAX_NAV_AI_CALLS = 25;      // hard ceiling on real agent model st
 export const DEFAULT_AGENT_LIMITS = Object.freeze({
   maxSteps: DEFAULT_MAX_STEPS,      // deep multi-step journeys need room; still bounded
   maxNavAiCalls: DEFAULT_MAX_NAV_AI_CALLS,
-  maxMs: 7 * 60 * 1000,       // 420_000 — usable AGENT budget, from agentStartedAt
+  maxMs: 3 * 60 * 1000,       // 180_000 — usable AGENT budget, from agentStartedAt (was 420_000; fail fast). Override: AGENT_NAV_MAX_MS
   evidenceReserveMs: 25 * 1000,
   probeIntervalMs: 6000,
   // Universal stuck detector: if the generic page-state fingerprint is
@@ -226,9 +226,22 @@ function envMaxNavAiCalls() {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }
 
+// AGENT_NAV_MAX_MS env override for the agent time budget (ms). Same
+// precedence as MAX_NAV_AI_CALLS: explicit `limits.maxMs` > env > default.
+// A value below MIN_DEEP_BUDGET_MS is still clamped up (with a warning) below.
+function envAgentMaxMs() {
+  const raw = process.env.AGENT_NAV_MAX_MS;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
 /** Compute + sanity-check the effective limits. Never returns a budget < MIN. */
 export function resolveEffectiveLimits(limits = {}) {
   const L = { ...DEFAULT_AGENT_LIMITS, ...limits };
+  if (!(Number.isFinite(limits.maxMs) && limits.maxMs > 0)) {
+    L.maxMs = envAgentMaxMs() ?? DEFAULT_AGENT_LIMITS.maxMs;
+  }
   const sessionMs = browserbaseSessionTimeoutMs();
   // The deep-journey floor. Tests pass minBudgetMs:0 to exercise short budgets;
   // production never does.
@@ -368,6 +381,7 @@ async function defaultStagehandFactory({ logger }) {
  */
 export async function runAutonomousNavigation({
   startingUrl, company, feature, detectorKey = null,
+  entryPoints = [],   // hints only: likely homepage links toward the target (from Discovery)
   profile = buildTestProfile(),
   limits = {},
   stagehandFactory = defaultStagehandFactory,
@@ -504,7 +518,7 @@ export async function runAutonomousNavigation({
 
     // ── phase: agent_create ────────────────────────────────────────────
     t0 = Date.now();
-    const instruction = buildAgentInstruction({ company, feature, startingUrl });
+    const instruction = buildAgentInstruction({ company, feature, startingUrl, entryPoints });
     const variables = toAgentVariables(profile);
     // mode: 'hybrid' (DOM + visual/coordinate tools) when the model supports it,
     // else 'dom'. Stagehand v3.7.3 filterTools() gives hybrid BOTH toolsets.

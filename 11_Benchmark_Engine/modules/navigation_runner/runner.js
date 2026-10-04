@@ -45,7 +45,11 @@ export async function executeStep({ page, ensureBrowser, step, index, journeyPla
     };
   }
 
-  if (!step.depends_on_previous && page && !agentGoalStep) {
+  // The first step needs no re-baseline: runJourney's ensureBrowser() loaded
+  // starting_url on this page immediately before the step loop, and nothing
+  // has navigated since. Reloading it would be a full redundant page load.
+  const freshStartingPage = index === 0;
+  if (!step.depends_on_previous && page && !agentGoalStep && !freshStartingPage) {
     try {
       await safeGoto(page, journeyPlan.starting_url);
     } catch (err) {
