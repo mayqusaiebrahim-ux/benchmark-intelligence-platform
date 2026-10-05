@@ -29,6 +29,8 @@ import { toAgentVariables, buildTestProfile } from './safeSyntheticProfile.js';
 import { SAFETY_INIT_SCRIPT, drainDomSafetyBlocks, safetyProbe } from './safetyPolicy.js';
 import { verifyTarget, acceptCompletion } from './targetVerifier.js';
 import { describeFieldStates } from './genericVerifier.js';
+import { buildObservation, resolveClickable, settle as settlePage, playwrightAdapter } from '../goal_navigator/playwrightAdapter.js';
+import { isSearchPrerequisiteRequired, runSearchPrerequisite } from './searchPrerequisite.js';
 import { makeTelemetry, scrub } from './navigationTelemetry.js';
 import { makeEvidenceStore } from './evidenceCapture.js';
 import { logInfo, logWarn, logError } from '../../../shared/logger.mjs';
@@ -429,6 +431,7 @@ export async function runAutonomousNavigation({
   let lastStateSig = null;
   let watchdogVerify = null;
   let agentStartedAt = null;
+  let prerequisite = null;
 
   const llm = detectAgentLlm();
   const perf = (phase, t0, extra) => tel.perf(phase, Date.now() - t0, extra);
@@ -516,9 +519,16 @@ export async function runAutonomousNavigation({
       sessionDeadlineTimer = setTimeout(() => abortRun(TARGET_STATUS.MAX_TIME, `hit the Browserbase session ceiling (~${Math.round(eff.browserbaseSessionTimeoutMs / 1000)}s) before reaching "${feature}"`), sessionCeilingMs);
     }
 
+    // ── phase: search_prerequisite — deterministic trip-search fill + submit,
+    //    only for a downstream target on a flight-search page. Bounded by its
+    //    own timeout, runs BEFORE agentStartedAt (so it never consumes the
+    //    agent budget), and never fails the run: any outcome hands off to the
+    //    agent on whatever page state exists.
+    prerequisite = await runPrerequisiteIfNeeded(page, { detectorKey, profile });
+
     // ── phase: agent_create ────────────────────────────────────────────
     t0 = Date.now();
-    const instruction = buildAgentInstruction({ company, feature, startingUrl, entryPoints });
+    const instruction = buildAgentInstruction({ company, feature, startingUrl, entryPoints, searchAlreadySubmitted: !!(prerequisite && prerequisite.submitted) });
     const variables = toAgentVariables(profile);
     // mode: 'hybrid' (DOM + visual/coordinate tools) when the model supports it,
     // else 'dom'. Stagehand v3.7.3 filterTools() gives hybrid BOTH toolsets.
@@ -753,6 +763,7 @@ export async function runAutonomousNavigation({
     res.agentConfig = { provider: cfg.agentProvider, model: cfg.agentModel, mode: cfg.agentMode, disableAPI: cfg.disableAPI, experimental: cfg.experimental };
     res.evidence = evidence.result().terminal;
     res.milestones = evidence.result().milestones;
+    res.prerequisite = prerequisite;
     // Local deterministic cost telemetry (item 9) — no external send, no
     // extra AI call. navStepsUsed/navAiCallsUsed are the SAME onStepFinish
     // count (agentStepCount) — one real Stagehand model step, not a
@@ -801,6 +812,38 @@ export async function runAutonomousNavigation({
     if (sessionDeadlineTimer) clearTimeout(sessionDeadlineTimer);
     try { if (sh && typeof sh.close === 'function') await sh.close(); } catch (e) { logError('agent_nav: stagehand close failed', e); }
   }
+}
+
+const PREREQUISITE_TIMEOUT_MS = 45 * 1000;
+
+async function runPrerequisiteIfNeeded(page, { detectorKey, profile }) {
+  let observation;
+  try { observation = await buildObservation(page); }
+  catch (err) { logWarn('agent_nav_prerequisite_skipped', { reason: `observation failed: ${scrub(err.message)}` }); return null; }
+  if (!isSearchPrerequisiteRequired({ detectorKey, observation })) return null;
+
+  logInfo('agent_nav_prerequisite_detected', { detectorKey, startingUrl: observation.url || null, pageState: 'flight_search:high' });
+  const adapter = playwrightAdapter(page, { logger: { info: (ev, f) => logInfo(ev, f) } });
+  const result = await runSearchPrerequisite({
+    observe: () => buildObservation(page),
+    fill: (descriptor, value, method) => adapter.fill(descriptor, value, method),
+    clickControl: async (name) => {
+      const hit = await resolveClickable(page, name, { preferContext: ['booking', 'form'], avoidContext: ['header', 'nav', 'footer'] });
+      if (!hit || !hit.loc) return false;
+      await hit.loc.click({ timeout: 3000 });
+      return true;
+    },
+    settle: () => settlePage(page, { maxMs: 4000 }),
+    profile,
+    logger: { info: (ev, f) => logInfo(ev, f) },
+    timeoutMs: PREREQUISITE_TIMEOUT_MS,
+  });
+  logInfo('agent_nav_prerequisite_handoff', {
+    to: 'autonomous_agent', ok: result.ok, filled: result.filled.map((f) => f.semantic),
+    submitted: result.submitted, urlAfter: result.urlAfter, durationMs: result.durationMs,
+    reason: result.ok ? null : scrub(result.reason || ''),
+  });
+  return result;
 }
 
 function pageOf(sh) {

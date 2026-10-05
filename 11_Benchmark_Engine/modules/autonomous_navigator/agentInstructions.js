@@ -77,13 +77,15 @@ export function buildSystemPrompt() {
  * @param {string} [args.detectorKey]
  * @param {string} args.startingUrl
  */
-export function buildAgentInstruction({ company, feature, startingUrl, entryPoints = [] }) {
+export function buildAgentInstruction({ company, feature, startingUrl, entryPoints = [], searchAlreadySubmitted = false }) {
   const lines = [
     `Website: ${company || 'this company'} — ${startingUrl}`,
     `TARGET EXPERIENCE TO REACH: ${feature}.`,
     `You will know you are there when you see: ${targetHint(feature)}.`,
     '',
-    'The homepage is already open. Work through the site\'s own public flow using the synthetic variables provided — search, choose options, add to cart, fill multi-step forms, continue past interstitials, skip optional extras — whatever this particular site requires to get to the target.',
+    searchAlreadySubmitted
+      ? 'The trip search was ALREADY filled and submitted by the harness. Do not re-enter the search. Look at the page as it is now and continue from its results toward the target, using the synthetic variables provided.'
+      : 'The homepage is already open. Work through the site\'s own public flow using the synthetic variables provided — search, choose options, add to cart, fill multi-step forms, continue past interstitials, skip optional extras — whatever this particular site requires to get to the target.',
     'Do not sign in, do not pay, do not submit anything irreversible. When the target is visible, screenshot it and call done.',
   ];
   // Optional, HINTS ONLY: links seen on this site's homepage whose labels
