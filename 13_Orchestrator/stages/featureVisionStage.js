@@ -70,6 +70,8 @@ export function selectEvidence({ steps, target, intent }) {
         navBlocked: false,
         targetStatus: own.goal ? own.goal.targetStatus : null,
         interactionsPerformed: own.goal ? (own.goal.interactionsPerformed || []) : [],
+        capturedBy: own.goal && own.goal.navigator === 'analyst' ? 'analyst' : 'automation',
+        fullPageScreenshotPath: own.full_page_screenshot_path || null,
       },
     };
   }
@@ -77,8 +79,9 @@ export function selectEvidence({ steps, target, intent }) {
   // 2 — homepage base fallback: ONLY a step_01_entry screenshot on the
   //     target's own domain, and ONLY for a homepage-scoped feature.
   if (intent.homepageOnly) {
+    // A bot-protection page is never accepted as the homepage.
     const base = withShots.find(
-      (s) => s.step_id === 'step_01_entry' &&
+      (s) => s.step_id === 'step_01_entry' && s.status !== 'blocked' &&
         (s.page_url == null || sameRegistrableDomain(target.url, s.page_url)),
     );
     if (base) {
@@ -243,6 +246,7 @@ export const featureVisionStage = new Stage(
         goalTargetStatus: evidence.targetStatus || null,
         goalDeepestUrl: evidence.deepestUrl || null,
         interactionsPerformed: evidence.interactionsPerformed || [],
+        capturedBy: evidence.capturedBy || 'automation',
         selectedStep: { step_id: evidence.stepId, status: evidence.stepStatus },
         evidence: { ...evidence, r2Key: evidenceKeys.screenshot || null },
         evidenceKeys,

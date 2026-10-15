@@ -91,6 +91,8 @@ const STAGE_LABELS = {
   feature_vision:          'Analyzing',
   feature_reasoning:       'Generating report',
   feature_report_writer:   'Generating report',
+  // "Capture manually" — a browser window is open on the analyst's computer.
+  assisted_capture:        'Waiting for you in the capture window',
 };
 
 // Sprint 27 (P0-3): plain-language explanations for the three failure
@@ -123,15 +125,24 @@ const FEATURE_PIPELINE_STAGES = [
   'feature_vision', 'feature_reasoning', 'feature_report_writer',
 ];
 
+// "Capture manually" (capture_mode: 'assisted') replaces the three automated
+// navigation stages with one: the analyst navigates and presses Capture.
+const ASSISTED_PIPELINE_STAGES = [
+  'assisted_capture', 'feature_vision', 'feature_reasoning', 'feature_report_writer',
+];
+function featureSequenceFor(item) {
+  return item && item.capture_mode === 'assisted' ? ASSISTED_PIPELINE_STAGES : FEATURE_PIPELINE_STAGES;
+}
+
 // Which of the two live sequences applies is derived from the request's own
 // existing benchmark_type field — Feature Benchmark items always carry a
 // url too, so this can't be told apart via item.url the way Full Pipeline's
 // two variants are; see runtimeSequenceFor() below.
-const RUNTIME_STAGE_SET = new Set([...RUNTIME_STAGES_WITH_URL, ...FEATURE_PIPELINE_STAGES]);
+const RUNTIME_STAGE_SET = new Set([...RUNTIME_STAGES_WITH_URL, ...FEATURE_PIPELINE_STAGES, 'assisted_capture']);
 const STAGE_ORDER = Object.keys(STAGE_LABELS);
 
 function runtimeSequenceFor(request, item) {
-  if (request.benchmark_type === 'Feature Benchmark') return FEATURE_PIPELINE_STAGES;
+  if (request.benchmark_type === 'Feature Benchmark') return featureSequenceFor(item);
   return item.url ? RUNTIME_STAGES_WITH_URL : RUNTIME_STAGES_NO_URL;
 }
 
@@ -973,7 +984,7 @@ function attachCardClicks() {
 // routes strictly on benchmark_type, and only 'Feature Benchmark' and
 // 'Complete Journey' (backend-only, not offered here) have defined routes.
 function initWizard() {
-  _wizard = { step: 1, benchmark_type: 'Feature Benchmark', feature: null, competitors: [], scope: [], notes: '', submitting: false, error: null };
+  _wizard = { step: 1, benchmark_type: 'Feature Benchmark', feature: null, competitors: [], scope: [], notes: '', capture_mode: 'auto', submitting: false, error: null };
 }
 
 async function renderWizard() {
@@ -1108,6 +1119,16 @@ function wizardStep4() {
       <div><dt>Focus</dt><dd>${scopeText}</dd></div>
     </dl>
     <div class="wiz-field">
+      <div class="form-label">How should we reach the ${_wizard.feature} page?</div>
+      <div class="wiz-scope-list">
+        ${CAPTURE_MODES.map(m => `
+          <button type="button" class="wiz-scope ${_wizard.capture_mode === m.id ? 'selected' : ''}" aria-pressed="${_wizard.capture_mode === m.id}" onclick="wizardSetCaptureMode('${m.id}')">
+            <span class="wiz-scope-name">${m.label}</span>
+            <span class="wiz-scope-desc">${m.desc}</span>
+          </button>`).join('')}
+      </div>
+    </div>
+    <div class="wiz-field">
       <label class="form-label" for="wiz-notes">Notes (optional)</label>
       <textarea class="form-textarea" id="wiz-notes" oninput="wizardSetNotes(this.value)">${_wizard.notes || ''}</textarea>
     </div>
@@ -1118,6 +1139,12 @@ function wizardStep4() {
 window.wizardSetFeature = function(id) { _wizard.feature = id; _wizard.error = null; renderWizardStep(); };
 window.wizardSetFeatureText = function(v) { _wizard.feature = v; };
 window.wizardSetNotes = function(v) { _wizard.notes = v; };
+window.wizardSetCaptureMode = function(id) { _wizard.capture_mode = id; renderWizardStep(); };
+
+const CAPTURE_MODES = [
+  { id: 'auto', label: 'Automatically', desc: 'The AI opens each site and navigates to the page on its own. Some airline sites block automated browsers.' },
+  { id: 'assisted', label: 'I’ll navigate myself', desc: 'A browser window opens on this computer for each company. Click through to the page (use dummy data), then press “Capture this page”. Works on sites that block bots.' },
+];
 
 window.wizardAddCompetitor = function() {
   const nameEl = document.getElementById('wizard-competitor-name');
@@ -1182,7 +1209,7 @@ window.wizardSubmit = async function() {
     // manual step a user takes later. Start every item immediately (the
     // same PATCH the old manual "Start" button used to require).
     await Promise.all((request.items || []).map(item =>
-      api.patch(`/api/requests/${request.id}/items/${item.slug}`, { stage: 'preparing' }).catch(() => {})
+      api.patch(`/api/requests/${request.id}/items/${item.slug}`, { stage: 'preparing', capture_mode: _wizard.capture_mode || 'auto' }).catch(() => {})
     ));
     _requests_cache = null;
     _benchmarks = null;
@@ -1203,7 +1230,7 @@ window.wizardSubmit = async function() {
 // "Activity", not "Queue" — the user cares about what's happening to their
 // benchmarks, not an engineering work queue. Everything here is plain
 // language: no request ids, no stage ids, no pipeline internals.
-const ACTIVE_QUEUE_STAGES = new Set(['preparing', 'running', ...RUNTIME_STAGES_WITH_URL, ...FEATURE_PIPELINE_STAGES]);
+const ACTIVE_QUEUE_STAGES = new Set(['preparing', 'running', ...RUNTIME_STAGES_WITH_URL, ...FEATURE_PIPELINE_STAGES, 'assisted_capture']);
 let _queue_poll_timer = null;
 
 function formatAgo(ms) {
@@ -1221,10 +1248,12 @@ function isItemActive(stage) { return ACTIVE_QUEUE_STAGES.has(stage); }
 // step, a progress bar (determinate when the step is known, indeterminate
 // otherwise), when it started, and a way to stop it.
 function activityRunningHtml(b) {
-  const item = b.items[0] || {};
-  const idx = FEATURE_PIPELINE_STAGES.indexOf(item.stage);
+  const item = b.items.find(i => i.stage === 'assisted_capture') || b.items.find(i => isItemActive(i.stage)) || b.items[0] || {};
+  const seq = featureSequenceFor(item);
+  const idx = seq.indexOf(item.stage);
   const known = idx >= 0;
-  const pct = known ? Math.round(((idx + 1) / FEATURE_PIPELINE_STAGES.length) * 100) : 0;
+  const pct = known ? Math.round(((idx + 1) / seq.length) * 100) : 0;
+  const waiting = b.items.filter(i => i.stage === 'assisted_capture').map(i => i.name);
   const started = item.started_at ? `Started ${formatAgo(Date.now() - new Date(item.started_at).getTime())}` : 'Starting…';
   return `
     <article class="act-card">
@@ -1236,6 +1265,7 @@ function activityRunningHtml(b) {
         </div>
       </div>
       <div class="act-card-status">${cbStageLabel(item.stage)}…</div>
+      ${waiting.length ? `<div class="act-row-note">A browser window is open on this computer for ${waiting.join(', ')}. Click through to the ${b.feature} page, then press “Capture this page”.</div>` : ''}
       <div class="act-bar ${known ? '' : 'indeterminate'}"><span style="${known ? `width:${pct}%` : ''}"></span></div>
       <div class="act-card-foot">
         <span class="act-card-time">${started}</span>
@@ -1259,18 +1289,27 @@ function activityDoneHtml(b) {
     </div>`;
 }
 
+// One row per failed company (a request can compare several), each with
+// Retry and — for the cases automation can't solve — "Capture manually".
 function activityFailedHtml(b) {
-  const item = b.items.find(i => FAILURE_STAGES.has(i.stage)) || b.items[0] || {};
-  return `
+  const failed = b.items.filter(i => FAILURE_STAGES.has(i.stage));
+  const items = failed.length ? failed : [b.items[0] || {}];
+  return items.map(item => {
+    const blocked = /bot protection|blocked the automated browser/i.test(item.execution_message || '');
+    return `
     <div class="act-row">
-      <span class="act-mark act-mark-sm act-mark-error" aria-hidden="true">${cbInitial(b.companies?.[0] || b.company)}</span>
+      <span class="act-mark act-mark-sm act-mark-error" aria-hidden="true">${cbInitial(item.name || b.company)}</span>
       <div class="act-row-main">
-        <div class="act-row-company">${b.company}</div>
+        <div class="act-row-company">${item.name || b.company}</div>
         <div class="act-row-feature">${b.feature}</div>
         <div class="act-row-note act-row-note-error">${failureText(item)}</div>
       </div>
-      <button class="btn-link act-row-action" onclick="retryBenchmark('${b.request_id}','${item.slug || ''}')">Retry</button>
+      <div class="act-row-actions">
+        <button class="btn-link act-row-action ${blocked ? 'act-row-action-primary' : ''}" onclick="retryBenchmark('${b.request_id}','${item.slug || ''}','assisted')" title="Open the site in a browser window on this computer, navigate yourself, and capture the page">Capture manually</button>
+        <button class="btn-link act-row-action" onclick="retryBenchmark('${b.request_id}','${item.slug || ''}')">Retry</button>
+      </div>
     </div>`;
+  }).join('');
 }
 
 function activityGroupHtml(title, rows) {
@@ -1342,14 +1381,17 @@ window.cancelBatch = async function(requestId) {
 
 // Re-runs a failed benchmark item through the same PATCH the wizard uses to
 // kick off a run — no new backend behaviour.
-window.retryBenchmark = async function(requestId, slug) {
+window.retryBenchmark = async function(requestId, slug, captureMode) {
   if (!slug) return;
+  const assisted = captureMode === 'assisted';
   try {
-    await api.patch(`/api/requests/${requestId}/items/${slug}`, { stage: 'preparing' });
+    await api.patch(`/api/requests/${requestId}/items/${slug}`, { stage: 'preparing', capture_mode: assisted ? 'assisted' : 'auto' });
     _current_benchmarks = null;
     await renderActivity();
     await initSidebar();
-    showToast('Benchmark restarted.');
+    showToast(assisted
+      ? 'A browser window is opening on this computer — navigate to the page, then press “Capture this page”.'
+      : 'Benchmark restarted.');
   } catch (e) {
     showAlertModal(e.message || 'Could not restart this benchmark.');
   }

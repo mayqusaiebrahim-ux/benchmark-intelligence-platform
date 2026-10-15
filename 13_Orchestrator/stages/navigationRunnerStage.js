@@ -9,12 +9,46 @@
  *  - runs the feature-scoped JourneyPlan (one step) built by
  *    featureJourneyStage — never Journey Mapper's full journey;
  *  - FAILS the run if any executed step's page_url leaves the target's
- *    registrable domain.
+ *    registrable domain;
+ *  - downgrades a "successful" step whose captured page is really a
+ *    bot-protection / access-restricted interstitial (Akamai "Access
+ *    Denied", Emirates /error/accessrestricted.html, Cloudflare, …) to
+ *    status:'blocked'. Before this, those pages were recorded as success
+ *    and analysed as if they were the real site.
  */
 import { getNavigationProvider } from '../../12_Provider_Layer/registry/ProviderRegistry.js';
 import { Stage } from '../runtime/Stage.js';
 import { assertObservedUrl, targetLogFields } from '../runtime/benchmarkTarget.js';
 import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
+import { existsSync, readFileSync } from 'fs';
+import { detectBlockedPage } from '../runtime/pageBlockDetector.js';
+
+/**
+ * Re-checks every non-failed step's captured HTML for a bot-protection page
+ * and marks it blocked in place. Exported for tests.
+ */
+export function markBlockedSteps(steps = []) {
+  const blocked = [];
+  for (const step of steps) {
+    if (!step || step.status === 'failed' || step.status === 'skipped') continue;
+    let html = '';
+    try {
+      if (step.html_snapshot_path && existsSync(step.html_snapshot_path)) html = readFileSync(step.html_snapshot_path, 'utf8');
+    } catch { /* unreadable snapshot — judge on URL only */ }
+    const verdict = detectBlockedPage({ url: step.page_url || '', title: step.page_title || '', html });
+    if (!verdict.blocked) continue;
+    step.status = 'blocked';
+    step.error = `Blocked by the website's bot protection: ${verdict.reason}`;
+    step.goal = {
+      ...(step.goal || {}),
+      targetStatus: 'blocked_bot_protection',
+      targetReached: false,
+      blocker: verdict.reason,
+    };
+    blocked.push({ step_id: step.step_id, id: verdict.id, reason: verdict.reason });
+  }
+  return blocked;
+}
 
 export const navigationRunnerStage = new Stage(
   'navigation_runner',
@@ -52,6 +86,29 @@ export const navigationRunnerStage = new Stage(
         const err = new Error('Navigation Runner produced no steps — the feature-scoped plan may have been empty.');
         logError('Navigation Runner produced no steps', err);
         throw err;
+      }
+
+      // A loaded page is not a reached page: catch bot-protection interstitials.
+      const blockedSteps = markBlockedSteps(result.steps);
+      if (blockedSteps.length) {
+        if (result.summary) {
+          result.summary.blocked = blockedSteps.length;
+          result.summary.succeeded = result.steps.filter((st) => st.status === 'success').length;
+        }
+        logError('Navigation Runner: captured page is a bot-protection block, not the real site', null, {
+          ...targetLogFields(target),
+          blockedSteps,
+        });
+      }
+
+      // Nothing real was reached — every captured page is a block. Fail now
+      // instead of paying for Vision + Reasoning on an "Access Denied" page.
+      const anyReal = result.steps.some((st) => st.status === 'success');
+      if (blockedSteps.length && !anyReal) {
+        throw new Error(
+          `BOT_PROTECTION_BLOCKED: ${target.company}'s website blocked the automated browser — ${blockedSteps[0].reason}. ` +
+          'Use "Capture manually" to open the site yourself and capture the page.',
+        );
       }
 
       // Target integrity: every page we actually landed on must be the target's.

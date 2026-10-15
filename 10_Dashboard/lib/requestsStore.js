@@ -55,6 +55,9 @@ export const STAGES = [
   'feature_vision',
   'feature_reasoning',
   'feature_report_writer',
+  // "Capture manually": waiting for the analyst to navigate and press Capture
+  // in the visible browser window (13_Orchestrator/stages/assistedCaptureStage.js).
+  'assisted_capture',
 ];
 
 export const BENCHMARK_TYPES = [
@@ -298,6 +301,8 @@ export function setStage(projectRoot, requestId, slug, stage, meta = {}) {
   if (meta.execution_status !== undefined) item.execution_status = meta.execution_status;
   if (meta.execution_message !== undefined) item.execution_message = meta.execution_message;
   if (meta.failed_stage !== undefined) item.failed_stage = meta.failed_stage;
+  // 'auto' | 'assisted' — how the page is reached ("Capture manually" = assisted).
+  if (meta.capture_mode !== undefined) item.capture_mode = meta.capture_mode;
   // true when execution_message was written FOR the user (plain language, no
   // stack, no provider internals) and may therefore be shown in the UI.
   if (meta.user_facing_message !== undefined) item.user_facing_message = !!meta.user_facing_message;
@@ -315,6 +320,7 @@ export function cancelRequest(projectRoot, requestId) {
   request.cancelled = true;
   request.status = 'cancelled';
   delete request._pipeline_lock;   // a cancel frees any run lock
+  delete request._pipeline_locks;
 
   writeRequests(projectRoot, data);
   return request;
@@ -329,43 +335,94 @@ export function cancelRequest(projectRoot, requestId) {
 // the window is generous.
 export const PIPELINE_LOCK_STALE_MS = 20 * 60 * 1000;
 
-/** Current lock state without mutating anything. */
-export function pipelineLockStatus(projectRoot, requestId) {
+// Scope: one lock PER COMPANY in a request (`_pipeline_locks[slug]`), plus
+// the legacy request-wide lock (`_pipeline_lock`) which still blocks every
+// company. Previously the only lock was request-wide, so a benchmark of
+// Saudia vs Emirates vs Qatar ran ONE company: the wizard starts every
+// company at once, the first took the lock, and the others were silently
+// dropped and sat at "Starting benchmark" forever. Concurrent browser
+// sessions are capped separately (launchBrowser's slot limit).
+
+function lockIsFresh(lock) {
+  return !!(lock && lock.at && (Date.now() - new Date(lock.at).getTime()) < PIPELINE_LOCK_STALE_MS);
+}
+
+/** `${requestId}:${slug}` holders map to that company's lock; anything else is request-wide. */
+function lockSlug(requestId, holder, slug) {
+  if (slug) return slug;
+  const prefix = `${requestId}:`;
+  if (typeof holder === 'string' && holder.startsWith(prefix) && holder.length > prefix.length) return holder.slice(prefix.length);
+  return null;
+}
+
+/**
+ * Current lock state without mutating anything. With `slug`, answers "is
+ * THIS company already running?"; without it, "is anything in this request
+ * running?".
+ */
+export function pipelineLockStatus(projectRoot, requestId, slug) {
   const request = readRequests(projectRoot).requests.find(r => r.id === requestId);
-  const lock = request && request._pipeline_lock;
-  if (!lock || !lock.at) return { locked: false };
-  const ageMs = Date.now() - new Date(lock.at).getTime();
-  if (!(ageMs < PIPELINE_LOCK_STALE_MS)) return { locked: false, stale: true, holder: lock.holder || null, since: lock.at };
-  return { locked: true, holder: lock.holder || null, since: lock.at, ageMs };
+  if (!request) return { locked: false };
+  const candidates = [request._pipeline_lock];
+  const itemLocks = request._pipeline_locks || {};
+  if (slug) candidates.push(itemLocks[slug]);
+  else candidates.push(...Object.values(itemLocks));
+  const fresh = candidates.find(lockIsFresh);
+  if (fresh) {
+    return { locked: true, holder: fresh.holder || null, since: fresh.at, ageMs: Date.now() - new Date(fresh.at).getTime() };
+  }
+  const stale = candidates.find(l => l && l.at);
+  return stale ? { locked: false, stale: true, holder: stale.holder || null, since: stale.at } : { locked: false };
 }
 
 /**
  * Atomically (read-modify-write on one JSON file, single-threaded) claim the
- * pipeline lock for `requestId`. Returns { ok:true } or
+ * pipeline lock — for one company when `holder` is `${requestId}:${slug}`
+ * (or `slug` is given), otherwise request-wide. Returns { ok:true } or
  * { ok:false, reason, holder?, since? }.
  */
-export function tryAcquirePipelineLock(projectRoot, requestId, holder) {
+export function tryAcquirePipelineLock(projectRoot, requestId, holder, slug) {
   const data = readRequests(projectRoot);
   const request = data.requests.find(r => r.id === requestId);
   if (!request) return { ok: false, reason: 'request-not-found' };
-  const lock = request._pipeline_lock;
-  if (lock && lock.at && (Date.now() - new Date(lock.at).getTime()) < PIPELINE_LOCK_STALE_MS) {
+  const key = lockSlug(requestId, holder, slug);
+  const wide = request._pipeline_lock;
+  const itemLocks = request._pipeline_locks || {};
+
+  const blocking = [wide, ...(key ? [itemLocks[key]] : Object.values(itemLocks))].find(lockIsFresh);
+  if (blocking) {
     // Re-entrant: the same holder re-acquiring its own lock is a no-op success.
-    if (holder && lock.holder === holder) return { ok: true, reentrant: true };
-    return { ok: false, reason: 'in-progress', holder: lock.holder || null, since: lock.at };
+    if (holder && blocking.holder === holder) return { ok: true, reentrant: true };
+    return { ok: false, reason: 'in-progress', holder: blocking.holder || null, since: blocking.at };
   }
-  request._pipeline_lock = { holder: holder || null, at: new Date().toISOString() };
+  const lock = { holder: holder || null, at: new Date().toISOString() };
+  if (key) {
+    request._pipeline_locks = { ...itemLocks, [key]: lock };
+    if (wide && !lockIsFresh(wide)) delete request._pipeline_lock;
+  } else {
+    request._pipeline_lock = lock;
+  }
   writeRequests(projectRoot, data);
   return { ok: true };
 }
 
 /** Release the lock — only the holder that took it may release it. */
-export function releasePipelineLock(projectRoot, requestId, holder) {
+export function releasePipelineLock(projectRoot, requestId, holder, slug) {
   const data = readRequests(projectRoot);
   const request = data.requests.find(r => r.id === requestId);
-  if (!request || !request._pipeline_lock) return;
-  if (holder && request._pipeline_lock.holder && request._pipeline_lock.holder !== holder) return;
-  delete request._pipeline_lock;
+  if (!request) return;
+  const key = lockSlug(requestId, holder, slug);
+  if (key) {
+    const lock = request._pipeline_locks && request._pipeline_locks[key];
+    if (!lock) return;
+    if (holder && lock.holder && lock.holder !== holder) return;
+    delete request._pipeline_locks[key];
+    if (Object.keys(request._pipeline_locks).length === 0) delete request._pipeline_locks;
+  } else {
+    if (!request._pipeline_lock) return;
+    if (holder && request._pipeline_lock.holder && request._pipeline_lock.holder !== holder) return;
+    delete request._pipeline_lock;
+  }
   writeRequests(projectRoot, data);
 }
 
@@ -423,6 +480,7 @@ export function listCurrentFeatureBenchmarks(projectRoot) {
           execution_message: i.execution_message || null,
           user_facing_message: !!i.user_facing_message,
           failed_stage: i.failed_stage || null,
+          capture_mode: i.capture_mode || 'auto',
         })),
         has_report: hasReport,
         report_path: hasReport ? reportRel : null,

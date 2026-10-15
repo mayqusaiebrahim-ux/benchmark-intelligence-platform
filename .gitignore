@@ -52,3 +52,6 @@ Thumbs.db
 # Feature Benchmark proof-of-concept / verification scripts — not part of
 # the deployed application.
 10_Dashboard/poc/
+
+# "Capture manually" browser profiles (cookies / consent per company)
+.assisted-browser-profile/

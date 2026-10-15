@@ -29,6 +29,7 @@ import { Pipeline } from '../runtime/Pipeline.js';
 import { featureDiscoveryStage } from '../stages/featureDiscoveryStage.js';
 import { featureJourneyStage } from '../stages/featureJourneyStage.js';
 import { navigationRunnerStage } from '../stages/navigationRunnerStage.js';
+import { assistedCaptureStage } from '../stages/assistedCaptureStage.js';
 import { featureVisionStage } from '../stages/featureVisionStage.js';
 import { featureReasoningStage } from '../stages/featureReasoningStage.js';
 import { featureReportWriterStage } from '../stages/featureReportWriterStage.js';
@@ -42,7 +43,7 @@ import { withLogContext, logInfo, logError, logMemory } from '../../shared/logge
 export const requiredFields = ['prompt', 'cwd', 'url', 'feature', 'company', 'requestId', 'slug'];
 
 export async function run(
-  { prompt, cwd, jobId, url, feature, requestId, company, slug, scope },
+  { prompt, cwd, jobId, url, feature, requestId, company, slug, scope, captureMode },
   { onProgress = () => {} } = {},
 ) {
   return withLogContext({ requestId }, async () => {
@@ -51,10 +52,16 @@ export async function run(
     const target = createBenchmarkTarget({ company, slug, url, feature, scope, requestId });
     logInfo('Feature Benchmark target locked', targetLogFields(target));
 
+    // captureMode 'assisted' ("Capture manually"): a human navigates in a
+    // visible browser window and presses Capture; everything after
+    // navigation is the same pipeline, the same evidence rules, the same gate.
+    const assisted = captureMode === 'assisted';
+    logInfo('Feature Benchmark capture mode', { ...targetLogFields(target), captureMode: assisted ? 'assisted' : 'auto' });
+    const captureStages = assisted
+      ? [assistedCaptureStage]
+      : [featureDiscoveryStage, featureJourneyStage, navigationRunnerStage];
     const stages = [
-      featureDiscoveryStage,
-      featureJourneyStage,
-      navigationRunnerStage,
+      ...captureStages,
       featureVisionStage,
       featureReasoningStage,
       featureReportWriterStage,

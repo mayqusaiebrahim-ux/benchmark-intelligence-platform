@@ -664,7 +664,7 @@ app.patch('/api/requests/:id/items/:slug', (req, res) => {
     // terminal state the lock is gone, so an explicit retry proceeds. A
     // crashed run's lock self-expires (see requestsStore).
     if (stage === 'preparing') {
-      const lk = pipelineLockStatus(PROJECT, req.params.id);
+      const lk = pipelineLockStatus(PROJECT, req.params.id, req.params.slug);
       if (lk.locked) {
         return res.status(409).json({
           error: 'A benchmark run for this request is already in progress. Wait for it to finish or fail, then retry.',
@@ -673,7 +673,12 @@ app.patch('/api/requests/:id/items/:slug', (req, res) => {
       }
     }
 
-    const request = setStage(PROJECT, req.params.id, req.params.slug, stage);
+    // "Capture manually" sends capture_mode: 'assisted'. Anything else is auto.
+    const captureMode = stage === 'preparing'
+      ? (req.body?.capture_mode === 'assisted' ? 'assisted' : 'auto')
+      : undefined;
+    const request = setStage(PROJECT, req.params.id, req.params.slug, stage,
+      captureMode ? { capture_mode: captureMode } : {});
     res.json(request);
 
     // "Run Benchmark" sends stage: 'preparing' — hand off to the Benchmark
@@ -693,6 +698,7 @@ app.patch('/api/requests/:id/items/:slug', (req, res) => {
         prompt: item?.trigger_prompt,
         projectRoot: PROJECT,
         url: item?.url,
+        captureMode,
       });
     }
   } catch (err) {

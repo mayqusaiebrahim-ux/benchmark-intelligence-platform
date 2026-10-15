@@ -113,7 +113,7 @@ try {
 }
 
 function buildPrompt({ prompt, company, feature, target, previousOutput }) {
-  const { url, title, visionFindings, featureStepId, featureStepFound, selectedStep, evidence, navBlocked, navBlockReason, interactionsPerformed, goalTargetStatus } = previousOutput || {};
+  const { url, title, visionFindings, featureStepId, featureStepFound, selectedStep, evidence, navBlocked, navBlockReason, interactionsPerformed, goalTargetStatus, capturedBy } = previousOutput || {};
   const didInteract = Array.isArray(interactionsPerformed) && interactionsPerformed.length > 0;
   const lines = ['## Feature Benchmark Context', ''];
   lines.push(`THE PRODUCT UNDER ANALYSIS IS: ${company || '(unknown)'}`);
@@ -141,7 +141,10 @@ function buildPrompt({ prompt, company, feature, target, previousOutput }) {
   lines.push('');
   lines.push('CAPTURE CONDITIONS (this is the ENTIRE evidence base for the report):');
   lines.push('- Exactly ONE screenshot of ONE viewport was captured (typically the initial above-the-fold view). Nothing below the fold was seen.');
-  if (didInteract) {
+  if (capturedBy === 'analyst') {
+    lines.push('- To REACH this page, a human analyst navigated the live website manually in a real browser (any form data entered was dummy test data, nothing was submitted or paid) and pressed Capture on this exact page.');
+    lines.push('- The screenshot is that SINGLE captured page state. You do not know which clicks the analyst made — describe only what the captured state shows.');
+  } else if (didInteract) {
     lines.push(`- To REACH this page, automated goal-driven navigation performed these safe steps with SYNTHETIC test data only (no real personal data, no payment, no login): ${interactionsPerformed.join('; ')}. Navigation outcome: ${goalTargetStatus || 'unknown'}.`);
     lines.push('- The screenshot is the SINGLE final page state after those steps. No further scrolling, hovering, or menu-opening beyond what is listed was performed. Describe only what that final captured state shows.');
   } else {

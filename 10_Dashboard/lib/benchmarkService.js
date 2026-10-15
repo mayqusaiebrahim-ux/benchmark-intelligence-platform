@@ -56,6 +56,26 @@ export function capacityFailureMessage(message) {
   return null;
 }
 
+/**
+ * Failures whose cause the user can act on directly — the website blocked
+ * the automated browser, or a "Capture manually" window was closed / timed
+ * out / is unavailable. Plain language, safe to show.
+ * @param {string} message
+ * @returns {string|null}
+ */
+export function actionableFailureMessage(message) {
+  const m = String(message || '');
+  if (/BOT_PROTECTION_BLOCKED|blocked_bot_protection/.test(m)) {
+    return 'This website blocked the automated browser (bot protection), so nothing real was captured. Use “Capture manually” to open the site yourself and capture the page.';
+  }
+  if (/ASSISTED_CAPTURE_CANCELLED/.test(m)) return 'The manual capture was cancelled. Press “Capture manually” to try again.';
+  if (/ASSISTED_CAPTURE_CLOSED/.test(m)) return 'The capture window was closed before a page was captured. Press “Capture manually” to try again.';
+  if (/ASSISTED_CAPTURE_TIMEOUT/.test(m)) return 'No page was captured in time, so the capture window was closed. Press “Capture manually” to try again.';
+  const unavailable = m.match(/ASSISTED_CAPTURE_UNAVAILABLE:\s*(.+)/);
+  if (unavailable) return unavailable[1].trim();
+  return null;
+}
+
 // In-memory only, per Phase 1 scope — lost on server restart, same as
 // activeHomepageRun already is for the Homepage Benchmark flow. Keyed by
 // `${requestId}:${slug}` so the same competitor within the same request
@@ -112,7 +132,7 @@ const PIPELINE_TYPE_BY_BENCHMARK_TYPE = {
  *                                    BenchmarkOrchestrator, same mechanism as any other
  *                                    missing required field.
  */
-export function startBenchmark({ company, feature, scope, benchmarkType, requestId, slug, prompt, projectRoot, url }) {
+export function startBenchmark({ company, feature, scope, benchmarkType, requestId, slug, prompt, projectRoot, url, captureMode }) {
   const jobId = `${requestId}:${slug}`;
   const type = PIPELINE_TYPE_BY_BENCHMARK_TYPE[benchmarkType];
   const browserProvider = (process.env.BROWSER_PROVIDER || 'local').trim().toLowerCase();
@@ -258,6 +278,7 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
   const RUNTIME_STAGE_IDS = new Set([
     'navigation', 'screenshot', 'vision', 'reasoning', 'output_verification',
     'feature_discovery', 'journey_mapper', 'navigation_runner', 'feature_vision', 'feature_reasoning', 'feature_report_writer',
+    'assisted_capture',
   ]);
   let lastProgressStage = null;
 
@@ -277,7 +298,7 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
         throw err;
       }
       return orchestrator.runBenchmark(
-        { type, requestId, prompt, cwd: projectRoot, jobId, url: resolvedUrl || url, feature, company, slug, scope: scope || [] },
+        { type, requestId, prompt, cwd: projectRoot, jobId, url: resolvedUrl || url, feature, company, slug, scope: scope || [], captureMode: captureMode === 'assisted' ? 'assisted' : 'auto' },
         {
           onProgress: (event) => {
             if (!RUNTIME_STAGE_IDS.has(event.stage) || event.status !== 'running') return;
@@ -314,13 +335,16 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
       // the whole answer.
       if (outcome.status === 'succeeded') {
         if (outcome.result?.verification_status === 'failed') {
-          const summary = outcome.result.verification_summary || 'Output verification found the deliverables incomplete or invalid.';
+          const rawSummary = outcome.result.verification_summary || 'Output verification found the deliverables incomplete or invalid.';
+          const actionable = actionableFailureMessage(rawSummary);
+          const summary = actionable || rawSummary;
           console.log(`[benchmarkService] Verification failed — company=${company} requestId=${requestId} — ${summary}`);
           try {
             setStage(projectRoot, requestId, slug, 'verification_failed', {
               completed_at: finishedAt,
               execution_status: 'verification_failed',
               execution_message: summary,
+              user_facing_message: !!actionable,
             });
           } catch (err) {
             console.log(`[benchmarkService] Could not set stage to 'verification_failed' for ${jobId}: ${err.message}`);
@@ -376,7 +400,7 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
         console.log(`[benchmarkService] Completed with an error (stage=${stageId || 'unclassified'}) — company=${company} requestId=${requestId} — ${message}`);
         // An account/quota failure is not a failure of the website or the
         // engine — say so plainly instead of "could not capture".
-        const capacity = capacityFailureMessage(message);
+        const capacity = capacityFailureMessage(message) || actionableFailureMessage(message);
         try {
           setStage(projectRoot, requestId, slug, dashboardStage, {
             completed_at: finishedAt,
@@ -414,7 +438,7 @@ export function startBenchmark({ company, feature, scope, benchmarkType, request
       }
 
       console.log(`[benchmarkService] Completed with an unexpected error — company=${company} requestId=${requestId} — ${err.message}`);
-      const capacityUnexpected = capacityFailureMessage(err.message);
+      const capacityUnexpected = capacityFailureMessage(err.message) || actionableFailureMessage(err.message);
       try {
         setStage(projectRoot, requestId, slug, 'failed', {
           completed_at: new Date().toISOString(),

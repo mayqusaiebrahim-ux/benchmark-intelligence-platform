@@ -1824,3 +1824,7 @@ a:focus-visible, button:focus-visible, .btn:focus-visible,
   .wiz-add-row .btn { width: 100%; }
   .act-card-foot { flex-wrap: wrap; gap: 8px; }
 }
+
+/* "Capture manually" + "Retry" side by side on a failed row */
+.act-row-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
+.act-row-action.act-row-action-primary { color: var(--accent); }
