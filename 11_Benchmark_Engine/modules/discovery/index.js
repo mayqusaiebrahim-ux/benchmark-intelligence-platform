@@ -12,6 +12,7 @@ import { extractRawSignals } from './signals.js';
 import { dismissConsentBanner, expandNavigationMenu } from './actions.js';
 import { logInfo, logError } from '../../../shared/logger.mjs';
 import { launchBrowser } from '../browserLauncher.js';
+import { probeDocument, describeProbe } from '../navigation_runner/pageReadiness.js';
 import {
   classifyWebsite,
   detectAiFeatures,
@@ -91,11 +92,11 @@ export async function runDiscovery({ url, companySlug = null, companyName = null
     try {
       await page.waitForLoadState('domcontentloaded', { timeout: DOM_READY_TIMEOUT_MS });
     } catch {
-      const hasBody = await page.evaluate(() => !!document.body).catch(() => false);
-      if (!hasBody) {
+      const probe = await probeDocument(page);
+      if (!probe.hasBody) {
         throw new Error(
           `Discovery: ${url} responded (HTTP ${response ? response.status() : 'n/a'}) but no document body was available ` +
-          `after ${DOM_READY_TIMEOUT_MS}ms — page unavailable.`,
+          `after ${DOM_READY_TIMEOUT_MS}ms — page unavailable${describeProbe(probe)}.`,
         );
       }
       logInfo('Discovery: DOMContentLoaded not reached within the bounded wait — continuing with the committed document', {
