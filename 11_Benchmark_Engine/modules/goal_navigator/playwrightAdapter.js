@@ -13,6 +13,7 @@
  * context, never nth-child or a vendor selector.
  */
 import { resolveFieldSemantic } from './formAutofill.js';
+import { pickCalendarDate, dateValueMatches, looksLikeSelectedDate } from './calendarPicker.js';
 
 const cssEscape = (s) => String(s).replace(/["\\\]#.:>~+*\s]/g, '\\$&');
 const rxEscape = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -511,35 +512,6 @@ async function pickSuggestion(page, value) {
   return false;
 }
 
-async function pickCalendarDate(page, iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-  const wantLabel = `${monthNames[m - 1]} ${d}, ${y}`;
-  for (let nav = 0; nav < 14; nav++) {
-    const done = await page.evaluate(({ iso, wantLabel, day, monthName, year }) => {
-      const grid = document.querySelector('[role="grid"],[class*="calendar" i],[class*="datepicker" i],[class*="date-picker" i]');
-      if (!grid || !grid.getClientRects().length) return 'no-grid';
-      const T = (s) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim().toLowerCase();
-      const byLabel = grid.querySelector(`[aria-label*="${wantLabel}" i],[aria-label*="${iso}" i],td[data-date="${iso}"],button[data-date="${iso}"],[data-day="${iso}"]`);
-      if (byLabel && byLabel.getAttribute('aria-disabled') !== 'true') { byLabel.click(); return 'clicked'; }
-      const header = T((grid.querySelector('[class*="month" i],[class*="header" i],[role="heading"],caption') || {}).textContent);
-      if (header.includes(monthName) && header.includes(String(year))) {
-        const cells = Array.from(grid.querySelectorAll('[role="gridcell"],td,button'));
-        for (const c of cells) {
-          if (T(c.textContent) === String(day) && c.getAttribute('aria-disabled') !== 'true') { c.click(); return 'clicked'; }
-        }
-      }
-      const next = document.querySelector('[aria-label*="next month" i],[aria-label*="next" i][class*="month" i],button[class*="next" i]');
-      if (next) { next.click(); return 'advanced'; }
-      return 'stuck';
-    }, { iso, wantLabel, day: d, monthName: monthNames[m - 1], year: y });
-    if (done === 'clicked') return true;
-    if (done === 'no-grid' || done === 'stuck') return false;
-    await page.waitForTimeout(250);
-  }
-  return false;
-}
-
 /** Did the trip field actually accept a selection? Generic confirmation. */
 async function confirmTripSelection(page, descriptor, value) {
   try {
@@ -599,9 +571,25 @@ export function playwrightAdapter(page, { logger } = {}) {
 
       // dates → calendar first
       if (method === 'date' || semantic === 'depart_date' || semantic === 'return_date' || semantic === 'date_of_birth') {
-        try { await loc.click({ timeout: 2000 }); await page.waitForTimeout(200); } catch { /* ignore */ }
-        if (await pickCalendarDate(page, String(value))) return done(true, true, { via: 'calendar' });
-        try { await loc.fill(String(value), { timeout: 2000 }); return done(true, false, { via: 'type' }); }
+        const readValue = async () => {
+          try { return await loc.evaluate((el) => (el.value != null && el.value !== '' ? el.value : (el.innerText || el.textContent || ''))); }
+          catch { return ''; }
+        };
+        const before = await readValue();
+        try { await loc.click({ timeout: 2000 }); await page.waitForTimeout(300); } catch { /* ignore */ }
+        const pick = await pickCalendarDate(page, String(value), loc);
+        if (pick.clicked) {
+          await page.waitForTimeout(300);
+          const after = await readValue();
+          // Confirmed only when the field now SHOWS the requested date.
+          return done(true, dateValueMatches(after, String(value)), { via: `calendar:${pick.via}` });
+        }
+        // No operable picker. If the site already shows a valid selected date
+        // (e.g. a pre-filled departure date), keep it rather than typing an
+        // ISO string into a custom combobox and corrupting it.
+        const tripDate = semantic === 'depart_date' || semantic === 'return_date';
+        if (tripDate && looksLikeSelectedDate(before)) return done(true, true, { via: 'site-default' });
+        try { await loc.fill(String(value), { timeout: 2000 }); return done(true, dateValueMatches(await readValue(), String(value)), { via: 'type' }); }
         catch { return done(false, false, { error: 'date not settable' }); }
       }
 

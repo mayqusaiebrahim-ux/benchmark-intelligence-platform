@@ -169,3 +169,19 @@ test('AGENT INSTRUCTION: after a submitted prerequisite the agent is told the se
   const before = buildAgentInstruction({ company: 'X', feature: 'Passenger Details', startingUrl: 'https://x.example/' });
   assert.match(before, /homepage is already open/);
 });
+
+test('PREREQUISITE PHASE: a required date that fills but is NOT confirmed by the page is never submitted', async () => {
+  const calls = { clicked: [] };
+  let n = 0;
+  const r = await runSearchPrerequisite({
+    observe: async () => (n++ === 0 ? FLIGHT_SEARCH_OBS : RESULTS_OBS),
+    fill: async (d) => (d.semantic === 'depart_date' ? { ok: true, selectionConfirmed: false, via: 'type' } : { ok: true, selectionConfirmed: true }),
+    clickControl: async (name) => { calls.clicked.push(name); return true; },
+    settle: async () => {},
+    profile: PROFILE,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.submitted, false);
+  assert.match(r.reason, /depart_date/);
+  assert.equal(calls.clicked.length, 0);
+});

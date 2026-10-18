@@ -107,7 +107,10 @@ export async function runSearchPrerequisite({ observe, fill, clickControl, settl
     for (const f of fills) {
       guard();
       const r = await fill(f.descriptor, f.value, f.method);
-      if (r && r.ok) {
+      // A required trip field counts only when the page CONFIRMS the value
+      // (an unconfirmed departure date would submit a wrong search).
+      const accepted = !!(r && r.ok) && !(REQUIRED_SEMANTICS.includes(f.semantic) && r.selectionConfirmed === false);
+      if (accepted) {
         result.filled.push({ semantic: f.semantic, via: r.via || null });
         log('agent_nav_prerequisite_field', { semantic: f.semantic, ok: true, via: r.via || null });
       } else if (REQUIRED_SEMANTICS.includes(f.semantic)) {
