@@ -757,7 +757,7 @@ function fmtDate(d) {
 async function initSidebar() {
   try {
     const benchmarks = await getCurrentBenchmarks(true);
-    const active = benchmarks.filter(b => b.status !== 'complete').length;
+    const active = benchmarks.filter(b => b.status === 'in_progress').length;
     const el = document.getElementById('nav-activity-count');
     if (el) {
       el.textContent = active;
@@ -867,7 +867,8 @@ async function renderHome() {
   const benchmarks = await getCurrentBenchmarks(true);
   const recent = benchmarks.slice(0, 6);
   const total = benchmarks.length;
-  const running = benchmarks.filter(b => b.status !== 'complete').length;
+  // Only batches actually in progress — failed/cancelled ones are finished, not running.
+  const running = benchmarks.filter(b => b.status === 'in_progress').length;
   const completed = benchmarks.filter(b => b.status === 'complete').length;
   const fn = firstName(SESSION_USER);
 
