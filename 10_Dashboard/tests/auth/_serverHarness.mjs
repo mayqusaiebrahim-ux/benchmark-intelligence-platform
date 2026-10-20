@@ -31,6 +31,7 @@ const requestsStoreMock = {
   BENCHMARK_TYPES: ['Feature Benchmark', 'Complete Journey'],
   SCOPE_OPTIONS: ['UX/UI only', 'End-to-End Journey'],
   pipelineLockStatus: () => (_locked ? { locked: true, since: '2026-09-01T00:00:00.000Z' } : { locked: false }),
+  markInterruptedRuns: () => [],
   tryAcquirePipelineLock: () => (_locked ? { ok: false, reason: 'in-progress', holder: 'x' } : { ok: true }),
   releasePipelineLock: () => {},
   listRequests: () => REQUESTS.map(withStatus),

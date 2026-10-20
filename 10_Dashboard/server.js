@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import {
   listRequests, createRequest, setStage, cancelRequest, listFeatureBenchmarks,
   listCurrentFeatureBenchmarks, getRequest, pipelineLockStatus,
-  STAGES, BENCHMARK_TYPES, SCOPE_OPTIONS,
+  STAGES, BENCHMARK_TYPES, SCOPE_OPTIONS, markInterruptedRuns,
 } from './lib/requestsStore.js';
 import { authMiddleware, requireUser, getIdentity, authStatus, displaySnapshot, ownedBy } from './lib/auth.js';
 // Sprint V1.5: startBenchmark now comes from the Dashboard's own Benchmark
@@ -20,7 +20,7 @@ import { authMiddleware, requireUser, getIdentity, authStatus, displaySnapshot, 
 // Provider), not the Engine. 11_Benchmark_Engine/orchestrator/index.js's
 // startBenchmark() stub is intentionally left untouched and unused — the
 // Engine itself is not modified by this sprint.
-import { startBenchmark } from './lib/benchmarkService.js';
+import { startBenchmark, getRunStatus } from './lib/benchmarkService.js';
 import { BenchmarkScheduler } from '../11_Benchmark_Engine/scheduler/BenchmarkScheduler.js';
 import { EVENTS } from '../11_Benchmark_Engine/scheduler/progressEvents.js';
 import { logInfo, logError } from '../shared/logger.mjs';
@@ -866,6 +866,15 @@ async function start() {
     logInfo('storage startup restore complete', summary);
   } catch (err) {
     logError('storage startup restore failed', { error: err.message });
+  }
+
+  // Runs live only in the process that started them: anything still mid-run
+  // in the restored state belonged to a process that is gone.
+  try {
+    const interrupted = markInterruptedRuns(PROJECT, { isActive: (rid, slug) => getRunStatus(rid, slug) === 'running' });
+    if (interrupted.length) logInfo('interrupted runs marked failed at startup', { count: interrupted.length, items: interrupted });
+  } catch (err) {
+    logError('marking interrupted runs failed', { error: err.message });
   }
 
   const auth = authStatus();

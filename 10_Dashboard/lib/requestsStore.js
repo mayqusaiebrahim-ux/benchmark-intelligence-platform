@@ -284,6 +284,58 @@ export function createRequest(projectRoot, payload) {
  *   transition, matching how execution_message/execution_status already
  *   behave — only ever meaningful next to a failure stage.
  */
+// ─── Interrupted runs ──────────────────────────────────────────────────────
+// A pipeline lives only inside the Node process that started it; its
+// progress is written here as item.stage. When that process dies (restart,
+// deploy, out-of-memory kill) nothing ever moves those items to a terminal
+// stage, so they showed "in progress" forever. Live finding: on Render's free
+// plan a five-airline run left four items at navigation_runner after the
+// server was killed while Chromium loaded a heavy homepage.
+export const INTERRUPTED_MESSAGE =
+  'This benchmark was interrupted because the server restarted while it was running (often because it ran out of memory). ' +
+  'Nothing from this run was saved. Run it again.';
+
+/**
+ * Mark every item that is mid-run but NOT running in this process as failed,
+ * with a truthful reason. Called once at startup, after state is restored,
+ * before requests are accepted. Leaves 'queued' (never started), completed,
+ * failure and cancelled items untouched, and clears the interrupted item's
+ * run lock so it can be retried immediately.
+ * @returns {{ requestId: string, slug: string, interruptedStage: string }[]}
+ */
+export function markInterruptedRuns(projectRoot, { isActive = () => false, now = Date.now(), graceMs = 0 } = {}) {
+  const data = readRequests(projectRoot);
+  const marked = [];
+  const at = new Date(now).toISOString();
+  for (const request of data.requests || []) {
+    if (request.cancelled) continue;
+    for (const item of request.items || []) {
+      const stage = item.stage;
+      if (!stage || stage === 'queued' || stage === 'completed' || FAILURE_STAGES.has(stage)) continue;
+      if (isActive(request.id, item.slug)) continue;
+      const last = Date.parse(item.updated_at || '') || 0;
+      if (now - last < graceMs) continue;
+      item.stage = 'failed';
+      item.updated_at = at;
+      item.completed_at = at;
+      item.execution_status = 'failed';
+      item.failed_stage = stage;
+      item.execution_message = INTERRUPTED_MESSAGE;
+      item.user_facing_message = true;
+      if (request._pipeline_locks) delete request._pipeline_locks[item.slug];
+      marked.push({ requestId: request.id, slug: item.slug, interruptedStage: stage });
+    }
+    if (marked.some((m) => m.requestId === request.id)) {
+      if (request._pipeline_lock && !request.items.some((i) => i.stage !== 'queued' && i.stage !== 'completed' && !FAILURE_STAGES.has(i.stage))) {
+        delete request._pipeline_lock;
+      }
+      request.status = computeBatchStatus(request);
+    }
+  }
+  if (marked.length) writeRequests(projectRoot, data);
+  return marked;
+}
+
 export function setStage(projectRoot, requestId, slug, stage, meta = {}) {
   if (!STAGES.includes(stage)) {
     throw new Error(`Unknown stage "${stage}". Valid stages: ${STAGES.join(', ')}`);
