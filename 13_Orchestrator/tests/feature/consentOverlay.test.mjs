@@ -29,11 +29,32 @@ function makePage({ visible = [], clickable = [], nameButtons = [] } = {}) {
     },
   });
 
+  // The accessible-name fallback now does ONE in-page scan (page.evaluate)
+  // that tags the chosen control, then clicks it via its data attribute.
+  // The fake mirrors that: same accept/reject regexes, first match wins.
+  let tagged = null;
+  async function evaluate(_fn, { acceptSrc, rejectSrc }) {
+    const accept = new RegExp(acceptSrc, 'i');
+    const reject = new RegExp(rejectSrc, 'i');
+    const hit = nameButtons.find((b) => {
+      const name = (b.name || b.ariaLabel || b.value || '').trim();
+      return name && name.length <= 40 && !reject.test(name) && accept.test(name) && b.visible !== false;
+    });
+    tagged = hit || null;
+    return hit ? (hit.name || hit.ariaLabel || hit.value).trim() : null;
+  }
+
   function locator(sel) {
     const self = {
       first() { return self; },
       async isVisible() { return visSet.has(sel); },
       async click() {
+        if (sel === '[data-bench-consent-accept="1"]') {
+          if (!tagged) throw new Error('nothing tagged');
+          if (tagged.throws) throw new Error('intercepts pointer events');
+          clicks.push(tagged.name ?? '(button)');
+          return;
+        }
         if (!clickSet.has(sel)) throw new Error(`element for ${sel} intercepts pointer events`);
         clicks.push(sel);
       },
@@ -49,6 +70,7 @@ function makePage({ visible = [], clickable = [], nameButtons = [] } = {}) {
   return {
     _clicks: clicks,
     locator,
+    evaluate,
     async waitForTimeout() {},
     async waitForLoadState() {},
   };

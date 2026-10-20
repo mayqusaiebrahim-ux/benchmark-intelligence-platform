@@ -112,22 +112,39 @@ export async function dismissConsentOverlay(page) {
 
   // 2 — generic: any visible button/link whose accessible name is an
   //     "accept" action (and is not a reject/manage control).
+  //     ONE in-page scan (live finding: the previous per-element loop called
+  //     innerText()/getAttribute() — each with Playwright's 30s default
+  //     timeout — on every link of a large homepage; on a CPU-limited host
+  //     it ran for many minutes and stalled the whole benchmark). Same
+  //     matching rules; controls inside a consent container are preferred.
   try {
-    const controls = await page.locator('button, [role="button"], a, input[type="button"], input[type="submit"]').all();
-    for (const el of controls) {
-      let name;
-      try {
-        name = ((await el.innerText().catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')) || (await el.getAttribute('value').catch(() => '')) || '').trim();
-      } catch { continue; }
-      if (!name || name.length > 40) continue;
-      if (REJECT_NAME_RE.test(name)) continue;
-      if (!ACCEPT_NAME_RE.test(name)) continue;
-      if (!(await el.isVisible().catch(() => false))) continue;
-      try {
-        await el.click({ timeout: 2500 });   // real click — no force
-        await page.waitForTimeout(400);
-        return { handled: true, method: 'accessible-name', detail: name };
-      } catch { /* try the next candidate */ }
+    const picked = await page.evaluate(({ acceptSrc, rejectSrc, containers }) => {
+      const accept = new RegExp(acceptSrc, 'i');
+      const reject = new RegExp(rejectSrc, 'i');
+      const vis = (el) => {
+        if (!el.getClientRects().length) return false;
+        const st = getComputedStyle(el);
+        return st.visibility !== 'hidden' && st.display !== 'none';
+      };
+      const inConsent = (el) => containers.some((sel) => { try { return !!el.closest(sel); } catch { return false; } });
+      const els = Array.from(document.querySelectorAll('button, [role="button"], a, input[type="button"], input[type="submit"]'));
+      let best = null;
+      for (const el of els) {
+        const name = ((el.innerText || '').trim() || el.getAttribute('aria-label') || el.getAttribute('value') || '').trim();
+        if (!name || name.length > 40 || reject.test(name) || !accept.test(name) || !vis(el)) continue;
+        const scoped = inConsent(el);
+        if (!best || (scoped && !best.scoped)) best = { el, name, scoped };
+        if (scoped) break;
+      }
+      if (!best) return null;
+      document.querySelectorAll('[data-bench-consent-accept]').forEach((e) => e.removeAttribute('data-bench-consent-accept'));
+      best.el.setAttribute('data-bench-consent-accept', '1');
+      return best.name;
+    }, { acceptSrc: ACCEPT_NAME_RE.source, rejectSrc: REJECT_NAME_RE.source, containers: CONSENT_CONTAINER_SELECTORS });
+    if (picked) {
+      await page.locator('[data-bench-consent-accept="1"]').first().click({ timeout: 2500 });   // real click — no force
+      await page.waitForTimeout(400);
+      return { handled: true, method: 'accessible-name', detail: picked };
     }
   } catch { /* fall through */ }
 
