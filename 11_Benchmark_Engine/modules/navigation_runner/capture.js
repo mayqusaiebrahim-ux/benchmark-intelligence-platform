@@ -33,6 +33,40 @@ export async function waitForRenderedContent(page, { timeoutMs = RENDER_WAIT_MS 
   }
 }
 
+const SCREENSHOT_TIMEOUT_MS = 10000;
+
+/**
+ * Take a real viewport screenshot, bounded. page.screenshot() waits for
+ * document.fonts.ready inside its timeout; live finding
+ * (req_1792589857523_449d1afe, Saudia) — a font load that never settles
+ * made it time out after 30s and no screenshot was saved. On a timeout,
+ * capture the same viewport with Chromium's own Page.captureScreenshot,
+ * which has no font wait. Throws if neither produced an image.
+ */
+export async function takeViewportScreenshot(page, path, { timeoutMs = SCREENSHOT_TIMEOUT_MS } = {}) {
+  try {
+    await page.screenshot({ path, fullPage: false, timeout: timeoutMs });
+    return { method: 'playwright' };
+  } catch (err) {
+    if (!/timeout/i.test(err.message) || typeof page.context !== 'function') throw err;
+    logInfo('Navigation Runner: page.screenshot timed out (it waits for web fonts) — capturing the viewport via CDP', { error: err.message.split('\n')[0] });
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      let timer;
+      const { data } = await Promise.race([
+        cdp.send('Page.captureScreenshot', { format: 'png' }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`CDP screenshot timed out after ${timeoutMs}ms`)), timeoutMs); }),
+      ]).finally(() => clearTimeout(timer));
+      const png = Buffer.from(data || '', 'base64');
+      if (!png.length) throw new Error('CDP screenshot returned no image data');
+      writeFileSync(path, png);
+      return { method: 'cdp', fallbackReason: err.message.split('\n')[0] };
+    } finally {
+      await cdp.detach().catch(() => {});
+    }
+  }
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 
@@ -60,6 +94,7 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
   const metadataPath = join(dataDir, 'metadata.json');
 
   let screenshotSaved = false;
+  let captureError = null;
 
   // Agent-mode (autonomous_navigator) drives its OWN Browserbase session, so
   // the `page` passed here is not where navigation happened. The autonomous
@@ -124,13 +159,14 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
     // until the viewport shows some real content; if it never does, capture
     // anyway — featureVisionStage then refuses a blank capture as evidence.
     await waitForRenderedContent(page);
-    await page.screenshot({ path: screenshotPath, fullPage: false });
+    const shot = await takeViewportScreenshot(page, screenshotPath);
     screenshotSaved = true;
-    logInfo('Navigation Runner: screenshot written', { screenshotPath, stepId: step.id, fullPage: false });
+    logInfo('Navigation Runner: screenshot written', { screenshotPath, stepId: step.id, fullPage: false, method: shot.method });
   } catch (err) {
     // Intentional swallow, unchanged — capture failure shouldn't crash the
     // run (reflected in metadata below). Logged, not rethrown: rethrowing
     // here would change this step's existing resilience behavior.
+    captureError = `Screenshot capture failed: ${err.message.split('\n')[0]}`;
     logError('Navigation Runner: screenshot capture failed', err, { screenshotPath, stepId: step.id });
   }
 
@@ -155,8 +191,9 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
     step_index: index,
     page_url: pageUrl,
     action_taken: actionResult.action_taken,
-    status: actionResult.success ? 'success' : 'failed',
-    error: actionResult.error || null,
+    // A step with no saved screenshot has no evidence — never "success".
+    status: actionResult.success && screenshotSaved ? 'success' : 'failed',
+    error: actionResult.error || captureError,
     screenshot_path: screenshotSaved ? screenshotPath : null,
     html_snapshot_path: htmlPath,
     captured_at: new Date().toISOString(),
@@ -168,6 +205,7 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
     screenshot_path: screenshotSaved ? screenshotPath : null,
     html_snapshot_path: htmlPath,
     metadata_path: metadataPath,
+    capture_error: captureError,
   };
 }
 

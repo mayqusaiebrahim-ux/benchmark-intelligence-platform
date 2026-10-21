@@ -29,7 +29,16 @@ const EXTRA_TEXT_SIGNATURES = [
   ['akamai_reference', /reference (?:number|#|no\.?)\s*:?\s*\d{1,3}\.[a-f0-9]{6,}\.\d{6,}/i],
   ['access_denied', /\baccess denied\b[\s\S]{0,160}\b(?:permission|not authori[sz]ed)\b/i],
   ['you_have_been_blocked', /\b(?:sorry, )?you have been blocked\b/i],
+  ['security_check_required', /additional security check is required/i],
 ];
+
+// Imperva's interstitial: the whole page is one iframe onto an
+// _Incapsula_Resource challenge carrying an incident_id (live: Saudia served
+// this to headless Chromium — a GeeTest "Additional security check is
+// required" inside the frame, nothing in the top document). Normal
+// Imperva-fronted pages also load _Incapsula_Resource scripts, so only the
+// challenge iframe on a short page counts.
+const IMPERVA_CHALLENGE_IFRAME = /<iframe\b[^>]*\bsrc="[^"]*_Incapsula_Resource\?[^"]*incident_id=/i;
 
 // Vendor challenge pages are unambiguous at any length; generic wording
 // ("captcha", "security check") only counts on a short, interstitial-sized page.
@@ -63,6 +72,10 @@ export function detectBlockedPage({ url = '', title = '', html = '', text } = {}
   }
 
   const visible = typeof text === 'string' ? text : htmlToVisibleText(html);
+
+  if (IMPERVA_CHALLENGE_IFRAME.test(String(html)) && visible.length < SHORT_PAGE_CHARS) {
+    return { blocked: true, id: 'imperva_challenge', reason: 'bot protection detected (imperva_challenge: the page is an Imperva security-check iframe)' };
+  }
 
   for (const [id, re] of EXTRA_TEXT_SIGNATURES) {
     const m = visible.match(re) || String(title).match(re);

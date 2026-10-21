@@ -5,10 +5,11 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { mock } from 'node:test';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 
 // capture.js writes navigation-run artifacts under the real repo tree (it uses
 // PROJECT_ROOT, not cwd). The two runJourney integration tests use this slug so
@@ -332,6 +333,10 @@ test('agent-only run does NOT pre-launch the Navigation Runner browser', async (
   process.env.NAVIGATION_MODE = 'agent';
   process.env.BROWSER_PROVIDER = 'browserbase';
   const launches = [];
+  // The agent's own session captured real evidence; a step with no saved
+  // screenshot is never "success".
+  const agentShot = join(mkdtempSync(join(tmpdir(), 'agentshot-')), 'agent.png');
+  writeFileSync(agentShot, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
   const m1 = mock.module('../../../11_Benchmark_Engine/modules/browserLauncher.js', {
     namedExports: { launchBrowser: async (label) => { launches.push(label); return { browser: { on() {}, async newPage() { return fakePage(); } }, close: async () => {} }; }, withBrowserSlot: async (fn) => fn() },
   });
@@ -343,11 +348,11 @@ test('agent-only run does NOT pre-launch the Navigation Runner browser', async (
         navigator: 'agent', targetStatus: 'target_reached', targetReached: true, feature: 'Passenger Details',
         detectorKey: 'passenger_details', deepestUrl: 'https://air.com/pax', confidence: 'high',
         interactionsPerformed: ['act'], classificationsSeen: ['AGENT_DECISION'], safetyBlocks: [],
-        evidenceOverride: { screenshotPath: null, pageUrl: 'https://air.com/pax', pageTitle: 'x', pageHtml: '' },
+        evidenceOverride: { screenshotPath: agentShot, pageUrl: 'https://air.com/pax', pageTitle: 'x', pageHtml: '' },
       }),
     },
   });
-  t.after(() => { m1.restore(); m2.restore(); delete process.env.NAVIGATION_MODE; delete process.env.BROWSER_PROVIDER;  scrubAgentTestArtifacts(); });
+  t.after(() => { m1.restore(); m2.restore(); delete process.env.NAVIGATION_MODE; delete process.env.BROWSER_PROVIDER;  scrubAgentTestArtifacts(); rmSync(dirname(agentShot), { recursive: true, force: true }); });
   const { runJourney } = await import(`../../../11_Benchmark_Engine/modules/navigation_runner/index.js?bust=${Math.random()}`);
   const r = await runJourney({
     journeyPlan: { starting_url: 'https://air.com/', company_slug: 'air', primary_goal: 'x', recommended_journey: [{ id: 'step_07_booking', step_id: 'step_07_booking', title: 'Passenger Details', goal_driven: true, detector_key: 'passenger_details', feature_label: 'Passenger Details', depends_on_previous: false }] },

@@ -48,6 +48,7 @@ export function installMocks({
   evidenceLimitations = 'Single captured viewport, one page state, no interactions performed.',
   reasoningStatus = 'completed',
   visionFindings = { page_type: 'airline homepage', navigation_detected: [], search_widgets_detected: [{ label: 'Book a flight' }], confidence: 'high' },
+  stepOverrides = {},
 } = {}) {
   const rec = { discover: [], runJourney: [], describe: [], reasoning: [] };
 
@@ -85,6 +86,7 @@ export function installMocks({
         page_url: stepPageUrl ?? input.journeyPlan.starting_url,
         screenshot_path: shot,
         html_snapshot_path: null,
+        ...stepOverrides,
       }));
       return {
         run_id: 'nav_test',

@@ -109,15 +109,19 @@ export async function executeStep({ page, ensureBrowser, step, index, journeyPla
   }
   const evidence = await captureStepEvidence(evidencePage, { companySlug, runId, index, step, actionResult });
 
-  const status = actionResult.success ? 'success' : 'failed';
-  logInfo('Navigation Runner: step finished', { stepId: step.id, index, runId, status, recovered, durationMs: Date.now() - startedAt });
+  // The action may have worked, but with no saved screenshot there is no
+  // evidence: report the step failed, with the capture error, never success.
+  const captureFailed = actionResult.success && !evidence.screenshot_path;
+  const status = actionResult.success && !captureFailed ? 'success' : 'failed';
+  logInfo('Navigation Runner: step finished', { stepId: step.id, index, runId, status, recovered, captureFailed, durationMs: Date.now() - startedAt });
 
   return {
     step_id: step.id,
     title: step.title,
     status,
+    capture_failed: captureFailed,
     action_taken: actionResult.action_taken,
-    error: actionResult.error || null,
+    error: actionResult.error || (captureFailed ? (evidence.capture_error || 'No screenshot was saved for this step.') : null),
     recovered,
     consent: actionResult.consent || null,   // audit: was a cookie overlay handled?
     goal: actionResult.goal || null,         // goal-driven navigation result (if any)

@@ -30,7 +30,9 @@ import { detectBlockedPage } from '../runtime/pageBlockDetector.js';
 export function markBlockedSteps(steps = []) {
   const blocked = [];
   for (const step of steps) {
-    if (!step || step.status === 'failed' || step.status === 'skipped') continue;
+    // A step that failed only because its screenshot didn't save still loaded
+    // a page — check it, so a block page is reported as a block.
+    if (!step || step.status === 'skipped' || (step.status === 'failed' && !step.capture_failed)) continue;
     let html = '';
     try {
       if (step.html_snapshot_path && existsSync(step.html_snapshot_path)) html = readFileSync(step.html_snapshot_path, 'utf8');
