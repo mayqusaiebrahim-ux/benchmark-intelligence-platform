@@ -28,6 +28,7 @@ import { resolveFeatureIntent } from '../featureNavigation/featureIntent.js';
 import { assertObservedUrl, sameRegistrableDomain, targetLogFields } from '../runtime/benchmarkTarget.js';
 import { getStorage, keyForScreenshot, keyForNavArtifact, persistFile } from '../../10_Dashboard/lib/storage/index.js';
 import { withLogContext, logInfo, logError } from '../../shared/logger.mjs';
+import { isBlankCapture } from '../runtime/blankCapture.js';
 
 // Re-exported for existing callers/tests that imported it from here.
 export { mapFeatureToStepId } from '../featureNavigation/featureIntent.js';
@@ -228,6 +229,16 @@ export const featureVisionStage = new Stage(
           evidenceKeys[name] = key;
         }
         logInfo('Feature Vision: evidence persisted to R2', { ...evidenceKeys, ...targetLogFields(target) });
+      }
+
+      // A blank page is not evidence. Fail here (evidence is already saved
+      // for audit) instead of letting Reasoning write a "found" report on it.
+      if (isBlankCapture(result.findings)) {
+        logError('Feature Vision: captured page is blank — not evidence', { ...targetLogFields(target), pageType: result.findings.page_type, url: evidence.url });
+        throw new Error(
+          `BLANK_PAGE_CAPTURED: the captured ${target.company} page was blank (Vision: "${result.findings.page_type}"). ` +
+          'Nothing real was captured, so no report was written.',
+        );
       }
 
       return {

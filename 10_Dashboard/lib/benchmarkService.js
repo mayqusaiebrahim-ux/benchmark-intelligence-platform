@@ -68,6 +68,9 @@ export function actionableFailureMessage(message) {
   if (/BOT_PROTECTION_BLOCKED|blocked_bot_protection/.test(m)) {
     return 'This website blocked the automated browser (bot protection), so nothing real was captured. Use “Capture manually” to open the site yourself and capture the page.';
   }
+  if (/BLANK_PAGE_CAPTURED/.test(m)) {
+    return 'The website loaded but showed a blank page to the automated browser, so nothing real was captured and no report was written. Run it again, or use “Capture manually”.';
+  }
   if (/ASSISTED_CAPTURE_CANCELLED/.test(m)) return 'The manual capture was cancelled. Press “Capture manually” to try again.';
   if (/ASSISTED_CAPTURE_CLOSED/.test(m)) return 'The capture window was closed before a page was captured. Press “Capture manually” to try again.';
   if (/ASSISTED_CAPTURE_TIMEOUT/.test(m)) return 'No page was captured in time, so the capture window was closed. Press “Capture manually” to try again.';

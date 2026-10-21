@@ -47,6 +47,7 @@ export function installMocks({
   summary = '# Qatar Airways — Homepage\nThe Qatar Airways homepage shows a flight search widget and a Privilege Club promo.\n\n## Evidence limitations\nBased on a single captured viewport, one page state, with no interactions performed.',
   evidenceLimitations = 'Single captured viewport, one page state, no interactions performed.',
   reasoningStatus = 'completed',
+  visionFindings = { page_type: 'airline homepage', navigation_detected: [], search_widgets_detected: [{ label: 'Book a flight' }], confidence: 'high' },
 } = {}) {
   const rec = { discover: [], runJourney: [], describe: [], reasoning: [] };
 
@@ -99,7 +100,7 @@ export function installMocks({
       rec.describe.push(input);
       return {
         success: true,
-        findings: { page_type: 'airline homepage', navigation_detected: [], search_widgets_detected: [{ label: 'Book a flight' }], confidence: 'high' },
+        findings: visionFindings,
         jsonPath: join(shot, '..', 'vision.json'),
         timing: {},
       };

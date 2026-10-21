@@ -13,6 +13,26 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { logInfo, logError } from '../../../shared/logger.mjs';
 
+const RENDER_WAIT_MS = 10000;
+
+/**
+ * Wait (bounded) until the page shows real content: some visible text or a
+ * visible image. Never throws; returns whether content appeared.
+ */
+export async function waitForRenderedContent(page, { timeoutMs = RENDER_WAIT_MS } = {}) {
+  try {
+    await page.waitForFunction(() => {
+      const text = (document.body && document.body.innerText || '').trim();
+      if (text.length >= 40) return true;
+      return Array.from(document.images || []).some((img) => img.complete && img.naturalWidth > 32 && img.getClientRects().length);
+    }, null, { timeout: timeoutMs, polling: 500 });
+    return true;
+  } catch {
+    logInfo('Navigation Runner: page still showed no visible content after the bounded wait — capturing anyway', { waitedMs: timeoutMs });
+    return false;
+  }
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 
@@ -99,6 +119,11 @@ export async function captureStepEvidence(page, { companySlug, runId, index, ste
     // primary interactive element for the mapped feature (chat box, search
     // bar, etc.), which is what Vision/Reasoning actually need — at a
     // small, bounded, predictable memory cost regardless of page length.
+    // Live finding (Saudia on Render's 0.15-CPU instance): the screenshot was
+    // taken while a script-rendered homepage was still blank. Wait, bounded,
+    // until the viewport shows some real content; if it never does, capture
+    // anyway — featureVisionStage then refuses a blank capture as evidence.
+    await waitForRenderedContent(page);
     await page.screenshot({ path: screenshotPath, fullPage: false });
     screenshotSaved = true;
     logInfo('Navigation Runner: screenshot written', { screenshotPath, stepId: step.id, fullPage: false });
